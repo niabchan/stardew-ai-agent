@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" role="img" aria-labelledby="title description">
+  <title id="title">Sunny AI Companion — a little farm, room for choice</title>
+  <desc id="description">Original illustrated cover with a sunny morning over rolling green fields, a small cabin and a sunflower, designed for the Sunny AI companion fork.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#143e48"/><stop offset="1" stop-color="#2a6c64"/>
+    </linearGradient>
+    <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#76ac78"/><stop offset="1" stop-color="#386b58"/>
+    </linearGradient>
+    <radialGradient id="sun">
+      <stop offset="0" stop-color="#fff9ce"/><stop offset=".65" stop-color="#ffe18b"/><stop offset="1" stop-color="#f6b84b"/>
+    </radialGradient>
+    <clipPath id="frame"><rect width="1200" height="380" rx="24"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1200" height="380" fill="url(#sky)"/>
+    <g opacity=".16" fill="#ffffff">
+      <circle cx="88" cy="62" r="3"/><circle cx="143" cy="103" r="2"/><circle cx="523" cy="57" r="2"/><circle cx="1065" cy="69" r="3"/><circle cx="1128" cy="104" r="2"/>
+    </g>
+    <circle cx="958" cy="116" r="74" fill="#f2d07a" opacity=".12"/>
+    <circle cx="958" cy="116" r="55" fill="url(#sun)"/>
+    <g fill="#d6eee0" opacity=".16">
+      <ellipse cx="1047" cy="92" rx="77" ry="18"/><ellipse cx="1084" cy="76" rx="50" ry="21"/>
+      <ellipse cx="787" cy="69" rx="60" ry="15"/><ellipse cx="820" cy="56" rx="44" ry="20"/>
+    </g>
+    <path d="M0 280Q180 210 356 265T725 250Q972 194 1200 267V380H0Z" fill="#4e866d"/>
+    <path d="M0 314Q230 245 440 305T833 286Q1020 245 1200 306V380H0Z" fill="url(#hill)"/>
+    <path d="M0 338Q245 289 468 340T945 316Q1097 303 1200 330V380H0Z" fill="#295c50"/>
+    <g transform="translate(990 214)">
+      <path d="M-66 53L0 3L66 53V132H-66Z" fill="#f5ca88" stroke="#244f46" stroke-width="5"/>
+      <path d="M-77 53L0 -6L77 53" fill="none" stroke="#743f37" stroke-width="17" stroke-linejoin="round"/>
+      <rect x="-21" y="70" width="42" height="62" rx="4" fill="#8d573d"/>
+      <rect x="-53" y="68" width="22" height="25" rx="2" fill="#a7dfca" stroke="#744d3a" stroke-width="6"/>
+      <circle cx="11" cy="101" r="3" fill="#f6d99a"/>
+    </g>
+    <g transform="translate(857 292)" stroke-linecap="round">
+      <path d="M0 62V-6" stroke="#5f934f" stroke-width="8"/>
+      <path d="M-5 29Q-36 13-40 -1Q-10 -7-5 29Z" fill="#98c669"/>
+      <path d="M5 37Q34 22 39 5Q13 2 5 37Z" fill="#a8d175"/>
+      <g fill="#ffca52">
+        <ellipse rx="12" ry="23" transform="rotate(0) translate(0,-27)"/>
+        <ellipse rx="12" ry="23" transform="rotate(45) translate(0,-27)"/>
+        <ellipse rx="12" ry="23" transform="rotate(90) translate(0,-27)"/>
+        <ellipse rx="12" ry="23" transform="rotate(135) translate(0,-27)"/>
+        <ellipse rx="12" ry="23" transform="rotate(180) translate(0,-27)"/>
+        <ellipse rx="12" ry="23" transform="rotate(225) translate(0,-27)"/>
+        <ellipse rx="12" ry="23" transform="rotate(270) translate(0,-27)"/>
+        <ellipse rx="12" ry="23" transform="rotate(315) translate(0,-27)"/>
+      </g>
+      <circle r="19" fill="#81543c"/><circle r="9" fill="#ab7144"/>
+    </g>
+    <g>
+      <circle cx="80" cy="76" r="19" fill="#f6c860"/>
+      <path d="M80 42v-11M80 110v11M46 76H35M114 76h11M56 52l-9-9M104 100l9 9M104 52l9-9M56 100l-9 9" fill="none" stroke="#f6c860" stroke-width="4" stroke-linecap="round"/>
+    </g>
+    <text x="86" y="179" font-family="Georgia, 'Times New Roman', serif" font-size="112" font-weight="700" letter-spacing="-2" fill="#fff4d1">Sunny</text>
+    <text x="91" y="229" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" letter-spacing="6" fill="#fbd880">AI COMPANION</text>
+    <text x="92" y="274" font-family="Arial, Helvetica, sans-serif" font-size="24" fill="#e4f4e9">A little farm. Two players. Room for choice.</text>
+    <path d="M91 302H578" stroke="#9ed3b4" stroke-width="2" opacity=".6"/>
+    <text x="93" y="333" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#bbdcca">An experimental Stardew Valley companion powered by Duckxy's Stardew MCP</text>
+  </g>
+</svg>
