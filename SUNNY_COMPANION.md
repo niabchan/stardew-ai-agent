@@ -1,6 +1,6 @@
 # Sunny AI Companion — experimental fork notes
 
-> Work in progress. This is a personal development fork of [Ducky's Stardew MCP](https://github.com/duckxy166/stardew-ai-agent), not a separate finished mod or an official upstream release.
+> Work in progress. This is a personal development fork of [Duckxy's Stardew MCP](https://github.com/duckxy166/stardew-ai-agent), not a separate finished mod or an official upstream release.
 
 ## What is Sunny?
 
@@ -10,7 +10,7 @@ The longer-term design is **observe → decide → act → check the result → 
 
 ## How this fork relates to the project
 
-- **Upstream Stardew MCP (Ducky)** provides split-screen seats, game actions, observation, and an MCP/HTTP interface.
+- **Upstream Stardew MCP (Duckxy)** provides split-screen seats, game actions, observation, and an MCP/HTTP interface.
 - **This fork** is where we test game-side compatibility improvements for Sunny, while keeping upstream credit and history.
 - **Sunny's Python/PowerShell prototypes (P01–P09)** are separate local artifacts. They are **not included in this GitHub fork** and do not automatically change when this repository changes.
 - **P1** remains human-controlled. **P2** is the AI farmer. Neither a fork nor a GitHub commit changes the installed game until a new mod build is explicitly installed.
@@ -33,7 +33,7 @@ On a test farm, Sunny could sit on an Oak Chair at (7,4), but `walk_to(7,5)` and
 
 ## หมายเหตุภาษาไทย
 
-พื้นที่นี้เป็น **Fork สำหรับทดลองพัฒนา Sunny AI Companion** โดยใช้ Stardew MCP ของ Ducky เป็นฐาน ไม่ใช่ Mod รุ่นใหม่ที่เผยแพร่สำเร็จแล้ว
+พื้นที่นี้เป็น **Fork สำหรับทดลองพัฒนา Sunny AI Companion** โดยใช้ Stardew MCP ของ Duckxy เป็นฐาน ไม่ใช่ Mod รุ่นใหม่ที่เผยแพร่สำเร็จแล้ว
 
 - **Guy (P1)** คือมนุษย์ผู้เล่น ส่วน **Sunny (P2)** คือ Farmhand ที่ AI ควบคุมเอง
 - สคริปต์ Python/PowerShell รุ่น P01–P09 ของ Sunny ยังคงแยกจาก Repository นี้
@@ -41,4 +41,4 @@ On a test farm, Sunny could sit on an Oak Chair at (7,4), but `walk_to(7,5)` and
 - PR #1 ทดลองแก้กรณี Sunny นั่งเก้าอี้แล้วลุกไม่ได้ เพราะระบบ `interact` พยายามเดินก่อนโต้ตอบ
 - **ยังต้อง Build และทดสอบในเกมจริงก่อน Merge** และห้ามใส่ API key, Save, Log หรือข้อมูลส่วนตัวลง Repository
 
-We gratefully credit Ducky and the original [Stardew MCP project](https://github.com/duckxy166/stardew-ai-agent). Please consult upstream's README, docs, and license for the original project.
+We gratefully credit Duckxy and the original [Stardew MCP project](https://github.com/duckxy166/stardew-ai-agent). Please consult upstream's README, docs, and license for the original project.
