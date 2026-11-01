@@ -754,6 +754,31 @@ public static partial class AgentTools
         var before = Snapshot();
         var startLoc = Loc;
         var t = new Point(I(a, "x", -1), I(a, "y", -1));
+
+        // Interacting with the chair a farmer is already sitting in should let them stand.
+        // Otherwise WalkAdjacent tries to walk away before pressing the action button,
+        // and the seated farmer gets stuck with a no_path result.
+        if (atTile && slot < 0 && P.IsSitting() &&
+            P.sittingFurniture is StardewValley.Objects.Furniture chair &&
+            (int)chair.TileLocation.X == t.X && (int)chair.TileLocation.Y == t.Y)
+        {
+            if (Game1.activeClickableMenu != null || Game1.eventUp || Game1.isWarping || Game1.fadeToBlack)
+            {
+                c.Fail(Reasons.NotReady, "Cannot leave the chair during a menu, event, or transition.");
+                yield break;
+            }
+
+            P.StopSitting();
+            for (int tick = 0; tick < 180 && P.IsSitting(); tick++)
+                yield return null;
+
+            if (P.IsSitting())
+                c.Fail(Reasons.NotReady, $"Still seated after chair interaction at ({t.X},{t.Y}).");
+            else
+                c.Result = $"Stood up from chair at ({t.X},{t.Y}).";
+            yield break;
+        }
+
         if (atTile)
         {
             yield return WalkAdjacent(t, c);
