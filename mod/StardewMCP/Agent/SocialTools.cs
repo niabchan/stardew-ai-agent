@@ -40,8 +40,34 @@ public static class SocialTools
 
     public static void Apply(IManifest manifest)
     {
-        new Harmony(manifest.UniqueID + ".social").Patch(AccessTools.Method(typeof(Farmer), nameof(Farmer.draw), new[] { typeof(SpriteBatch) }),
+        var harmony = new Harmony(manifest.UniqueID + ".social");
+        harmony.Patch(AccessTools.Method(typeof(Farmer), nameof(Farmer.draw), new[] { typeof(SpriteBatch) }),
             postfix: new HarmonyMethod(typeof(SocialTools), nameof(DrawBubble_Postfix)));
+        // Only ordinary P1 human chat (not slash commands) is relayed into the
+        // AI seats' existing in-game message inboxes, without polling chat text.
+        harmony.Patch(AccessTools.Method(typeof(ChatBox), nameof(ChatBox.receiveChatMessage),
+                new[] { typeof(long), typeof(int), typeof(LocalizedContentManager.LanguageCode), typeof(string) }),
+            postfix: new HarmonyMethod(typeof(SocialTools), nameof(ReceiveHumanChat_Postfix)));
+    }
+
+    // Vanilla displays a human player's own ordinary chat via receiveChatMessage.
+    // Capture that one local echo on P1; other screens' multiplayer echoes must
+    // not enqueue duplicates. Slash commands never enter this chatKind=0 route.
+    private static void ReceiveHumanChat_Postfix(ChatBox __instance, long sourceFarmer, int chatKind, string message)
+    {
+        if (!Context.IsWorldReady || Players.Current.Screen != 0 || Players.Current.Role != SeatRole.Human ||
+            chatKind != 0 || sourceFarmer != Game1.player.UniqueMultiplayerID ||
+            !ReferenceEquals(__instance, Game1.chatBox) || string.IsNullOrWhiteSpace(message)) return;
+
+        var listeners = Players.Slots.Where(s => s.Role == SeatRole.Ai && s.Active &&
+            s.State is ScreenState st && st.Sees(Game1.player)).ToList();
+        var speaker = Players.Current;
+        var who = Game1.player.Name;
+        var clean = Clip(Clean(message), MaxChat);
+        foreach (var listener in listeners)
+            Deliver(listener, $"[{WorldText.FormatTime(Game1.timeOfDay)}] {who}: {clean}");
+        if (listeners.Count > 0)
+            Perception.OnSay(speaker, clean, listeners);
     }
 
     private static void DrawBubble_Postfix(Farmer __instance, SpriteBatch b)
@@ -220,18 +246,21 @@ public static class SocialTools
 
         // Heard only on screens that show the speaker: in the video a line appears on the speaker's and the listeners' screens.
         var heard = OtherAis().Where(s => s.State is ScreenState st && st.Sees(me)).ToList();
+        var humanListeners = Players.Slots.Where(s => s.Role == SeatRole.Human && s.Active &&
+            s.State is ScreenState st && st.Sees(me)).ToList();
+        var allListeners = heard.Concat(humanListeners).ToList();
         int maxMs = Math.Max(1, AgentTools.Config.ChatSeconds) * 1000;
-        var screens = heard.Select(s => s.Id).Append(Me).ToHashSet();
+        var screens = allListeners.Select(s => s.Id).Append(Me).ToHashSet();
         Speech.Add(me.currentLocation.NameOrUniqueName, new Spoken(me.UniqueMultiplayerID, text, BubbleText.Wrap(text, BubbleChars, BubbleLines), screens),
             Math.Clamp(1500 + text.Length * 60, Math.Min(2500, maxMs), maxMs));
 
         var from = Label(Players.ById(Me)!);
         foreach (var s in heard) Deliver(s, $"[{WorldText.FormatTime(Game1.timeOfDay)}] {from}: {text}");
         Perception.OnSay(Players.ById(Me)!, text, heard);
-        AgentTools.Rt.Log.Add("say", text: text, args: new { heard = heard.Select(s => s.Id).ToList() });
-        c.Result = heard.Count == 0
+        AgentTools.Rt.Log.Add("say", text: text, args: new { heard = allListeners.Select(s => s.Id).ToList() });
+        c.Result = allListeners.Count == 0
             ? $"You said: \"{text}\", but nobody was close enough to hear it. Find the others first."
-            : $"You said: \"{text}\". Heard by {string.Join(", ", heard.Select(Label))}.";
+            : $"You said: \"{text}\". Heard by {string.Join(", ", allListeners.Select(Label))}.";
     }
 
     /// <summary>A chat line in this screen's own chat box; <see cref="Tick"/> keeps it up while its bubble shows.</summary>
