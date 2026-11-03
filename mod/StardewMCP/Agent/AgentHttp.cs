@@ -379,6 +379,9 @@ public class AgentHttp
         StateJson = JsonSerializer.Serialize(new
         {
             ready = true,
+            // Capability flag for the P12 companion pilot; older DLLs require
+            // a journal before sleep and must not receive an unattended call.
+            bedtimeJournalOptional = true,
             heartbeat = ++_beat,
             saveFolder = SaveFolder.Name,
             logDir = _log.Dir, // run_days.py checks it is <out>/logs
