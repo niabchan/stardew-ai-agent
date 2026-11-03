@@ -258,7 +258,7 @@ public static partial class AgentTools
             new()
             {
                 Name = "go_to_bed",
-                Description = "End the day: walk home to your bed and sleep. Write today's journal first (the journal tool: diary, lessons and plan); go_to_bed refuses until it is written. Crops grow and shipped items are sold overnight.",
+                Description = "End the day: walk home to your bed and sleep. Journaling is optional and separate from sleep; if you wish, write your diary, lessons and plan with the journal tool. Crops grow and shipped items are sold overnight.",
                 Schema = Obj(new { reason = Str(ReasonDesc) }, "reason"),
                 Run = GoToBed
             }
@@ -1281,11 +1281,11 @@ public static partial class AgentTools
 
     private static IEnumerator GoToBed(JsonElement a, CallContext c)
     {
+        // A journal is optional for human-guided AI companions. Do not block
+        // bedtime or generate a fake operator diary when the journal is absent.
+        // The agent may still write a real diary independently during the day.
         if (!Rt.Log.HasJournal(AgentLog.FarmDay))
-        {
-            c.Fail(Reasons.NotReady, $"Write today's journal first: call journal with your diary, lessons and plan (it costs no game time), then call go_to_bed again. Farm day {AgentLog.FarmDay} has no journal yet.");
-            yield break;
-        }
+            Rt.Log.Add("system", text: $"No journal for farm day {AgentLog.FarmDay}; continuing to bed without inventing one.");
 
         // Bed in the morning is a choice, but a wide-awake farmer is told so once a day: the valley is still open.
         if (Game1.timeOfDay < 1700 && P.Stamina > P.MaxStamina / 4 && Rt.EarlyBedDay != AgentLog.FarmDay)
