@@ -6,7 +6,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from sunny_gift.contract import ContractError, Record, Reference
+from sunny_gift.contract import ContractError, Record, Reference, make
 
 
 @pytest.fixture
@@ -72,15 +72,18 @@ def test_stale_or_canceled_offer_dispatches_zero(trace, replacement):
     elif replacement == 'unrelated':
         current = changed(r['O1'], family='sleep')
     status = m.dispatch(r['A1'], current)
-    assert status['dispatch'] == 'not_dispatched'
-    assert status['observed_choice'] == 'unknown'  # Disappearance does not prove cancellation.
+    assert status['attempt_status']['dispatch'] == 'not_dispatched'
+    assert status['attempt_status']['observed_choice'] == 'unknown'  # Disappearance does not prove cancellation.
     assert m.dispatches == []
 
 
 def test_duplicate_poll_request_and_event_vs_two_identical_real_gifts(trace):
     m, r, _ = trace
     first = m.dispatch(r['A1'], r['O1'])
-    assert m.dispatch(r['A1'], None) == first  # Lost reply never triggers another dispatch.
+    repeated = m.dispatch(r['A1'], None)
+    assert repeated['attempt_status'] == first['attempt_status']
+    assert first['dispatched_now'] and not repeated['dispatched_now']
+    assert repeated['epoch_status'] == 'current_epoch'
     event1 = m.publish(r['V1'])
     assert m.publish(r['V1']) == event1
     assert m.add(r['O1']) == r['O1']
@@ -114,12 +117,17 @@ def test_unsaved_same_day_reload_keeps_history_out_of_current_memory(trace):
     assert m.context('new').data['payload']['event_revisions'] == []
     assert not m.context_is_current(old_context)
     assert old in m.publications  # Historical evidence retained.
-    assert m.dispatch(r['A1'], r['O1'])['dispatch'] == 'dispatched'  # Historical status only.
+    historical = m.dispatch(r['A1'], r['O1'])
+    assert historical['epoch_status'] == 'stale_epoch'
+    assert not historical['dispatched_now']
+    assert historical['attempt_status']['dispatch'] == 'dispatched'
     assert len(m.dispatches) == 1
     # A new attempt carrying the old epoch also cannot mutate.
     d = r['A1'].data
     d['record_id'] = 'late-old-attempt'
-    assert m.dispatch(Record.read(d), r['O1'])['dispatch'] == 'not_dispatched'
+    stale = m.dispatch(Record.read(d), r['O1'])
+    assert stale['epoch_status'] == 'stale_epoch'
+    assert not stale['dispatched_now'] and stale['attempt_status'] is None
 
 
 def test_unknown_then_verified_then_correction_revises_same_event(trace):
@@ -183,7 +191,7 @@ def test_voluntary_non_mutation_has_no_default_decline(trace, activity):
     a = r['A1'].data
     a['record_id'] = 'A-non-action'
     a['refs']['decision'] = decision.ref
-    assert m.dispatch(Record.read(a), r['O1'])['dispatch'] == 'not_dispatched'
+    assert m.dispatch(Record.read(a), r['O1'])['attempt_status']['dispatch'] == 'not_dispatched'
     assert m.dispatches == []
 
 
@@ -220,7 +228,7 @@ def test_correction_invalidates_dependent_decision_before_dispatch(trace):
     a = r['A1'].data
     a['record_id'] = 'A-dependent'
     a['refs']['decision'] = decision.ref
-    assert m.dispatch(Record.read(a), r['O1'])['dispatch'] == 'not_dispatched'
+    assert m.dispatch(Record.read(a), r['O1'])['attempt_status']['dispatch'] == 'not_dispatched'
     assert m.dispatches == []
 
 
@@ -230,21 +238,20 @@ def test_wrong_seat_or_fence_cannot_dispatch(trace, field, value):
     a = r['A1'].data
     a['record_id'] = 'A-invalid'
     a['payload'][field] = value
-    assert m.dispatch(Record.read(a), r['O1'])['dispatch'] == 'not_dispatched'
+    assert m.dispatch(Record.read(a), r['O1'])['attempt_status']['dispatch'] == 'not_dispatched'
     assert m.dispatches == []
 
 
 def test_real_new_gift_after_reload_is_not_deduped_against_abandoned_gift(trace):
     m, r, reload_world = trace
+    original_dispatch = m.dispatch(r['A1'], r['O1'])
     abandoned = m.publish(r['V1'])
     m.reload(reload_world)
     fresh = {}
     for name, record in r.items():
         d = record.data
         d['world'] = reload_world
-        d['record_id'] += '-reload'
-        for ref in d['refs'].values():
-            ref['record_id'] += '-reload'
+        # Deliberately reuse every local ID/revision and implicit-world reference.
         if d['kind'] in {'attempt','decision'}:
             d['payload']['fence'] = 2
         if d['kind'] == 'offer':
@@ -252,11 +259,21 @@ def test_real_new_gift_after_reload_is_not_deduped_against_abandoned_gift(trace)
         if d['kind'] == 'decision':
             d['payload']['expected_token'] = 'reload-instance'
         fresh[name] = m.add(Record.read(d))
-    m.dispatch(fresh['A1'], fresh['O1'])
+    current = m.dispatch(fresh['A1'], fresh['O1'])
+    assert current['epoch_status'] == 'current_epoch' and current['dispatched_now']
+    assert m.resolve(r['A1'].ref, 'attempt', r['A1'].data['world']) == r['A1']
+    assert m.resolve(fresh['A1'].ref, 'attempt', reload_world) == fresh['A1']
     new = m.publish(fresh['V1'])  # Same transition label, different world lineage.
     assert new.ref != abandoned.ref
     assert m.context('C-new').data['payload']['verified_facts'] == [new.ref]
-    assert len(m.dispatches) == 1
+    assert len(m.dispatches) == 2
+    assert m.dispatches[0]['world'] == r['A1'].data['world']
+    assert m.dispatches[1]['world'] == reload_world
+    stale = m.dispatch(r['A1'], None)
+    assert stale['epoch_status'] == 'stale_epoch' and not stale['dispatched_now']
+    assert stale['attempt_status'] == original_dispatch['attempt_status']
+    assert not m.dispatch(fresh['A1'], None)['dispatched_now']
+    assert len(m.dispatches) == 2
 
 
 def test_unknown_mutation_choice_fails_closed(trace):
@@ -271,3 +288,75 @@ def test_unknown_mutation_choice_fails_closed(trace):
     with pytest.raises(ContractError):
         m.dispatch(Record.read(a), r['O1'])
     assert m.dispatches == []
+
+
+@pytest.mark.parametrize('kind', ['offer', 'decision', 'attempt', 'inventory', 'verification', 'event', 'context'])
+def test_record_identity_is_world_scoped_and_conflicts_stay_local(trace, kind):
+    m, _, reload_world = trace
+    old_world = dict(m.world)
+    old = m.add(make(kind, 'local-id', old_world, {'label':'old branch'}))
+    m.reload(reload_world)
+    new = m.add(make(kind, 'local-id', reload_world, {'label':'new branch'}))
+    assert old.ref == new.ref  # References inherit the enclosing record's world.
+    assert m.resolve(old.ref, kind, old_world) == old
+    assert m.resolve(new.ref, kind, reload_world) == new
+    assert m.add(old) == old and m.add(new) == new
+    for record in (old, new):
+        with pytest.raises(ContractError, match='conflicting immutable record'):
+            m.add(changed(record, label='conflicting content'))
+    assert m.resolve(old.ref, kind, old_world) == old
+    assert m.resolve(new.ref, kind, reload_world) == new
+
+
+@pytest.mark.parametrize('dimension', ['save_id', 'load_id', 'branch_id'])
+def test_each_world_identity_dimension_separates_records(trace, dimension):
+    m, r, _ = trace
+    d = r['O1'].data
+    d['world'][dimension] += '-different'
+    with pytest.raises(ContractError):  # Never fall back to a different world's record.
+        m.resolve(r['O1'].ref, 'offer', d['world'])
+    other = m.add(Record.read(d))
+    assert m.resolve(other.ref, 'offer', d['world']) == other
+    assert m.resolve(r['O1'].ref, 'offer', m.world) == r['O1']
+    with pytest.raises(ContractError):
+        m.resolve(other.ref, 'decision', d['world'])
+
+
+@pytest.mark.parametrize('initial', ['dispatched', 'acknowledged', 'rejected'])
+def test_cached_attempt_after_reload_is_explicitly_historical_without_redispatch(trace, initial):
+    m, r, reload_world = trace
+    original = m.dispatch(r['A1'], None if initial == 'rejected' else r['O1'])
+    expected = original['attempt_status']
+    if initial == 'acknowledged':
+        expected = m.observe_reply(r['A1'], ack='Dialogue closed')
+    old_world = dict(m.world)
+    dispatch_count = len(m.dispatches)
+    m.reload(reload_world)
+    stale = m.dispatch(r['A1'], r['O1'])
+    assert stale == dict(epoch_status='stale_epoch', dispatched_now=False,
+                         attempt_world=old_world, current_world=reload_world, attempt_status=expected)
+    assert m.dispatch(r['A1'], None) == stale
+    assert len(m.dispatches) == dispatch_count
+    assert original['epoch_status'] == 'current_epoch'  # Earlier return value stays frozen.
+    stale['attempt_status']['dispatch'] = 'tampered'
+    stale['current_world']['load_id'] = 'tampered'
+    assert m.dispatch(r['A1'], None)['attempt_status'] == expected
+    assert m.world == reload_world
+    with pytest.raises(ContractError, match='different arguments'):
+        m.dispatch(changed(r['A1'], args={'option':1}), None)
+
+
+def test_unseen_stale_attempt_never_resolves_dependencies_or_manufactures_status(trace):
+    m, r, reload_world = trace
+    d = r['A1'].data
+    d['record_id'] = 'unseen'
+    d['refs']['decision']['record_id'] = 'missing-decision'
+    stale_attempt = Record.read(d)
+    m.reload(reload_world)
+    count = len(m.records)
+    status = m.dispatch(stale_attempt, None)
+    assert status['epoch_status'] == 'stale_epoch'
+    assert status['attempt_status'] is None and not status['dispatched_now']
+    assert m.dispatch(stale_attempt, r['O1']) == status
+    assert len(m.records) == count
+    assert m.attempts == {} and m.dispatches == []

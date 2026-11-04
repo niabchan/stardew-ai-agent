@@ -28,6 +28,26 @@ exact record revisions. Returned dictionaries are copies; contexts freeze event
 revisions for one prospective model request. Unsupported schemas and unknown
 mutation-affecting choices fail closed.
 
+Record storage and lookup key on the canonical complete `world` object plus
+local record ID and revision. IDs need not be globally unique across worlds.
+References inherit the enclosing record's world; `resolve()` always requires
+that world and never searches other epochs. Within one world, a repeated ID and
+revision must have identical content. This applies to every record kind, including
+events and contexts. The inert dispatch log includes the world with each reference.
+
+`dispatch()` returns a call-result wrapper with `epoch_status` (`current_epoch`
+or `stale_epoch`), `dispatched_now`, `attempt_world`, `current_world`, and
+`attempt_status`. Only a fresh, guarded dispatch sets `dispatched_now=true`.
+Idempotent lookups return the original attempt status with `dispatched_now=false`.
+After reload, a known old attempt returns `stale_epoch` and its unchanged historical
+status under `attempt_status`; a previously unseen old attempt returns null status
+without resolving stale dependencies or inserting a claim. Neither can dispatch.
+Conflicting payloads for known attempts still reject, even after reload. These
+wrapper fields describe the reference call, not new wire execution/dispatch enum
+values. Historical running work is not fabricated as ended or rolled back.
+`observe_reply()` continues to return the recorded attempt status, not a dispatch
+call result.
+
 The payloads deliberately implement the six-case subset below, rather than a
 complete wire validator for every field in the review. In particular, the offer's
 `responses` maps semantic response keys to indices; the synthetic prompt token
@@ -66,6 +86,12 @@ Receipt does not imply current possession or a committed game save.
 Additional tests cover wrong seat/fence, unknown schema/choice, STAY/defer/other
 without default decline, missing source observations, stale/out-of-order captures,
 variant/quantity mismatch and missing/competing causal evidence.
+Architecture review regressions additionally reuse identical local IDs/revisions
+across worlds for all seven record kinds, isolate save/load/branch identity,
+retain same-world conflict checks, and distinguish current dispatches, idempotent
+lookups, historical dispatched/acknowledged/rejected attempts and unknown stale
+attempts. The reload gift test reuses offer, decision, attempt and evidence IDs
+without conflating old and current actions or facts.
 
 `tests/fixtures/gift.json` is wholly synthetic. It labels the causal window and
 checkpoint mapping simulated. Failure scenarios are small copies of these JSON

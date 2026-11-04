@@ -12,7 +12,42 @@ documents were absent locally and were materialized from the pinned base before
 work. They are not changes in this PR. The independent implementation is under
 `reference/sunny_gift/`; the Python CI command includes its tests.
 
-## Final results
+## Architecture review update (2026-11-05, Asia/Bangkok)
+
+Updated PR #11 from head `4e11ecedd015be8ba030667669e4ef71fd4fb3ec`.
+Only `contract.py`, `tests/test_contract.py`, this validation record and the
+package README changed in this update. The workflow, fixtures and gameplay
+sources are unchanged. Local reference files matched the PR head's blob IDs
+before editing; publication uses that exact parent through the GitHub connector.
+
+Record keys now include the complete world object, local ID and revision;
+world-scoped resolution cannot fall back to another branch. Same-world duplicate
+content remains idempotent and conflicting content still rejects. Dispatch call
+results now explicitly separate epoch status and whether this invocation caused
+a dispatch from the original attempt's historical status. Unknown stale attempts
+return null status without fabricated execution facts or dependency resolution.
+The dispatch log retains world identity with each reference.
+
+Fourteen added test cases cover all seven record kinds, each save/load/branch
+identity dimension, historical dispatched/acknowledged/rejected attempts, and an
+unseen stale attempt. Existing duplicate/reload tests now assert the explicit
+result wrapper; the new real-gift-after-reload test reuses every local source ID
+and revision while preserving distinct old and current actions/events.
+
+| Exact command (repository root) | Result |
+| --- | --- |
+| `.venv/bin/python -m pytest -q reference/sunny_gift/tests` | **43 passed in 0.12s** |
+| `.venv/bin/python -m pytest -q mod/tests` | **93 passed, 1 xfailed in 2.11s** |
+| `.venv/bin/python -m pytest -q mod/tests reference/sunny_gift/tests` | **136 passed, 1 xfailed in 2.03s** |
+| `DOTNET_CLI_HOME=/workspace/.dotnet-home NUGET_PACKAGES=/workspace/.nuget/packages /workspace/.dotnet/dotnet test mod/StardewMCP.Tests --no-restore` | **268 passed, 0 failed, 0 skipped**, duration 262 ms; exit 0 |
+
+No unexpected test failures occurred in this update. The existing expected
+`close_menu` missing-`reason` failure remains unchanged. The C# runner used the
+same authorized sandbox permission for its local test-host socket as the initial
+successful run. No SMAPI, MCP, Luna, game saves, live controllers or deployed
+artifacts were accessed. Synthetic-only limitations in the README still apply.
+
+## Initial implementation results (2026-11-04)
 
 Run from repository root with existing `.venv` (pytest 9.2.0):
 

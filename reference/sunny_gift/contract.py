@@ -57,6 +57,10 @@ def make(kind, identity, world, payload, refs=None, revision=1):
                             world=world, refs=refs or {}, payload=payload))
 
 
+def world_key(world):
+    return json.dumps(world, sort_keys=True)
+
+
 class Reference:
     def __init__(self, world, fence=1):
         self.world = deepcopy(world)
@@ -69,7 +73,7 @@ class Reference:
 
     def add(self, record):
         d = record.data
-        key = (d["record_id"], d["revision"])
+        key = (world_key(d["world"]), d["record_id"], d["revision"])
         previous = self.records.get(key)
         if previous and previous != record:
             raise ContractError("conflicting immutable record")
@@ -77,22 +81,31 @@ class Reference:
         return record
 
     def resolve(self, ref, kind, world):
-        record = self.records.get((ref["record_id"], ref["revision"]))
+        record = self.records.get((world_key(world), ref["record_id"], ref["revision"]))
         if record is None or record.data["kind"] != kind or record.data["world"] != world:
             raise ContractError("missing, wrong-kind or cross-world reference")
         return record
+
+    def _dispatch_result(self, attempt, status, dispatched_now=False):
+        """Separate this call's effect from the original attempt's recorded status."""
+        return dict(epoch_status="current_epoch" if attempt.data["world"] == self.world else "stale_epoch",
+                    dispatched_now=dispatched_now, attempt_world=attempt.data["world"],
+                    current_world=deepcopy(self.world), attempt_status=deepcopy(status))
 
     def dispatch(self, attempt, current_offer):
         """Serialized toy claim + guard; appends one inert dispatch, never touches a game."""
         d, p = attempt.data, attempt.data["payload"]
         if d["kind"] != "attempt":
             raise ContractError("expected attempt")
-        key = (json.dumps(d["world"], sort_keys=True), p.get("seat"), d["record_id"])
+        key = (world_key(d["world"]), p.get("seat"), d["record_id"])
         if key in self.attempts:
             old, result = self.attempts[key]
             if old != attempt:
                 raise ContractError("attempt identity bound to different arguments")
-            return deepcopy(result)
+            return self._dispatch_result(attempt, result)
+        if d["world"] != self.world:
+            # No original status is known. Never resolve stale dependencies or dispatch.
+            return self._dispatch_result(attempt, None)
         decision = self.resolve(d["refs"]["decision"], "decision", d["world"])
         offer = self.resolve(d["refs"]["offer"], "offer", d["world"])
         dp, op = decision.data["payload"], offer.data["payload"]
@@ -119,15 +132,15 @@ class Reference:
         self.add(attempt)
         self.attempts[key] = (attempt, result)
         if valid:
-            self.dispatches.append(attempt.ref)
-        return deepcopy(result)
+            self.dispatches.append(dict(world=d["world"], **attempt.ref))
+        return self._dispatch_result(attempt, result, dispatched_now=valid)
 
     def observe_reply(self, attempt, *, ack, observed_choice="unknown", evidence=None):
         if observed_choice not in {"accepted", "declined", "canceled", "unknown"}:
             raise ContractError("unknown observed choice")
         if observed_choice != "unknown" and not evidence:
             raise ContractError("observed choice needs evidence")
-        key = (json.dumps(attempt.data["world"], sort_keys=True),
+        key = (world_key(attempt.data["world"]),
                attempt.data["payload"]["seat"], attempt.data["record_id"])
         result = self.attempts[key][1]
         if result["dispatch"] != "dispatched":
@@ -173,7 +186,7 @@ class Reference:
                 if quantity(after) - quantity(before) != sign * p["quantity"]:
                     raise ContractError("typed delta does not match actual quantity")
         self.add(verification)
-        key = (json.dumps(d["world"], sort_keys=True), d["producer"]["track"],
+        key = (world_key(d["world"]), d["producer"]["track"],
                p["transition_id"], p["movement_ordinal"])
         previous = self.events.get(key)
         if previous:
