@@ -1,0 +1,320 @@
+{
+  "description": "Entirely synthetic; captures, causal window and checkpoint are simulated.",
+  "records": [
+    {
+      "kind": "offer",
+      "payload": {
+        "day": 24,
+        "family": "gift",
+        "fresh": true,
+        "question": "Accept one Potato?",
+        "responses": {
+          "accept": 0,
+          "decline": 1
+        },
+        "status": "open",
+        "token": "prompt-instance-1/rev-1"
+      },
+      "producer": {
+        "adapter_version": "synthetic",
+        "track": "A1"
+      },
+      "record_id": "O1",
+      "refs": {},
+      "revision": 1,
+      "schema": "sunny.gift/1.0.0",
+      "world": {
+        "branch_id": "B1",
+        "load_id": "L1",
+        "parent_checkpoint_id": "C23",
+        "save_id": "S"
+      }
+    },
+    {
+      "kind": "decision",
+      "payload": {
+        "activity": "accept",
+        "expected_token": "prompt-instance-1/rev-1",
+        "fence": 1,
+        "responses": {
+          "accept": 0,
+          "decline": 1
+        },
+        "social": "silence"
+      },
+      "producer": {
+        "adapter_version": "synthetic",
+        "track": "A4"
+      },
+      "record_id": "D1",
+      "refs": {
+        "offer": {
+          "record_id": "O1",
+          "revision": 1
+        }
+      },
+      "revision": 1,
+      "schema": "sunny.gift/1.0.0",
+      "world": {
+        "branch_id": "B1",
+        "load_id": "L1",
+        "parent_checkpoint_id": "C23",
+        "save_id": "S"
+      }
+    },
+    {
+      "kind": "attempt",
+      "payload": {
+        "args": {
+          "option": 0
+        },
+        "fence": 1,
+        "seat": "P2",
+        "tool": "respond"
+      },
+      "producer": {
+        "adapter_version": "synthetic",
+        "track": "A1"
+      },
+      "record_id": "A1",
+      "refs": {
+        "decision": {
+          "record_id": "D1",
+          "revision": 1
+        },
+        "offer": {
+          "record_id": "O1",
+          "revision": 1
+        }
+      },
+      "revision": 1,
+      "schema": "sunny.gift/1.0.0",
+      "world": {
+        "branch_id": "B1",
+        "load_id": "L1",
+        "parent_checkpoint_id": "C23",
+        "save_id": "S"
+      }
+    },
+    {
+      "kind": "inventory",
+      "payload": {
+        "complete": true,
+        "container_instance": "P1pack",
+        "entries": [
+          {
+            "quantity": 2,
+            "slot": 0,
+            "variant": {
+              "metadata_signature": "plain",
+              "qualified_item_id": "(O)192",
+              "quality": 0
+            }
+          }
+        ],
+        "fresh": true,
+        "monotonic_capture": 1,
+        "seat": "P1",
+        "sequence": 1,
+        "source": "synthetic-adapter",
+        "tick": 101
+      },
+      "producer": {
+        "adapter_version": "synthetic",
+        "track": "A2"
+      },
+      "record_id": "P1before",
+      "refs": {},
+      "revision": 1,
+      "schema": "sunny.gift/1.0.0",
+      "world": {
+        "branch_id": "B1",
+        "load_id": "L1",
+        "parent_checkpoint_id": "C23",
+        "save_id": "S"
+      }
+    },
+    {
+      "kind": "inventory",
+      "payload": {
+        "complete": true,
+        "container_instance": "P1pack",
+        "entries": [
+          {
+            "quantity": 1,
+            "slot": 0,
+            "variant": {
+              "metadata_signature": "plain",
+              "qualified_item_id": "(O)192",
+              "quality": 0
+            }
+          }
+        ],
+        "fresh": true,
+        "monotonic_capture": 2,
+        "seat": "P1",
+        "sequence": 2,
+        "source": "synthetic-adapter",
+        "tick": 102
+      },
+      "producer": {
+        "adapter_version": "synthetic",
+        "track": "A2"
+      },
+      "record_id": "P1after",
+      "refs": {},
+      "revision": 1,
+      "schema": "sunny.gift/1.0.0",
+      "world": {
+        "branch_id": "B1",
+        "load_id": "L1",
+        "parent_checkpoint_id": "C23",
+        "save_id": "S"
+      }
+    },
+    {
+      "kind": "inventory",
+      "payload": {
+        "complete": true,
+        "container_instance": "P2pack",
+        "entries": [
+          {
+            "quantity": 0,
+            "slot": 0,
+            "variant": {
+              "metadata_signature": "plain",
+              "qualified_item_id": "(O)192",
+              "quality": 0
+            }
+          }
+        ],
+        "fresh": true,
+        "monotonic_capture": 1,
+        "seat": "P2",
+        "sequence": 1,
+        "source": "synthetic-adapter",
+        "tick": 101
+      },
+      "producer": {
+        "adapter_version": "synthetic",
+        "track": "A2"
+      },
+      "record_id": "P2before",
+      "refs": {},
+      "revision": 1,
+      "schema": "sunny.gift/1.0.0",
+      "world": {
+        "branch_id": "B1",
+        "load_id": "L1",
+        "parent_checkpoint_id": "C23",
+        "save_id": "S"
+      }
+    },
+    {
+      "kind": "inventory",
+      "payload": {
+        "complete": true,
+        "container_instance": "P2pack",
+        "entries": [
+          {
+            "quantity": 1,
+            "slot": 0,
+            "variant": {
+              "metadata_signature": "plain",
+              "qualified_item_id": "(O)192",
+              "quality": 0
+            }
+          }
+        ],
+        "fresh": true,
+        "monotonic_capture": 2,
+        "seat": "P2",
+        "sequence": 2,
+        "source": "synthetic-adapter",
+        "tick": 102
+      },
+      "producer": {
+        "adapter_version": "synthetic",
+        "track": "A2"
+      },
+      "record_id": "P2after",
+      "refs": {},
+      "revision": 1,
+      "schema": "sunny.gift/1.0.0",
+      "world": {
+        "branch_id": "B1",
+        "load_id": "L1",
+        "parent_checkpoint_id": "C23",
+        "save_id": "S"
+      }
+    },
+    {
+      "kind": "verification",
+      "payload": {
+        "causal_evidence": {
+          "id": "W1",
+          "kind": "SIMULATED controlled window"
+        },
+        "destination": "P2",
+        "disposition": "inventory_received",
+        "intervening_mutations": [],
+        "movement_ordinal": 0,
+        "predicate": "causal_inventory_receipt/1",
+        "quantity": 1,
+        "source": "P1",
+        "transition_id": "T1",
+        "variant": {
+          "metadata_signature": "plain",
+          "qualified_item_id": "(O)192",
+          "quality": 0
+        },
+        "verdict": "verified"
+      },
+      "producer": {
+        "adapter_version": "synthetic",
+        "track": "A2"
+      },
+      "record_id": "V1",
+      "refs": {
+        "attempt": {
+          "record_id": "A1",
+          "revision": 1
+        },
+        "destination_after": {
+          "record_id": "P2after",
+          "revision": 1
+        },
+        "destination_before": {
+          "record_id": "P2before",
+          "revision": 1
+        },
+        "offer": {
+          "record_id": "O1",
+          "revision": 1
+        },
+        "source_after": {
+          "record_id": "P1after",
+          "revision": 1
+        },
+        "source_before": {
+          "record_id": "P1before",
+          "revision": 1
+        }
+      },
+      "revision": 1,
+      "schema": "sunny.gift/1.0.0",
+      "world": {
+        "branch_id": "B1",
+        "load_id": "L1",
+        "parent_checkpoint_id": "C23",
+        "save_id": "S"
+      }
+    }
+  ],
+  "reload_world": {
+    "save_id": "S",
+    "load_id": "L2",
+    "branch_id": "B2",
+    "parent_checkpoint_id": "C23"
+  }
+}

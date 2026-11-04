@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pytest
-      - run: python -m pytest -q mod/tests
+      - run: python -m pytest -q mod/tests reference/sunny_gift/tests
 
   dotnet:
     name: Game-free C# tests (dotnet test)
