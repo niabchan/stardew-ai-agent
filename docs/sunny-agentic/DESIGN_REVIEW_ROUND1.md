@@ -10,7 +10,7 @@
 The four reports substantially **converge** on the direction for evidence-backed companion autonomy:
 **propose/observe → model decides (possibly STAY/decline/silence) → guard and dispatch once → observe actual effect → verify → publish a branch-aware event → make it available to a later model decision**.
 
-However, convergence is on *principles*, not a finalized schema or safe runtime. No report has inspected the external P10–P13 Python/PowerShell source. Do **not** start a cross-language behavior refactor, auto-merge these PRs or claim that any proposed safety guarantees exist.
+However, convergence is on *principles*, not a finalized schema or safe runtime. The four Codex reports did **not** inspect external P10–P13 sources. **After their submission**, the Orchestrator located and read-only inspected the locally available v0.3.11 pilot ZIP; see [the supplementary source audit](./PILOT_AUDIT_V0311.md). This reveals a transient `gift_accept` activity hint but **no verified gift-receipt memory**, and it does not certify the installed runtime. Do **not** start a cross-language behavior refactor, auto-merge these PRs or claim proposed guarantees already exist.
 
 ## Evidence-backed discoveries across tracks
 
@@ -76,7 +76,7 @@ The proposed interfaces have not been implemented or peer-approved. Early adapte
 
 ## Design-review decisions still open (no silent default)
 
-1. **External controller audit — blocking for wiring:** Obtain exact **P10–P13 Python/PowerShell** ZIP/source used in live tests (especially P11 next-decision prompt and P13 gift handling/ledger, plus P10/P12 lifecycle). Examine *read-only* first. Record local versions/hashes; do not publish API secrets, private paths, raw game saves or chat logs. Separate built-in `SeatBrain` from the external Luna controller.
+1. **External controller audit — partially completed; joint review still required:** The Orchestrator has now read-only inspected the locally mounted v0.3.11 ZIP (hash and source findings in [pilot audit](./PILOT_AUDIT_V0311.md)). **A1–A4 have not inspected that source**, and the exact version installed for historical runs is not independently established. Before wiring, share sanitized findings with all tracks, verify controller versions and reconcile C# `SeatBrain` versus external Luna ownership. Do not commit secrets, private paths, saves or raw chat.
 2. **Save/load checkpoint authority:** Confirm SMAPI/Game save/load hooks and whether a committed checkpoint can be recognized across reload, copy and crash. Farm day, folder name, log append and overnight text are insufficient. Identify one host authority and P2 seat attachment rules.
 3. **Human inventory and giving:** Validate what P1/P2 inventories/prompts can be observed without controlling Guy. Current `give(to=Guy)` is **not supported**; a held-item interaction and an agreed shared chest are *candidate* routes, not confirmed. Do not bypass with a role switch.
 4. **Exactly-once boundary:** An attempt ledger can prevent known duplicate dispatch, but cannot atomically commit all game-world effects; unknown outcomes require reconciliation, not forced replay. Specify what UI/menu cleaners may touch.
@@ -106,7 +106,7 @@ Only after contracts are reviewed, write **small separate implementation PRs**, 
 **Result:** four research inputs are complete and their primary architectural recommendations are compatible. **Not approved:** final schema, save-checkpoint implementation, cross-language controller integration, gameplay automation or merge to `main`.
 
 **Questions for human owner and A1–A4 review:**
-- Is it acceptable to make the external P10–P13 pilot source available for *read-only* joint research (sanitized as needed), before implementing bridge changes?
+- The Orchestrator can already inspect the v0.3.11 pilot ZIP read-only. How should A1–A4 review its sanitized findings and confirm that this matches the actual runtime intended for future work?
 - Which minimum real-game acceptance scenario should be selected first: verified Guy→Sunny gift with optional silence (recommended), or an agreed chest handoff? Neither should spend irreversible resources.
 - Which unresolved assumptions need a proof-of-capability spike before adopting the contract? Particularly human→AI vanilla offer identity, read-only human inventory evidence, and save checkpoint persistence.
 
@@ -117,4 +117,5 @@ Keep PRs #6–#9 in draft until reviewed. If consolidating their reports into th
 - [Research charter](./README.md)
 - [Baseline source inventory](./ARCHITECTURE_BASELINE.md)
 - [Four agent prompts](./RESEARCH_TRACKS.md)
+- [Supplementary v0.3.11 external pilot source audit](./PILOT_AUDIT_V0311.md)
 - [A1](https://github.com/niabchan/stardew-ai-agent/pull/6) · [A2](https://github.com/niabchan/stardew-ai-agent/pull/7) · [A3](https://github.com/niabchan/stardew-ai-agent/pull/8) · [A4](https://github.com/niabchan/stardew-ai-agent/pull/9)
