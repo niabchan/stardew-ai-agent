@@ -120,3 +120,11 @@ reactions, or personality policy. Real context receipt instrumentation and model
 understanding/optional reaction still require separate validation.
 
 See [VALIDATION.md](VALIDATION.md) for commands and exact results.
+
+
+## Phase 2 observation extension
+
+The opt-in [observation/lifecycle reference](OBSERVATION.md) adds synthetic seat
+captures, prompt instances/revisions, explicit freshness, host-load versus seat
+join, save-operation evidence and conservative checkpoint ambiguity. It includes
+an inert gift bridge; existing `sunny.gift/1.0.0` records and APIs remain unchanged.
