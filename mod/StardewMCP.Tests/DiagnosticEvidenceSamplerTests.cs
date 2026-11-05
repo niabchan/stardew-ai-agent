@@ -52,6 +52,16 @@ public class DiagnosticEvidenceSamplerTests
         Assert.False(first.LifecycleCoverage || second.IdentityKnown);
         Assert.True(p1.Connected && p1.TimedOut && p1.Released);
         Assert.Equal(3, p1.MailCount);
+        int reads = Game1.Reads;
+        var output = sampler.ReadStatus();
+        Assert.Contains("P2 sampling: captured", sampler.ReadStatus());
+        Assert.Equal(reads, Game1.Reads);
+        Assert.Same(first, Latest(sampler, 0));
+        Assert.Same(second, Latest(sampler, 1));
+        Assert.DoesNotContain("P1 private", output);
+        Assert.DoesNotContain("P2 synthetic", output);
+        Assert.True(p1.Connected && p1.TimedOut && p1.Released);
+        Assert.Equal(3, p1.MailCount);
         Assert.Equal(SeatRole.Human, p1.Role);
         Assert.False(p2.Connected || p2.TimedOut || p2.Released);
         Game1.fadeToBlack = true;
@@ -85,6 +95,10 @@ public class DiagnosticEvidenceSamplerTests
         seat.Role = SeatRole.Human;
         Context.ScreenId = 1; // A wrong screen must not fall back to the current Game1 player.
         sampler.Sample(seat, 4);
+        Assert.Equal(0, Game1.Reads);
+        config.CollectionEnabled = false;
+        Assert.Contains("Collection: disabled", sampler.ReadStatus());
+        Assert.False(config.CollectionEnabled);
         Assert.Equal(0, Game1.Reads);
     }
     [Fact]
@@ -146,6 +160,12 @@ public class DiagnosticEvidenceSamplerTests
         sampler.Sample(seat, 3);
         Assert.Equal(2, sampler.CaptureFailureCount);
         Game1.ThrowOnPlayerRead = menu.ThrowOnRead = false;
+        var failed = sampler.ReadStatus();
+        Assert.Contains("CaptureFailureCount (process aggregate): 2; LastSampleFailed: True", failed);
+        Assert.DoesNotContain("PRIVATE_EXCEPTION_CANARY", failed);
+        Assert.Equal(failed, sampler.ReadStatus());
+        Assert.True(sampler.LastSampleFailed);
+        Assert.Equal(2, sampler.CaptureFailureCount);
         Context.IsWorldReady = false;
         sampler.Sample(seat, 4);
         Assert.False(sampler.LastSampleFailed); // Normal unavailable is distinct from failure.
@@ -157,7 +177,28 @@ public class DiagnosticEvidenceSamplerTests
         Assert.False(sampler.LastSampleFailed);
         Assert.Equal(2, sampler.CaptureFailureCount);
         Assert.False(seat.Connected || seat.TimedOut || seat.Released);
+        Assert.Contains("CaptureFailureCount (process aggregate): 2; LastSampleFailed: False", sampler.ReadStatus());
         Assert.Equal(3, seat.MailCount);
     }
 
+    [Fact]
+    public void Failure_counter_saturates_and_status_never_resets_it()
+    {
+        var sampler = new DiagnosticEvidenceSampler(new() { CollectionEnabled = true });
+        typeof(DiagnosticEvidenceSampler).GetProperty("CaptureFailureCount",
+            BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(sampler, long.MaxValue);
+        Context.ScreenId = 1;
+        Context.IsWorldReady = true;
+        Game1.ThrowOnPlayerRead = true;
+        try
+        {
+            sampler.Sample(new() { Screen = 1, Role = SeatRole.Ai }, 1);
+            Assert.Contains($"CaptureFailureCount (process aggregate): {long.MaxValue}", sampler.ReadStatus());
+            Assert.Equal(long.MaxValue, sampler.CaptureFailureCount);
+            Assert.True(sampler.LastSampleFailed);
+        }
+        finally { Game1.ThrowOnPlayerRead = false; }
+    }
+
 }
+
