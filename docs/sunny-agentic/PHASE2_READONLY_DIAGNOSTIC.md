@@ -131,7 +131,7 @@ DOTNET_CLI_HOME=/workspace/.dotnet-home NUGET_PACKAGES=/workspace/.nuget/package
 git diff --check
 ```
 
-Final results: **326 passed, 0 failed, 0 skipped** in C# (268 existing + 58 new
+Initial implementation results: **326 passed, 0 failed, 0 skipped** in C# (268 existing + 58 new
 cases, including fake HTTP and sampler-shim cases); **164 passed, 1 xfailed** in
 Python. The expected failure is the existing `close_menu` missing `reason` parameter
 source check (`mod/tests/test_tool_sources.py`). `git diff --check` passed.
@@ -145,8 +145,9 @@ warnings were removed by using test properties. No prior BrainTests failure repr
 
 The test project compiles the pure cache and the actual sampler against minimal,
 test-only Game1/Context/DialogueBox/seat shims. The shims have no gameplay methods.
-The ModEntry/real SMAPI integration and full game mod are not built or run; shim
-compilation cannot establish real API/version/event compatibility. No Stardew Valley,
+The ModEntry/real SMAPI integration remains uncompiled: the full-mod build-only
+attempt described below failed before compilation. Shim compilation cannot establish
+real API/version/event compatibility. No Stardew Valley,
 real saves, deployed DLLs, controller or model was accessed; no deployment or merge.
 
 Later review must validate host/farmhand ordering, menu event completeness and
@@ -155,3 +156,76 @@ and separately complete secure native transport before disclosure. Any operator 
 validation requires separate authorization and a backed-up Test_ save. Classification,
 action guards, causal transfer proof and checkpoint reconciliation each require their
 own evidence and review before their capability can become true.
+
+
+## Integration validation follow-up (PR #15)
+
+Build prerequisite inspection found no supported Stardew Valley/SMAPI assemblies in
+workspace or /opt build locations, no cached Pathoschild.Stardew.ModBuildConfig
+package, no mod `obj/project.assets.json`, and no standard Linux Steam Stardew
+installation directory. The repository documents Stardew Valley 1.6+ and SMAPI 4.0+;
+no installed versions could be established. No game was installed and no saves or
+installed/deployed mod files were read or changed.
+
+Attempted build-only validation, from the repository root:
+
+```sh
+DOTNET_CLI_HOME=/workspace/.dotnet-home NUGET_PACKAGES=/workspace/.nuget/packages \
+  /workspace/.dotnet/dotnet build mod/StardewMCP/StardewMCP.csproj --no-restore \
+  -p:EnableModDeploy=false -p:EnableModZip=false \
+  -p:OutputPath=/workspace/stardew-ai-agent/work/integration-build/
+```
+
+**Result: exit 1, Build FAILED, 0 warnings, 1 error.** SDK 8.0.419 reported
+`NETSDK1004`: assets file `mod/StardewMCP/obj/project.assets.json` not found;
+run a NuGet restore to generate it. This is a dependency-resolution failure before
+C# compilation, not a compiler result for ModEntry. No restore/download, substitute
+game assemblies, deployment, zip packaging or game launch was attempted. Even a
+package restore would not supply the missing supported proprietary game/SMAPI assembly
+set. Actual full-mod and ModEntry API/version compatibility remain **unverified**.
+
+Callback source review and focused change:
+
+| Hook | Ordering and scope reviewed |
+| --- | --- |
+| SaveLoaded | A single subscription still calls OnSaveLoaded. Diagnostic invalidation now runs first, before SplitScreen/load helpers or possible menu events. The sampler dispatches by current screen: host 0 establishes a fresh provisional epoch and clears both slots; P2 only retires its own joining slot. An early P2 callback cannot establish authority. Existing host-only role resolution and brain startup stay behind the non-host return. |
+| MenuChanged | One subscription invalidates only Context.ScreenId. No sampler capture or gameplay helper runs in this event. Missed/in-place transitions remain unverified; lifecycle coverage stays false. |
+| ReturnedToTitle | Invalidates all diagnostic authority before existing brain/split-screen teardown. Repeated per-screen title callbacks conservatively clear again; no rollback or action cancellation is claimed. |
+| UpdateTicked | One sample on the ordinary current-screen callback, before seat.OnTick, split-screen helpers, runtime, watchers and HTTP refresh. Existing downstream behavior remains unchanged. No extra update/runtime invocation is used to acquire evidence. |
+
+`mod/tests/test_diagnostic_integration.py` adds two isolated **source wiring** checks:
+single subscriptions and relative ordering in the actual ModEntry source. They do not
+compile ModEntry, instantiate SMAPI events or prove actual event delivery/order.
+Three additional C# cases exercise the actual sampler with shims: host/P2 load
+routing (including pre-host quarantine and rejoin) and injected player/menu read
+failures. Existing menu/title/update sampler tests remain in place.
+
+The defensive catch is retained as `catch (Exception)` so a diagnostic read failure
+can retire evidence without interrupting ordinary gameplay callbacks. Game1.player
+readiness access is now inside that boundary as well. Two internal in-memory values
+make failure distinguishable from ordinary unavailable/disabled sampling:
+`CaptureFailureCount` is a saturating process-lifetime aggregate; `LastSampleFailed`
+is reset on each Sample invocation and set only on caught failure. They retain no
+exception type/message/stack, dialogue, seat/farmer/world identifier or timestamp.
+They are game-thread diagnostics with no HTTP, logging, persistence or automatic
+recovery action. Normal unavailable evidence does not increment the counter; recovery
+keeps the cumulative count and cannot restore the retired prompt instance. This is
+best-effort exception isolation, not recovery from process-fatal/resource failures.
+
+Follow-up test commands:
+
+```sh
+DOTNET_CLI_HOME=/workspace/.dotnet-home NUGET_PACKAGES=/workspace/.nuget/packages \
+  /workspace/.dotnet/dotnet test mod/StardewMCP.Tests --no-restore \
+  --logger 'trx;LogFileName=followup.trx' --results-directory work/test-results
+.venv/bin/python -m pytest -q mod/tests reference/sunny_gift/tests
+git diff --check
+```
+
+**Results: C# 329 passed, 0 failed, 0 skipped; Python 166 passed, 1 xfailed;
+whitespace check passed.** The existing expected Python failure is still close_menu's
+missing reason parameter. C# ran with the approved local VSTest socket context and
+emitted no compiler warnings. These are isolated tests, not a passing full-mod build.
+All opt-ins still default false, real HTTP disclosure remains unimplemented, and all
+four restricted capabilities stay false. No model/gameplay/controller integration,
+deployment or merge was added.

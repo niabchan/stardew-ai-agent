@@ -89,6 +89,8 @@ public class ModEntry : Mod
 
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
+        // Invalidate evidence before existing load helpers can change state or raise menu events.
+        _diagnostics.SaveLoaded();
         // Also raised on each farmhand screen when it joins (before its character exists);
         // SplitScreen logs those joins once they finish.
         SplitScreen.OnSaveLoaded();
@@ -96,11 +98,7 @@ public class ModEntry : Mod
         // The agents keep playing while the terminal or OBS window has focus.
         Game1.options.pauseWhenOutOfFocus = false;
         if (Context.ScreenId != 0)
-        {
-            _diagnostics.ScreenJoining();
             return;
-        }
-        _diagnostics.HostLoaded();
         NpcInfo.Reset();
         // Seat roles and split-screen may have changed in the config menu; farmhands join on later host ticks.
         Players.Resolve(_config, Monitor);
