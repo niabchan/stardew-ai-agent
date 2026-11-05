@@ -16,6 +16,10 @@ internal sealed class DiagnosticEvidenceSampler
     // Internal process-lifetime diagnostics only: no exception details, identifiers or logging.
     internal long CaptureFailureCount { get; private set; }
     internal bool LastSampleFailed { get; private set; }
+    // Explicit local reads only. Do not Configure, Sample, or access any Game1/Players fields here.
+    internal string ReadStatus() => _cache.ReadStatus(_config.CollectionEnabled,
+        _config.AllowHumanP1Collection, _config.HttpDisclosureEnabled, Stopwatch.GetTimestamp())
+        .Format(CaptureFailureCount, LastSampleFailed);
     public void SaveLoaded()
     {
         if (Context.ScreenId == 0) HostLoaded();
@@ -62,3 +66,4 @@ internal sealed class DiagnosticEvidenceSampler
         }
     }
 }
+

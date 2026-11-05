@@ -75,6 +75,11 @@ public class ModEntry : Mod
         helper.Events.GameLoop.DayEnding += (_, _) => { if (Context.ScreenId == 0) DaySummary.Write(_log, AgentLog.FarmDay, Monitor); };
 
         helper.ConsoleCommands.Add(
+            "sunny_observe_status",
+            "Read cached P2 diagnostic metadata locally. Does not enable collection or capture. No arguments.",
+            (_, _) => Monitor.Log(_diagnostics.ReadStatus(), LogLevel.Info));
+
+        helper.ConsoleCommands.Add(
             "mcp_freeze",
             "Freeze the world while an AI is thinking.\n\nUsage: mcp_freeze [on|off] (no argument toggles)",
             OnFreezeCommand);
@@ -209,3 +214,4 @@ public class ModEntry : Mod
         Monitor.Log($"Freeze while thinking: {(_config.FreezeTimeWhileThinking ? "on" : "off")}", LogLevel.Info);
     }
 }
+

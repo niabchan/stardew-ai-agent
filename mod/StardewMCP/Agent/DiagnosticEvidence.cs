@@ -230,4 +230,29 @@ public sealed class DiagnosticEvidenceCache
             return new("captured", c, age);
         }
     }
+
+    /// <summary>Local P2-only allowlist projection. Never returns a capture or changes cache state.</summary>
+    internal DiagnosticStatus ReadStatus(bool collection, bool consent, bool disclosure, long nowTicks)
+    {
+        lock (_gate)
+        {
+            // Config may change before the next ordinary sample. Hide old evidence without clearing it.
+            var c = collection && (_enabled, _p1, _disclosure) == (collection, consent, disclosure)
+                ? _seats[1].Latest : null;
+            double? age = c != null && nowTicks >= c.MonotonicTicks
+                ? (nowTicks - (double)c.MonotonicTicks) / _frequency : null;
+            string status = !collection ? "disabled" : c == null ? "unavailable"
+                : age == null || age > MaxGapSeconds ? "stale" : "captured";
+            return new(collection, consent, status, c?.Sequence ?? 0, age,
+                status == "captured" ? SafePromptStatus(c!.PromptStatus) : "unavailable",
+                c?.LifecycleCoverage == true, status == "captured" && c!.IdentityKnown);
+        }
+    }
+
+    private static string SafePromptStatus(string value) => value switch
+    {
+        "present" => "present", "absent" => "absent", "unsupported" => "unsupported",
+        _ => "unavailable"
+    };
 }
+
