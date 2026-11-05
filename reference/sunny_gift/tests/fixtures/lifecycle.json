@@ -1,0 +1,13 @@
+{
+  "description": "Entirely synthetic. Same folder/day is a label, never checkpoint proof.",
+  "save_id": "fixture-world",
+  "day": 24,
+  "first_load": "load-1",
+  "reload": "load-2",
+  "checkpoint_candidates": ["checkpoint-a", "checkpoint-b"],
+  "prompt": {
+    "instance": "menu-1",
+    "question": "Accept one Potato?",
+    "responses": [["accept", "Yes"], ["decline", "No"]]
+  }
+}
