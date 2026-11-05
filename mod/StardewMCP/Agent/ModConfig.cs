@@ -35,6 +35,9 @@ public class SeatConfig
 /// <summary>User-editable settings (config.json in the mod folder).</summary>
 public class ModConfig
 {
+    /// <summary>Opt-in internal diagnostics; HTTP disclosure is not implemented.</summary>
+    public DiagnosticObservationConfig DiagnosticObservation { get; set; } = new();
+
     /// <summary>
     /// The four seats P1-P4 (P1 is the save's own farmer and the host screen). Defaults: P1-P3 AI seats driven from
     /// outside through MCP, P4 the camera. Set a seat's Brain and ApiKey to let the mod play it by itself.

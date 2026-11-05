@@ -18,10 +18,12 @@ public class ModEntry : Mod
     private AgentLog _log = null!;
     private AgentHttp _http = null!;
     private bool _autoLoadDone;
+    private DiagnosticEvidenceSampler _diagnostics = null!;
 
     public override void Entry(IModHelper helper)
     {
         _config = helper.ReadConfig<ModConfig>();
+        _diagnostics = new DiagnosticEvidenceSampler(_config.DiagnosticObservation ??= new());
         string logDir = string.IsNullOrWhiteSpace(_config.LogDir)
             ? Path.Combine(helper.DirectoryPath, "logs")
             : _config.LogDir;
@@ -52,12 +54,14 @@ public class ModEntry : Mod
         helper.Events.GameLoop.SaveLoaded += OnSaveLoaded;
         helper.Events.GameLoop.ReturnedToTitle += (_, _) =>
         {
+            _diagnostics.ReturnedToTitle();
             Brains.StopAll();
             SplitScreen.OnReturnedToTitle();
             PassOut.OnReturnedToTitle();
             WorldProgress.Reset();
             NpcInfo.Reset();
         };
+        helper.Events.Display.MenuChanged += (_, _) => _diagnostics.MenuChanged();
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
         helper.Events.GameLoop.DayStarted += (_, _) =>
         {
@@ -92,7 +96,11 @@ public class ModEntry : Mod
         // The agents keep playing while the terminal or OBS window has focus.
         Game1.options.pauseWhenOutOfFocus = false;
         if (Context.ScreenId != 0)
+        {
+            _diagnostics.ScreenJoining();
             return;
+        }
+        _diagnostics.HostLoaded();
         NpcInfo.Reset();
         // Seat roles and split-screen may have changed in the config menu; farmhands join on later host ticks.
         Players.Resolve(_config, Monitor);
@@ -105,6 +113,8 @@ public class ModEntry : Mod
     private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
     {
         var seat = Players.Current;
+        // Ordinary own-screen capture before this callback's automation; never ticks a runtime for evidence.
+        _diagnostics.Sample(seat, e.Ticks);
         seat.OnTick();
 
         if (seat.Screen == 0)
