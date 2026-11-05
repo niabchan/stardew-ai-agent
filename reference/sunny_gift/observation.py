@@ -160,7 +160,14 @@ class Observation:
         old_prompt, revision = self._prompt.get(scope, (None, None))
         if prompt is not None:
             if old_prompt is not None and old_prompt.instance == prompt.instance:
-                revision += prompt.content() != old_prompt.content()
+                # Equal visible content cannot bridge an unverified lifecycle gap.
+                # Advance on both sides of the gap, so neither an earlier offer nor
+                # a token observed during uncertainty can become eligible on recovery.
+                continuous = (ready and complete and coverage and prompt.identity_known
+                              and not prompt.transitioning and previous.ready
+                              and previous.complete and previous.coverage
+                              and old_prompt.identity_known and not old_prompt.transitioning)
+                revision += (prompt.content() != old_prompt.content() or not continuous)
             else:
                 if (scope, prompt.instance) in self._instances:
                     raise ContractError("retired prompt instance reused")

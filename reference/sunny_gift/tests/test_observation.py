@@ -215,3 +215,53 @@ def test_single_checkpoint_candidate_does_not_establish_loaded_identity(scene):
     assert o.checkpoint_status == "unknown" and o.world["parent_checkpoint_id"] is None
     with pytest.raises(ContractError):
         o.host_load(f["save_id"], "load-2", "branch-3")
+
+
+@pytest.mark.parametrize("gap", ["coverage", "identity", "transition"])
+def test_unverified_gap_never_revalidates_an_old_offer(scene, gap):
+    o, s, p, _ = scene
+    original = capture(o, s, p)
+    offer = o.offer("O-before-gap", **POLICY)
+    m = ObservedReference(o)
+    m.add(offer)
+    before_gap = decision_attempt(m, offer, "before-gap")
+    gap_prompt = replace(p, identity_known=False) if gap == "identity" else p
+    if gap == "transition":
+        gap_prompt = replace(p, transitioning=True)
+    uncertain = capture(o, s, gap_prompt, 2, coverage=gap != "coverage")
+    assert o.current_offer(offer, **(POLICY | dict(now=11))) is None
+    assert not m.dispatch(before_gap, offer, **(POLICY | dict(now=11)))["dispatched_now"]
+
+    restored = capture(o, s, p, 3)
+    assert restored.prompt == original.prompt  # identical instance/content/mapping
+    assert restored.token != original.token
+    assert restored.token != uncertain.token
+    assert o.current_offer(offer, **(POLICY | dict(now=12))) is None
+    # Use an unseen attempt: cached rejection must not hide a revalidated token.
+    after_gap = decision_attempt(m, offer, "after-gap")
+    assert not m.dispatch(after_gap, offer, **(POLICY | dict(now=12)))["dispatched_now"]
+    assert m.dispatches == []
+
+    # A delayed duplicate must neither restore continuity nor change the current token.
+    assert capture(o, s, p) is original
+    assert capture(o, s, gap_prompt, 2, coverage=gap != "coverage") is uncertain
+    assert o.cached("P2") is restored
+    assert o.current_offer(offer, **(POLICY | dict(now=12))) is None
+    # Newly observed eligibility requires a new offer and a new intentional decision.
+    renewed = o.offer("O-after-gap", **(POLICY | dict(now=12)))
+    assert renewed is not None and renewed.data["payload"]["token"] == restored.token
+
+
+def test_continuous_polling_keeps_original_offer_eligible(scene):
+    o, s, p, _ = scene
+    original = capture(o, s, p)
+    offer = o.offer("O-continuous", **POLICY)
+    for sequence in (2, 3, 4):
+        current = capture(o, s, p, sequence)
+        assert current.token == original.token and current.prompt_revision == 1
+        assert o.current_offer(offer, **(POLICY | dict(now=current.monotonic))) is offer
+    m = ObservedReference(o)
+    m.add(offer)
+    attempt = decision_attempt(m, offer)
+    assert m.dispatch(attempt, offer, **(POLICY | dict(now=13)))["dispatched_now"]
+    assert len(m.dispatches) == 1
