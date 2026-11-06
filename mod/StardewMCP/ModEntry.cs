@@ -61,7 +61,7 @@ public class ModEntry : Mod
             WorldProgress.Reset();
             NpcInfo.Reset();
         };
-        helper.Events.Display.MenuChanged += (_, _) => _diagnostics.MenuChanged();
+        helper.Events.Display.MenuChanged += (_, _) => _diagnostics.MenuChanged(Players.TryCurrent?.Screen);
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
         helper.Events.GameLoop.DayStarted += (_, _) =>
         {
@@ -95,7 +95,7 @@ public class ModEntry : Mod
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
         // Invalidate evidence before existing load helpers can change state or raise menu events.
-        _diagnostics.SaveLoaded();
+        _diagnostics.SaveLoaded(Players.TryCurrent?.Screen);
         // Also raised on each farmhand screen when it joins (before its character exists);
         // SplitScreen logs those joins once they finish.
         SplitScreen.OnSaveLoaded();
@@ -115,9 +115,11 @@ public class ModEntry : Mod
 
     private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
     {
-        var seat = Players.Current;
+        var seat = Players.TryCurrent;
+        if (seat == null)
+            return; // Fail closed: never dispatch gameplay or observation to another logical seat.
         // Ordinary own-screen capture before this callback's automation; never ticks a runtime for evidence.
-        _diagnostics.Sample(seat, e.Ticks);
+        _diagnostics.Sample(seat, e.Ticks, seat.Screen);
         seat.OnTick();
 
         if (seat.Screen == 0)

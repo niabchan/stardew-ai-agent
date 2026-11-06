@@ -31,6 +31,7 @@
   <ItemGroup>
     <Compile Include="..\StardewMCP\Agent\DiagnosticStatus.cs" Link="Mod\DiagnosticStatus.cs" />
     <Compile Include="..\StardewMCP\Agent\DiagnosticEvidenceSampler.cs" Link="Mod\DiagnosticEvidenceSampler.cs" />
+    <Compile Include="..\StardewMCP\Agent\LogicalSeatBinding.cs" Link="Mod\LogicalSeatBinding.cs" />
     <Compile Include="..\StardewMCP\Agent\DiagnosticEvidence.cs" Link="Mod\DiagnosticEvidence.cs" />
     <Compile Include="..\StardewMCP\PathSearch.cs" Link="Mod\PathSearch.cs" />
     <Compile Include="..\StardewMCP\Agent\ToolDef.cs" Link="Mod\ToolDef.cs" />

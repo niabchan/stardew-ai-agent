@@ -19,9 +19,10 @@ public enum SeatRole
     Off
 }
 
-/// <summary>One split-screen seat (screen index = SMAPI <c>Context.ScreenId</c>) and its agent runtime.</summary>
+/// <summary>One stable logical split-screen seat (P1..P4), independent of SMAPI's transient ScreenId.</summary>
 public class PlayerSlot
 {
+    /// <summary>Zero-based logical seat index (P1 = 0), not a SMAPI screen ID.</summary>
     public int Screen { get; }
     public string Id => $"p{Screen + 1}";
     /// <summary>Set again by <see cref="Players.Resolve"/> on each save load (the config menu can change it).</summary>
@@ -208,8 +209,32 @@ public static class Players
             Slots[i].Role = roles[i];
     }
 
-    /// <summary>The seat of the screen being updated. Only valid on the game thread.</summary>
-    public static PlayerSlot Current => Slots[Math.Clamp(Context.ScreenId, 0, Seats - 1)];
+    /// <summary>
+    /// Resolve the current game instance to a logical seat. SMAPI ScreenId is a lifetime-unique
+    /// physical identifier, not a seat index; it changes when a farmhand rejoins.
+    /// Game-thread only; ambiguity must not grant access to another seat's runtime.
+    /// </summary>
+    public static PlayerSlot? TryCurrent
+    {
+        get
+        {
+            var currentGame = Game1.game1;
+            var runner = GameRunner.instance;
+            if (currentGame == null || runner?.gameInstances == null)
+                return null;
+            int activeInstanceIndex = runner.gameInstances.IndexOf(currentGame);
+            int? logicalIndex = LogicalSeatBinding.Resolve(
+                Context.ScreenId, (int)currentGame.instancePlayerOneIndex, activeInstanceIndex, Seats);
+            if (logicalIndex is not int index || index >= ScreenCount || index >= Slots.Length ||
+                Slots[index].Role == SeatRole.Off)
+                return null;
+            return Slots[index];
+        }
+    }
+
+    /// <summary>Strict current seat for existing game-thread callers; never silently use a different seat.</summary>
+    public static PlayerSlot Current =>
+        TryCurrent ?? throw new InvalidOperationException("No authoritative logical seat binding for this screen.");
 
     public static PlayerSlot Host => Slots[0];
 

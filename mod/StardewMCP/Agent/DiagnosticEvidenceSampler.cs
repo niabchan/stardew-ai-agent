@@ -53,10 +53,11 @@ internal sealed class DiagnosticEvidenceSampler
             + $"\nP2 last sample gate: {Volatile.Read(ref _p2LastGate)}";
     }
 
-    public void SaveLoaded()
+    /// <summary>Called only with a logical seat confirmed by Players.TryCurrent, never SMAPI ScreenId.</summary>
+    public void SaveLoaded(int? logicalSeat)
     {
-        if (Context.ScreenId == 0) HostLoaded();
-        else ScreenJoining(); // Farmhand callbacks never mint host authority.
+        if (logicalSeat == 0) HostLoaded();
+        else if (logicalSeat == 1) ScreenJoining(1); // Farmhands never mint host authority.
     }
 
     public void HostLoaded()
@@ -73,25 +74,23 @@ internal sealed class DiagnosticEvidenceSampler
         SetP2Gate("title_invalidated");
     }
 
-    public void ScreenJoining()
+    public void ScreenJoining(int logicalSeat)
     {
-        int screen = Context.ScreenId;
-        _cache.SeatUnavailable(screen);
-        if (screen == 1)
-        {
-            MarkEvent(ref _p2JoinCount, ref _lastP2JoinOrder);
-            SetP2Gate("p2_joining");
-        }
+        if (logicalSeat != 1) return; // The diagnostic cache only observes P1/P2.
+        _cache.SeatUnavailable(logicalSeat);
+        MarkEvent(ref _p2JoinCount, ref _lastP2JoinOrder);
+        SetP2Gate("p2_joining");
     }
 
-    public void MenuChanged()
+    public void MenuChanged(int? logicalSeat)
     {
-        int screen = Context.ScreenId;
-        _cache.BreakScreen(screen);
-        if (screen == 1) SetP2Gate("p2_menu_invalidated");
+        if (logicalSeat is not (0 or 1)) return;
+        _cache.BreakScreen(logicalSeat.Value);
+        if (logicalSeat == 1) SetP2Gate("p2_menu_invalidated");
     }
 
-    public void Sample(PlayerSlot seat, uint tick)
+    /// <summary>confirmedLogicalSeat must be resolved from the active game instance on this callback.</summary>
+    public void Sample(PlayerSlot seat, uint tick, int? confirmedLogicalSeat)
     {
         LastSampleFailed = false;
         _cache.Configure(_config.CollectionEnabled, _config.AllowHumanP1Collection,
@@ -102,7 +101,7 @@ internal sealed class DiagnosticEvidenceSampler
             if (seat.Screen == 1) SetP2Gate("collection_disabled");
             return;
         }
-        if (seat.Screen != Context.ScreenId)
+        if (seat.Screen != confirmedLogicalSeat)
         {
             _cache.SeatUnavailable(seat.Screen);
             if (seat.Screen == 1) SetP2Gate("screen_mismatch");
