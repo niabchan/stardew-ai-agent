@@ -126,6 +126,31 @@ public sealed class SunnyP2PreflightTests
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(65536)]
+    [InlineData(-1)]
+    public void Invalid_configured_port_is_rejected_before_auth(int port)
+    {
+        var authority = new FakeAuthority();
+        var decision = SunnyP2Preflight.Evaluate(Request(Say) with { Port = port }, authority);
+        Assert.Equal(400, decision.Status);
+        Assert.Equal(0, authority.CredentialLookups);
+    }
+
+    [Theory]
+    [InlineData("?reply_within=95")]
+    [InlineData("?breaks=1")]
+    [InlineData("?token=synthetic")]
+    [InlineData("?a=1&a=2")]
+    public void Unreviewed_query_parameters_do_not_bypass_the_policy(string query)
+    {
+        var authority = new FakeAuthority();
+        var decision = SunnyP2Preflight.Evaluate(Request(Say) with { RawQuery = query }, authority);
+        Assert.Equal(400, decision.Status);
+        Assert.Equal(0, authority.CredentialLookups);
+    }
+
+    [Theory]
     [InlineData("/mcp", "POST", 404)]
     [InlineData("/mcp/p1", "POST", 404)]
     [InlineData("/mcp/p3", "POST", 404)]
