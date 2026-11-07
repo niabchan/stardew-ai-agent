@@ -47,6 +47,8 @@ internal sealed class FakeP2Coordinator
     private readonly Queue<Work> _actions = new();
     private readonly Queue<Work> _observations = new();
 
+    private readonly string _instance = Guid.NewGuid().ToString("N"); // fixture incarnation, not auth
+    private long _now;
     private CoordinatorLease? _owner;
     private string? _epoch;
     private long _epochNumber, _ownerNumber, _roleGeneration, _expiresAt;
@@ -92,11 +94,12 @@ internal sealed class FakeP2Coordinator
             {
                 if (string.IsNullOrWhiteSpace(syntheticTransition))
                     throw new ArgumentException("Host transition key must not be blank");
-                if (_lastHostTransition == syntheticTransition) return;
+                if (_hostReady && _lastHostTransition == syntheticTransition) return;
             }
             RetireUnderLock();
             _lastHostTransition = syntheticTransition;
-            _epoch = "synthetic-host-load-" + (++_epochNumber);
+            _grants.Clear(); // epoch-scoped grants require explicit trusted reprovisioning
+            _epoch = "synthetic-host-load-" + _instance + "-" + (++_epochNumber);
             _hostReady = true;
             _roleGeneration++;
             _p1Human = _p2Ai = _brainNone = false; // require explicit role resolution
@@ -110,6 +113,8 @@ internal sealed class FakeP2Coordinator
         lock (_gate)
         {
             RetireUnderLock();
+            _grants.Clear();
+            _lastHostTransition = null;
             _hostReady = false;
             _epoch = null;
             _roleGeneration++;
@@ -136,6 +141,15 @@ internal sealed class FakeP2Coordinator
     private bool HasGrant(string principal, CoordinatorGrant grant) =>
         _grants.TryGetValue(principal, out var flags) && (flags & grant) == grant;
 
+    // Zero/default means the current fake tick. Regressing test inputs cannot rewind time.
+    // Validate arithmetic bounds BEFORE changing ownership, queues or history.
+    private long AdvanceClockUnderLock(long now)
+    {
+        if (now < 0 || now > long.MaxValue - 180)
+            throw new ArgumentOutOfRangeException(nameof(now));
+        return _now = Math.Max(_now, now);
+    }
+
     // Synthetic monotonic time is supplied by tests. Expiry never clears running work.
     private void ExpireUnderLock(long now)
     {
@@ -148,6 +162,7 @@ internal sealed class FakeP2Coordinator
     {
         lock (_gate)
         {
+            now = AdvanceClockUnderLock(now);
             ExpireUnderLock(now);
             if (!RolesValid) return new(CoordinatorDecision.Closed, null);
             if (!HasGrant(principal, CoordinatorGrant.Control))
@@ -172,6 +187,7 @@ internal sealed class FakeP2Coordinator
     {
         lock (_gate)
         {
+            now = AdvanceClockUnderLock(now);
             ExpireUnderLock(now);
             if (!ValidUnderLock(lease)) return CoordinatorDecision.Closed;
             var required = lane == CoordinatorLane.Action ? CoordinatorGrant.Control : CoordinatorGrant.Observe;
@@ -194,6 +210,7 @@ internal sealed class FakeP2Coordinator
     {
         lock (_gate)
         {
+            now = AdvanceClockUnderLock(now);
             ExpireUnderLock(now);
             var queue = lane == CoordinatorLane.Action ? _actions : _observations;
             if (queue.Count == 0) return null;
@@ -216,9 +233,11 @@ internal sealed class FakeP2Coordinator
     {
         lock (_gate)
         {
+            now = AdvanceClockUnderLock(now);
             ExpireUnderLock(now);
             if (!_running.TryGetValue(operationId, out var work) || work.State != CoordinatorWorkState.Running
                 || work.Owner != lease || work.Fenced || !ValidUnderLock(lease)
+                || (work.Lane == CoordinatorLane.Action && _unresolved.Count != 0)
                 || !HasGrant(lease.Principal, work.Lane == CoordinatorLane.Action
                     ? CoordinatorGrant.Control : CoordinatorGrant.Observe))
                 return false;
@@ -229,14 +248,18 @@ internal sealed class FakeP2Coordinator
         }
     }
 
-    internal bool Finish(string operationId, CoordinatorLease lease)
+    internal bool Finish(string operationId, CoordinatorLease lease, long now = 0)
     {
         lock (_gate)
         {
+            now = AdvanceClockUnderLock(now);
+            ExpireUnderLock(now);
             if (!_running.TryGetValue(operationId, out var work) || work.Owner != lease
-                || work.Fenced || !ValidUnderLock(lease)) return false;
+                || work.Fenced || !ValidUnderLock(lease)
+                || (work.Lane == CoordinatorLane.Action && _unresolved.Count != 0)) return false;
             work.State = CoordinatorWorkState.Completed;
             _running.Remove(operationId);
+            _expiresAt = checked(now + 180); // post-completion idle window
             return true; // terminal test work, NOT evidence that a game effect was saved
         }
     }

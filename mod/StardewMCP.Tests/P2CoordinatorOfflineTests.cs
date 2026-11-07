@@ -36,7 +36,7 @@ public sealed class P2CoordinatorOfflineTests
         Assert.Equal(63, results.Count(r => r.Decision == CoordinatorDecision.Conflict));
         Assert.NotNull(c.Owner);
         Assert.Equal(results.Single(r => r.Decision == CoordinatorDecision.Accepted).Lease, c.Owner);
-        Assert.Null(c.Acquire("luna").Lease); // same-principal initialize is not takeover
+        Assert.Equal(CoordinatorDecision.Conflict, c.Acquire(c.Owner!.Principal).Decision); // same-principal initialize is not takeover
     }
 
     [Fact]
@@ -46,6 +46,7 @@ public sealed class P2CoordinatorOfflineTests
         c.SetGrants("luna", CoordinatorGrant.Control);
         Assert.Equal(CoordinatorDecision.Closed, c.Acquire("luna").Decision);
         c.HostLoaded();
+        c.SetGrants("luna", CoordinatorGrant.Control);
         foreach (var (p1, p2, none) in new[] { (false, true, true), (true, false, true),
                                                 (true, true, false), (false, false, false) })
         {
@@ -134,6 +135,7 @@ public sealed class P2CoordinatorOfflineTests
         Assert.Null(c.StartNext(CoordinatorLane.Action));
         Assert.Equal(CoordinatorDecision.Closed, c.Enqueue(lease, "old-2", CoordinatorLane.Action));
         c.SetRoles(true, true, true);
+        c.SetGrants("luna", CoordinatorGrant.Control | CoordinatorGrant.Observe);
         var next = Assert.IsType<CoordinatorLease>(c.Acquire("luna").Lease);
         Assert.NotEqual(lease.Epoch, next.Epoch);
         Assert.NotEqual(lease.Session, next.Session);
@@ -171,6 +173,7 @@ public sealed class P2CoordinatorOfflineTests
         Assert.Equal(CoordinatorDecision.Closed, c.Enqueue(lease, "late", CoordinatorLane.Action));
         c.HostLoaded();
         c.SetRoles(true, true, true);
+        c.SetGrants("luna", CoordinatorGrant.Control);
         Assert.Equal(CoordinatorDecision.Accepted, c.Acquire("luna").Decision);
     }
 
@@ -230,6 +233,7 @@ public sealed class P2CoordinatorOfflineTests
         Assert.True(c.Step("sleep", lease));
         c.HostLoaded();
         c.SetRoles(true, true, true);
+        c.SetGrants("luna", CoordinatorGrant.Control | CoordinatorGrant.Observe);
         Assert.False(c.Step("sleep", lease));
         Assert.False(c.Step("look", lease));
         Assert.Equal(CoordinatorDecision.Closed, c.Acquire("luna").Decision);
@@ -295,9 +299,10 @@ public sealed class P2CoordinatorOfflineTests
         c.StartNext(CoordinatorLane.Action, now: 1);
         Assert.True(c.Step("bedtime", lease, now: 250)); // test-only pinned in-flight work
         Assert.Equal(CoordinatorDecision.Conflict, c.Acquire("other", now: 250).Decision);
-        Assert.True(c.Finish("bedtime", lease));
-        // Only after the current work ends can expired ownership be retired.
-        Assert.Equal(CoordinatorDecision.Accepted, c.Acquire("other", now: 251).Decision);
+        Assert.True(c.Finish("bedtime", lease, now: 250));
+        // Completion grants the specified idle window, not immediate expiry takeover.
+        Assert.Equal(CoordinatorDecision.Conflict, c.Acquire("other", now: 429).Decision);
+        Assert.Equal(CoordinatorDecision.Accepted, c.Acquire("other", now: 430).Decision);
     }
 
     [Fact]
@@ -312,9 +317,182 @@ public sealed class P2CoordinatorOfflineTests
         Assert.Equal(1, c.UnresolvedCount);
         c.HostLoaded(); // another load cannot clear history or unknown outcome
         c.SetRoles(true, true, true);
+        c.SetGrants("luna", CoordinatorGrant.Control | CoordinatorGrant.Observe);
         var next = Assert.IsType<CoordinatorLease>(c.Acquire("luna").Lease);
         Assert.Equal(CoordinatorDecision.Unresolved, c.Enqueue(next, "retry-respond", CoordinatorLane.Action));
         Assert.Equal(CoordinatorDecision.Duplicate, c.Enqueue(next, "respond", CoordinatorLane.Observation));
         Assert.Equal(0, c.ActionSteps);
     }
+    [Fact]
+    public void Unresolved_barrier_blocks_already_running_mutation_steps_and_completion()
+    {
+        var (c, lease) = Open();
+        Assert.Equal(CoordinatorDecision.Accepted, c.Enqueue(lease, "read", CoordinatorLane.Observation));
+        Assert.Equal(CoordinatorDecision.Accepted, c.Enqueue(lease, "mutate", CoordinatorLane.Action));
+        Assert.NotNull(c.StartNext(CoordinatorLane.Observation));
+        Assert.NotNull(c.StartNext(CoordinatorLane.Action));
+        Assert.True(c.Step("mutate", lease));
+        c.SetGrants("luna", CoordinatorGrant.Control);
+        Assert.True(c.Quiesce("read", outcomeKnown: false));
+        Assert.Equal(1, c.UnresolvedCount);
+        Assert.False(c.Step("mutate", lease));
+        Assert.False(c.Finish("mutate", lease));
+        Assert.Equal(1, c.ActionSteps);
+    }
+
+    [Fact]
+    public void New_fixture_instance_rejects_old_session_even_with_identical_setup()
+    {
+        var (_, oldLease) = Open();
+        var (fresh, lease) = Open();
+        Assert.NotEqual(oldLease.Epoch, lease.Epoch);
+        Assert.Equal(CoordinatorDecision.Closed, fresh.Enqueue(oldLease, "stale", CoordinatorLane.Action));
+        Assert.Equal(CoordinatorRetirement.Denied, fresh.Release(oldLease));
+        Assert.Equal(lease, fresh.Owner);
+    }
+
+    [Fact]
+    public void Title_then_reused_host_key_is_a_new_load_and_requires_fresh_grants()
+    {
+        var c = new FakeP2Coordinator();
+        c.HostLoaded("A");
+        c.SetRoles(true, true, true);
+        c.SetGrants("luna", CoordinatorGrant.Control);
+        var old = Assert.IsType<CoordinatorLease>(c.Acquire("luna").Lease);
+        c.ReturnedToTitle();
+        c.HostLoaded("A");
+        Assert.NotNull(c.Epoch);
+        Assert.NotEqual(old.Epoch, c.Epoch);
+        c.SetRoles(true, true, true);
+        Assert.Equal(CoordinatorDecision.Forbidden, c.Acquire("luna").Decision);
+        c.SetGrants("luna", CoordinatorGrant.Control);
+        Assert.Equal(CoordinatorDecision.Accepted, c.Acquire("luna").Decision);
+    }
+
+    [Fact]
+    public void True_reload_does_not_reuse_prior_epoch_grants()
+    {
+        var (c, _) = Open();
+        c.HostLoaded();
+        c.SetRoles(true, true, true);
+        Assert.Equal(CoordinatorDecision.Forbidden, c.Acquire("luna").Decision);
+    }
+
+    [Theory]
+    [InlineData(-1L)]
+    [InlineData(long.MaxValue)]
+    public void Invalid_clock_cannot_partially_acquire_or_enqueue(long now)
+    {
+        var (c, lease) = Open();
+        Assert.Throws<ArgumentOutOfRangeException>(() => c.Enqueue(lease, "bad-clock", CoordinatorLane.Action, now));
+        Assert.Null(c.Inspect("bad-clock"));
+        Assert.Equal(0, c.PendingActions);
+        Assert.Equal(lease, c.Owner);
+        Assert.Equal(CoordinatorRetirement.Quiescent, c.Release(lease));
+        Assert.Throws<ArgumentOutOfRangeException>(() => c.Acquire("luna", now));
+        Assert.Null(c.Owner);
+    }
+
+    [Theory]
+    [InlineData("revoke")]
+    [InlineData("reload")]
+    [InlineData("role")]
+    [InlineData("release")]
+    public async Task Invalidation_racing_start_and_nested_steps_has_no_post_transition_effect(string transition)
+    {
+        foreach (var lane in new[] { CoordinatorLane.Action, CoordinatorLane.Observation })
+        foreach (bool started in new[] { false, true })
+        {
+            var (c, lease) = Open();
+            Assert.Equal(CoordinatorDecision.Accepted, c.Enqueue(lease, "work", lane));
+            if (started)
+            {
+                Assert.Equal(CoordinatorWorkState.Running, c.StartNext(lane)!.State);
+                Assert.True(c.Step("work", lease)); // outer synthetic step
+            }
+            using var rendezvous = new System.Threading.Barrier(2);
+            int effectsAtInvalidation = -1;
+            await Task.WhenAll(Task.Run(() =>
+            {
+                rendezvous.SignalAndWait();
+                switch (transition)
+                {
+                    case "revoke": c.SetGrants("luna", CoordinatorGrant.None); break;
+                    case "reload": c.HostLoaded(); break;
+                    case "role": c.SetRoles(true, true, false); break;
+                    case "release": c.Release(lease); break;
+                }
+                effectsAtInvalidation = c.ActionSteps + c.ObservationSteps;
+            }), Task.Run(() =>
+            {
+                rendezvous.SignalAndWait();
+                if (!started) c.StartNext(lane);
+                c.Step("work", lease); // nested synthetic step may win BEFORE invalidation
+            }));
+            Assert.False(c.Step("work", lease));
+            Assert.False(c.Finish("work", lease));
+            Assert.Null(c.StartNext(lane));
+            Assert.Equal(effectsAtInvalidation, c.ActionSteps + c.ObservationSteps);
+            var work = c.Inspect("work")!;
+            if (work.State == CoordinatorWorkState.Running)
+            {
+                Assert.True(work.Fenced);
+                Assert.True(c.Quiesce("work", outcomeKnown: false));
+                Assert.False(c.Quiesce("work", outcomeKnown: true));
+                Assert.Equal(1, c.UnresolvedCount);
+            }
+            else Assert.Equal(CoordinatorWorkState.CancelledBeforeStart, work.State);
+        }
+    }
+
+    [Fact]
+    public void Expiry_purges_full_queues_and_fences_running_observation_until_quiescent()
+    {
+        var (c, lease) = Open();
+        Assert.Equal(CoordinatorDecision.Accepted, c.Enqueue(lease, "read", CoordinatorLane.Observation));
+        Assert.NotNull(c.StartNext(CoordinatorLane.Observation));
+        for (int i = 0; i < FakeP2Coordinator.MaxPendingPerLane; i++)
+        {
+            Assert.Equal(CoordinatorDecision.Accepted, c.Enqueue(lease, $"a{i}", CoordinatorLane.Action));
+            Assert.Equal(CoordinatorDecision.Accepted, c.Enqueue(lease, $"o{i}", CoordinatorLane.Observation));
+        }
+        Assert.False(c.Step("read", lease, now: 180));
+        Assert.Equal(0, c.PendingActions + c.PendingObservations);
+        Assert.Equal(CoordinatorDecision.Closed, c.Acquire("luna").Decision);
+        Assert.True(c.Quiesce("read", outcomeKnown: true));
+        var next = Assert.IsType<CoordinatorLease>(c.Acquire("luna").Lease);
+        Assert.Equal(CoordinatorRetirement.Denied, c.Release(lease));
+        Assert.Equal(CoordinatorDecision.Accepted, c.Enqueue(next, "fresh", CoordinatorLane.Action));
+        Assert.NotNull(c.StartNext(CoordinatorLane.Action));
+        Assert.True(c.Step("fresh", next));
+    }
+
+    [Fact]
+    public void Clock_regression_cannot_shorten_renewal_or_rewind_expiry()
+    {
+        var (c, lease) = Open();
+        Assert.Equal(CoordinatorDecision.Accepted, c.Enqueue(lease, "first", CoordinatorLane.Action, now: 50));
+        Assert.Equal(CoordinatorDecision.Accepted, c.Enqueue(lease, "second", CoordinatorLane.Action, now: 1));
+        Assert.Equal(CoordinatorDecision.Conflict, c.Acquire("luna", now: 200).Decision);
+        Assert.Equal(CoordinatorDecision.Accepted, c.Acquire("luna", now: 230).Decision);
+        Assert.Equal(CoordinatorDecision.Closed, c.Enqueue(lease, "stale", CoordinatorLane.Action));
+    }
+
+    [Fact]
+    public void Untrusted_lease_cannot_release_finish_or_quiesce_live_work()
+    {
+        var (c, lease) = Open();
+        var foreign = lease with { Principal = "other" };
+        Assert.Equal(CoordinatorDecision.Accepted, c.Enqueue(lease, "work", CoordinatorLane.Action));
+        Assert.NotNull(c.StartNext(CoordinatorLane.Action));
+        Assert.Equal(CoordinatorRetirement.Denied, c.Release(foreign));
+        Assert.False(c.Step("work", foreign));
+        Assert.False(c.Finish("work", foreign));
+        Assert.False(c.Quiesce("work", outcomeKnown: true)); // trusted hook still requires fencing
+        Assert.False(c.ReconcileFromOperator("work")); // cannot clear running ownership
+        Assert.Equal(1, c.RunningCount);
+        Assert.Equal(lease, c.Owner);
+        Assert.True(c.Step("work", lease));
+    }
+
 }
