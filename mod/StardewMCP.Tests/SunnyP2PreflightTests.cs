@@ -24,12 +24,12 @@ public sealed class SunnyP2PreflightTests
     {
         public int CredentialLookups, SessionLookups, MutationChecks;
         public bool Ready = true, C = true, O = true, FailSchema, ThrowCredential, ThrowSchema;
-        public string Seat = "p2", CurrentSession = Session, CurrentEpoch = Epoch;
+        public string Principal = "luna", Seat = "p2", CurrentSession = Session, CurrentEpoch = Epoch;
         public SunnyP2Principal? ResolveGameCredential(string rawBearer)
         {
             CredentialLookups++;
             if (ThrowCredential) throw new InvalidOperationException("synthetic credential store offline");
-            return rawBearer == GameToken ? new("luna", Seat, C, O) : null;
+            return rawBearer == GameToken ? new(Principal, Seat, C, O) : null;
         }
         public bool HumanP1AiP2ExternalBrainReady => Ready;
         public bool IsCurrentOwnerSession(string principalId, string session, string epoch)
@@ -49,6 +49,7 @@ public sealed class SunnyP2PreflightTests
     private static SunnyP2Request Request(string body = Status, bool initialized = true)
     {
         var headers = new List<KeyValuePair<string, string>> {
+            new("Host", "127.0.0.1:8770"),
             new("Authorization", "Bearer " + GameToken),
             new("Content-Type", "application/json"),
             new("Accept", "application/json")
@@ -105,7 +106,7 @@ public sealed class SunnyP2PreflightTests
     [InlineData("127.0.0.1:18770", "127.0.0.1", 18770)]
     public void Accepts_only_explicit_configured_loopback_host(string host, string peer, int port)
     {
-        var decision = SunnyP2Preflight.Evaluate(Request(Ready) with { Host = host, PeerAddress = peer, Port = port }, new FakeAuthority());
+        var decision = SunnyP2Preflight.Evaluate(ReplaceHeader(Request(Ready), "Host", host) with { Host = host, PeerAddress = peer, Port = port }, new FakeAuthority());
         Assert.Equal(200, decision.Status);
     }
 
@@ -319,6 +320,108 @@ public sealed class SunnyP2PreflightTests
         }, a).Status);
         Assert.Equal(400, SunnyP2Preflight.Evaluate(req with { Body = new byte[] { 0xFF } }, a).Status);
         Assert.Equal(0, a.MutationChecks);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void Anonymous_authority_principal_is_not_an_owner(string principal)
+    {
+        var a = new FakeAuthority { Principal = principal };
+        Assert.Equal(403, SunnyP2Preflight.Evaluate(Request(Say), a).Status);
+        Assert.Equal(0, a.SessionLookups + a.MutationChecks);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Grant_revocation_after_preflight_must_be_checked_at_admission(bool observation)
+    {
+        var c = new FakeP2Coordinator();
+        c.HostLoaded();
+        c.SetRoles(true, true, true);
+        c.SetGrants("luna", CoordinatorGrant.Control | CoordinatorGrant.Observe);
+        var lease = Assert.IsType<CoordinatorLease>(c.Acquire("luna").Lease);
+        var a = new FakeAuthority { CurrentSession = lease.Session, CurrentEpoch = lease.Epoch };
+        var req = ReplaceHeader(ReplaceHeader(Request(observation ? Status : Say),
+            "Mcp-Session-Id", lease.Session), "X-Sunny-Save-Epoch", lease.Epoch);
+        Assert.True(SunnyP2Preflight.Evaluate(req, a).Allowed);
+        c.SetGrants("luna", observation ? CoordinatorGrant.Control : CoordinatorGrant.None);
+        Assert.NotEqual(CoordinatorDecision.Accepted,
+            c.Enqueue(lease, "attempt", observation ? CoordinatorLane.Observation : CoordinatorLane.Action));
+        Assert.Equal(0, c.PendingActions + c.PendingObservations + c.ActionSteps + c.ObservationSteps);
+        // Stale fake authority still approves: it is not the real admission boundary.
+        Assert.True(SunnyP2Preflight.Evaluate(req, a).Allowed);
+    }
+
+    [Theory]
+    [InlineData("Host", "evil.invalid:8770")]
+    [InlineData("Content-Length", "0")]
+    [InlineData("Content-Length", "+1")]
+    [InlineData("Content-Length", "999999999999999999999")]
+    [InlineData("Transfer-Encoding", "chunked")]
+    [InlineData("Transfer-Encoding", "identity")]
+    [InlineData("MCP-Protocol-Version", "2024-11-05")]
+    public void Raw_authority_framing_and_protocol_fail_before_auth(string name, string value)
+    {
+        var a = new FakeAuthority();
+        Assert.Equal(400, SunnyP2Preflight.Evaluate(ReplaceHeader(Request(Say), name, value), a).Status);
+        Assert.Equal(0, a.CredentialLookups);
+    }
+
+    [Fact]
+    public void Raw_host_is_required_and_duplicates_are_not_collapsed()
+    {
+        var a = new FakeAuthority();
+        Assert.Equal(400, SunnyP2Preflight.Evaluate(Request() with {
+            Headers = Request().Headers.Where(h => h.Key != "Host").ToList()
+        }, a).Status);
+        foreach (var name in new[] { "host", "origin", "transfer-encoding", "content-length" })
+        {
+            var req = WithHeader(WithHeader(Request(), name, "x"), name.ToUpperInvariant(), "x");
+            Assert.Equal(400, SunnyP2Preflight.Evaluate(req, a).Status);
+        }
+        Assert.Equal(0, a.CredentialLookups);
+    }
+
+    [Fact]
+    public void Matching_length_protocol_and_pilot_accept_list_remain_compatible()
+    {
+        var req = Request();
+        req = WithHeader(req, "Content-Length", req.Body.Length.ToString());
+        req = WithHeader(req, "MCP-Protocol-Version", SunnyP2Preflight.Protocol);
+        req = ReplaceHeader(req, "Accept", "application/json, text/event-stream");
+        Assert.True(SunnyP2Preflight.Evaluate(req, new FakeAuthority()).Allowed);
+    }
+
+    [Fact]
+    public void Invalid_utf8_inside_unused_json_string_is_rejected()
+    {
+        var req = Request(Ready.Replace("}", ",\"params\":{\"unused\":\"x\"}}"));
+        var bytes = req.Body;
+        bytes[Array.LastIndexOf(bytes, (byte)'x')] = 0xff;
+        Assert.Equal(400, SunnyP2Preflight.Evaluate(req, new FakeAuthority()).Status);
+    }
+
+    [Theory]
+    [InlineData("9007199254740991", true)]
+    [InlineData("-9007199254740991", true)]
+    [InlineData("9007199254740992", false)]
+    [InlineData("-9007199254740992", false)]
+    public void Numeric_id_safe_integer_boundary(string id, bool allowed)
+    {
+        Assert.Equal(allowed, SunnyP2Preflight.Evaluate(
+            Request(Ready.Replace("\"id\":4", "\"id\":" + id)), new FakeAuthority()).Allowed);
+    }
+
+    [Fact]
+    public void Excessive_depth_and_escaped_duplicate_keys_are_rejected()
+    {
+        var nested = new string('[', 33) + "0" + new string(']', 33);
+        Assert.Equal(400, SunnyP2Preflight.Evaluate(
+            Request(Ready.Replace("}", ",\"params\":{\"x\":" + nested + "}}")), new FakeAuthority()).Status);
+        Assert.Equal(400, SunnyP2Preflight.Evaluate(
+            Request(Say.Replace("\"text\":\"Hi\"", "\"text\":\"Hi\",\"te\\u0078t\":\"Again\"")), new FakeAuthority()).Status);
     }
 
     [Fact]

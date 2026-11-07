@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Text.Json;
+using System.Text;
 
 namespace StardewMCP.Agent;
 
@@ -48,6 +49,18 @@ public static class SunnyP2Preflight
                 !headers.TryAdd(pair.Key, pair.Value))
                 return SunnyP2Decision.Deny(400);
         }
+        // Host must be the single raw header, not a normalized URL authority.
+        // This profile deliberately refuses transfer codings until an adapter is reviewed.
+        if (!headers.TryGetValue("Host", out var rawHost) || rawHost != request.Host ||
+            headers.ContainsKey("Transfer-Encoding") || request.Body is null)
+            return SunnyP2Decision.Deny(400);
+        if (headers.TryGetValue("Content-Length", out var length) &&
+            (length.Length == 0 || length.Any(c => c < '0' || c > '9') ||
+             !long.TryParse(length, NumberStyles.None, CultureInfo.InvariantCulture, out var count) ||
+             count != request.Body.Length))
+            return SunnyP2Decision.Deny(400);
+        if (headers.TryGetValue("MCP-Protocol-Version", out var protocol) && protocol != Protocol)
+            return SunnyP2Decision.Deny(400);
         if (headers.ContainsKey("Origin")) return SunnyP2Decision.Deny(403);
         if (!headers.TryGetValue("Authorization", out var authorization) ||
             !authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
@@ -60,7 +73,7 @@ public static class SunnyP2Preflight
         try { principal = authority.ResolveGameCredential(token); }
         catch { return SunnyP2Decision.Deny(503); }
         if (principal is null) return SunnyP2Decision.Deny(401);
-        if (principal.Seat != "p2" || !principal.Control)
+        if (string.IsNullOrWhiteSpace(principal.PrincipalId) || principal.Seat != "p2" || !principal.Control)
             return SunnyP2Decision.Deny(403);
         bool rolesReady;
         try { rolesReady = authority.HumanP1AiP2ExternalBrainReady; }
@@ -90,6 +103,8 @@ public static class SunnyP2Preflight
 
         try
         {
+            // JsonDocument can defer string decoding; validate every byte even in unused fields.
+            new UTF8Encoding(false, true).GetCharCount(request.Body);
             using var doc = JsonDocument.Parse(request.Body, new JsonDocumentOptions {
                 MaxDepth = 32, AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow
             });

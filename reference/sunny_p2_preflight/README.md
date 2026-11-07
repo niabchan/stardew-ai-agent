@@ -39,3 +39,102 @@ python -m pytest -q mod/tests reference/sunny_gift/tests
 These commands must run in CI on this Draft PR. No Windows/SMAPI build, live HTTP/MCP, model usage, private records or saves should be accessed. Passing tests demonstrates parsing and rejection under synthetic assumptions only, **not** real listener authorization or race safety.
 
 This slice is separate from [the server auth/epoch design](../../docs/sunny-agentic/SERVER_AUTH_SESSION_EPOCH_CONTRACT.md), [the offline Python client](../sunny_transport/README.md) and [the P2 coordinator fake](../sunny_p2_coordinator/README.md). Any merge should target PR #22's **Draft design branch only**, never main. Keep the actual listener change in a later, reviewed PR.
+
+## Issue #32 independent review (2026-11-07)
+
+Material findings fixed in this dormant seam (severity describes future integration
+risk; none changes the currently exposed listener):
+
+- **High: raw authority/framing ambiguity.** A valid `request.Host` previously
+  coexisted with a conflicting single `Host` header, and Content-Length and
+  Transfer-Encoding were ignored. Require one raw Host matching the explicit
+  authority, validate any Content-Length against the bounded byte body, and
+  reject all transfer codings in this phase. Duplicate headers remain rejected
+  before credential lookup. This is not an HTTP request-smuggling defense for
+  HTTP.sys: only a reviewed raw adapter can establish what bytes were consumed.
+- **Medium: optional protocol header was ignored.** A contradictory
+  `MCP-Protocol-Version` now fails closed instead of bypassing negotiation.
+  Omission remains compatible with PR #26.
+- **Medium: deferred UTF-8 decoding.** JsonDocument syntax parsing alone does not
+  establish valid UTF-8 in every unused string. Validate the entire bounded byte
+  body with a throwing UTF-8 decoder before JSON parsing, including unused nested
+  values. Regressions also cover escaped duplicate keys, depth and safe-ID limits.
+- **Medium: malformed authority principal.** Reject an empty/whitespace principal
+  ID rather than letting an implementation accidentally match an anonymous owner.
+
+### Adapter contract and compatibility gates
+
+The future adapter must supply the configured port (never derive it from Host),
+actual socket peer (never forwarded headers), exact raw authority in both Host
+and the uncollapsed header list, canonical raw path and raw query separately.
+Never feed only `Url.AbsolutePath`, decoded/trimmed paths or a dictionary that
+already combined duplicates. Preserve case-variant duplicates, including Host,
+Origin, Content-Length and Transfer-Encoding. If HTTP.sys cannot expose ambiguity,
+prove its rejection at that boundary before integration. Bound body reads before
+allocation (16 KiB, deadline 5s), verify length/end-of-body, and reject transfer
+coding before dispatch. Reject ambiguous requests and close their connections;
+do not reuse keepalive connections with unread bytes. Connection and concurrency
+budgets, slow-body defense and pipelined requests are not implemented here.
+
+Exact `application/json` and the supplied v0.3.11 pilot's
+`Accept: application/json, text/event-stream` list work; PR #26's JSON-only Accept
+also works. Media parameters, Accept quality negotiation and chunked requests
+remain unsupported by this narrow profile and require a reviewed migration,
+not silent normalization. The pilot itself still needs bearer/session/epoch and
+initialize migration; its legacy query options remain rejected.
+
+`SunnyP2Decision.Status == 200` means policy admission only, not a wire response.
+The future response layer must turn admitted initialized notifications into empty
+202, echo the admitted epoch, use no-store/no wildcard CORS, issue a lease only
+after atomic acquisition, and never treat admitted DELETE as retirement proof.
+The current bool session authority cannot distinguish foreign/unknown (404),
+retired (410) and stale-current-owner (409) states from the approved contract;
+its generic 409 is a deliberate lossy seam, not the final wire error taxonomy.
+No positive decision proves cryptographic credential verification, session
+issuance, retirement, cancellation or quiescence. PR #26's indefinite ownership
+and mutation-unknown fences must remain intact.
+
+C and O are independent: status requires both, mutation requires C plus an
+approved schema. Neither authorizes P1 automation, raw status/diary/OBS data or
+the separate consent-aware P1 safety projection. Every non-status tool is
+conservatively classified as mutation; real ToolContract validation must deny
+unknown tools, extra fields and cross-seat/resource injection. The fake say-only
+validator is not a production schema registry.
+
+The existing reload-between-preflight-and-enqueue regression demonstrates a
+stale positive decision, not general race safety. A real coordinator must
+atomically recheck credential revocation, C/O grants, owner/session/instance/epoch,
+role generation, tool arguments and queue capacity before contact, deadline,
+freeze or insertion, and check relevant predicates before every coroutine step
+and observation disclosure. Fake counters are not gameplay effects.
+
+### Compilation and disposition
+
+The SDK's default source inclusion compiles this namespace's unused records and
+class into the net6.0 mod; the test project explicitly links the same file into
+its own assembly without referencing the game project. The language, records,
+System.Text.Json and namespace match the current project. Game-free compilation
+does not verify SMAPI/Windows integration; no mod build or installed DLL change
+is part of this review. No caller references this class.
+
+Keeping the source dormant here is acceptable **only as an inert source+test
+addition to PR #22's Draft branch**. Before integration, prefer a separate
+game-free shared policy library with typed admission/response boundaries so the
+mod, raw-adapter tests and coordinator use one compiled contract. That structural
+change is outside these four files and does not justify connecting this seam now.
+Legacy endpoints remain exposed as documented above.
+
+Review source anchors: raw header/framing/version gates
+[SunnyP2Preflight.cs:52](../../mod/StardewMCP/Agent/SunnyP2Preflight.cs#L52),
+principal check [line 76](../../mod/StardewMCP/Agent/SunnyP2Preflight.cs#L76),
+UTF-8 check [line 106](../../mod/StardewMCP/Agent/SunnyP2Preflight.cs#L106);
+revocation snapshot regressions
+[SunnyP2PreflightTests.cs:335](../../mod/StardewMCP.Tests/SunnyP2PreflightTests.cs#L335).
+The existing role/scope, stale-session and reload regressions remain in that file.
+
+Local verification: game-free C# suite **551 passed, 0 failed, 0 skipped**;
+Python `mod/tests reference/sunny_gift/tests` **286 passed, 1 existing xfailed**;
+`git diff --check` passed. The first C# invocation could not write the default
+CLI home; rerunning with the existing writable /workspace CLI home and NuGet
+cache passed. No dependencies, mod binaries or game were installed/launched.
+These results cover synthetic contracts only.
