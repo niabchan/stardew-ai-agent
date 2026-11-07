@@ -52,7 +52,21 @@ internal sealed class FakeSecurityBoundary
     internal int SessionCount => _sessions.Count;
 
     // A deterministic budget per fixture/epoch, not a wall-clock rate limiter.
-    internal void NewSaveEpoch() { Epoch++; _sessions.Clear(); _requests = 0; }
+    internal void NewSaveEpoch() { Epoch++; _sessions.Clear(); _queue.Clear(); _requests = 0; }
+    internal void RevokeCredential(string credential)
+    {
+        if (Grants.TryGetValue(credential, out var grant)) Grants[credential] = grant with { Revoked = true };
+        RetireSessions(s => s.Credential == credential);
+    }
+    // Sequential model: retirement releases the lease and queue capacity immediately.
+    private void RetireSessions(Func<SessionOwner, bool> retire)
+    {
+        foreach (string id in _sessions.Where(pair => retire(pair.Value)).Select(pair => pair.Key).ToArray())
+            _sessions.Remove(id);
+        var retained = _queue.Where(w => Owned(w.Session, w.Credential)).ToArray();
+        _queue.Clear();
+        foreach (var work in retained) _queue.Enqueue(work);
+    }
     private bool Authorized(string credential, long now) =>
         Grants.TryGetValue(credential, out var g) && !g.Revoked && now < g.ExpiresAt
         && g.Seat == "p2" && g.Scope == "mcp" && P2Role == "ai" && P2Active;
@@ -78,7 +92,8 @@ internal sealed class FakeSecurityBoundary
         if (r.Method == "DELETE")
         {
             if (!Owned(r.Session, r.Credential)) return new(403);
-            _sessions.Remove(r.Session!);
+            var owner = _sessions[r.Session!];
+            RetireSessions(s => s == owner);
             return new(200);
         }
         if (r.ContentType != "application/json") return new(415);
@@ -94,6 +109,10 @@ internal sealed class FakeSecurityBoundary
             if (methods.Contains("initialize"))
             {
                 if (messages.Length != 1 || r.Session != null) return new(400);
+                // No implicit takeover, even for another client using the same credential.
+                // Retire invalid grants before admission so they cannot strand the lease/capacity.
+                RetireSessions(s => !Authorized(s.Credential, now));
+                if (_sessions.Count != 0) return new(409);
                 string id = $"fixture-session-{++_sequence}";
                 _sessions.Add(id, new(r.Credential, "p2", Epoch));
                 return new(200, "initialized", id);
@@ -132,6 +151,7 @@ internal sealed class FakeSecurityBoundary
 
     internal BoundaryReply ExecuteNext(long now = 10, bool disconnected = false)
     {
+        if (_queue.Count == 0) return new(204);
         var work = _queue.Dequeue();
         if (disconnected || work.Epoch != Epoch || !Owned(work.Session, work.Credential)
             || !Authorized(work.Credential, now)) return new(403);

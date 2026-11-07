@@ -12,8 +12,14 @@ public class SecurityBoundaryTests
 {
     private const string Initialize = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}";
     private const string Status = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"status\",\"arguments\":{}}}";
-    private static string Open(FakeSecurityBoundary p, string credential = "p2-a") =>
-        p.Handle(new(Credential: credential, Body: Initialize)).Session!;
+    private static string Open(FakeSecurityBoundary p, string credential = "p2-a", long now = 10)
+    {
+        var reply = p.Handle(new(Credential: credential, Body: Initialize), now);
+        Assert.Equal(200, reply.Status);
+        Assert.NotNull(reply.Session);
+        return reply.Session!;
+    }
+    // Protected fixture effects only; deliberate request-budget accounting is excluded.
     private static object Effects(FakeSecurityBoundary p) =>
         (p.Contacts, p.ToolCalls, p.StateReads, p.SessionBreaks, p.ReplyDeadlineChanges,
             p.Queued, p.SessionCount, p.P1Role, p.P2Role, p.ClockReleased, p.TimedOut);
@@ -59,7 +65,7 @@ public class SecurityBoundaryTests
     }
 
     [Theory, MemberData(nameof(Denials))]
-    public void Transport_and_grant_denials_precede_every_side_effect(object input, int status)
+    public void Transport_and_grant_denials_preserve_protected_fixture_effects(object input, int status)
     {
         var p = new FakeSecurityBoundary();
         string session = Open(p);
@@ -102,7 +108,7 @@ public class SecurityBoundaryTests
     [InlineData("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"unknown\"}")]
     [InlineData("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"walk_to\",\"arguments\":{}}}")]
     [InlineData("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"status\",\"arguments\":{\"seat\":\"p1\"}}}")]
-    public void Invalid_rpc_has_no_effects(string body)
+    public void Invalid_rpc_preserves_protected_fixture_effects(string body)
     {
         var p = new FakeSecurityBoundary();
         Denied(p, new(Session: Open(p), Body: body), 400);
@@ -119,18 +125,29 @@ public class SecurityBoundaryTests
     }
 
     [Fact]
-    public void Sessions_require_initialization_and_belong_to_one_caller_even_with_the_same_grant()
+    public void An_exclusive_session_rejects_other_credentials_with_identical_scope()
     {
         var p = new FakeSecurityBoundary();
         Denied(p, new(Body: Status), 403);
-        string a = Open(p), b = Open(p, "p2-b");
-        Assert.NotEqual(a, b);
+        string a = Open(p);
+        Assert.Equal(200, p.Handle(new(Session: a, Body: Status)).Status);
+        Denied(p, new(Credential: "p2-b", Body: Initialize), 409);
+        Denied(p, new(Body: Initialize), 409);
+        Assert.Equal(1, p.SessionCount);
+        Denied(p, new(Credential: "p2-b", Body: Status), 403);
         Denied(p, new(Credential: "p2-b", Session: a, Body: Status), 403);
         Denied(p, new(Session: "stardew-p2", Body: Status), 403);
         Denied(p, new(Method: "DELETE", Credential: "p2-b", Session: a), 403);
+        Assert.Equal(200, p.ExecuteNext().Status); // Rejected takeovers preserved the owner's work.
         Assert.Equal(200, p.Handle(new(Method: "DELETE", Session: a)).Status);
         Denied(p, new(Session: a, Body: Status), 403);
-        Assert.Equal(200, p.Handle(new(Credential: "p2-b", Session: b)).Status);
+        string b = Open(p, "p2-b");
+        Assert.NotEqual(a, b);
+        Denied(p, new(Credential: "p2-a", Session: b, Body: Status), 403);
+        Denied(p, new(Body: Initialize), 409);
+        Assert.Equal(200, p.Handle(new(Credential: "p2-b", Session: b, Body: Status)).Status);
+        Assert.Equal(200, p.ExecuteNext().Status);
+        Assert.Equal(2, p.ToolCalls);
     }
 
     [Theory]
@@ -152,33 +169,74 @@ public class SecurityBoundaryTests
     }
 
     [Theory]
-    [InlineData("epoch")]
     [InlineData("revoke")]
     [InlineData("rotate")]
     [InlineData("expire")]
     [InlineData("role")]
     [InlineData("inactive")]
-    [InlineData("delete")]
     [InlineData("disconnect")]
-    public void Queued_work_rechecks_ownership_grant_role_and_epoch_at_execution(string change)
+    public void Queued_work_rechecks_grant_role_activity_and_disconnect_at_execution(string change)
     {
         var p = new FakeSecurityBoundary();
         string session = Open(p);
         Assert.Equal(200, p.Handle(new(Session: session, Body: Status)).Status);
         switch (change)
         {
-            case "epoch": p.NewSaveEpoch(); break;
             case "revoke": p.Grants["p2-a"] = new(Revoked: true); break;
             case "rotate": p.Grants.Remove("p2-a"); p.Grants["replacement"] = new(); break;
             case "role": p.P2Role = "human"; break;
             case "inactive": p.P2Active = false; break;
-            case "delete": p.Handle(new(Method: "DELETE", Session: session)); break;
         }
         var reply = p.ExecuteNext(now: change == "expire" ? 100 : 10, disconnected: change == "disconnect");
         Assert.Equal(403, reply.Status);
         Assert.Equal("", reply.Body);
         Assert.Equal(0, p.Contacts + p.ToolCalls + p.StateReads);
         Assert.Equal(0, p.Queued);
+    }
+
+    [Theory]
+    [InlineData("epoch")]
+    [InlineData("delete")]
+    [InlineData("revoke")]
+    [InlineData("expire")]
+    [InlineData("rotate")]
+    public void Retiring_a_full_old_queue_allows_a_new_owner_without_draining(string change)
+    {
+        var p = new FakeSecurityBoundary();
+        string old = Open(p);
+        for (int i = 0; i < FakeSecurityBoundary.MaxQueue; i++)
+            Assert.Equal(200, p.Handle(new(Session: old, Body: Status)).Status);
+        Assert.Equal(FakeSecurityBoundary.MaxQueue, p.Queued);
+        long now = 10;
+        switch (change)
+        {
+            case "epoch": p.NewSaveEpoch(); break;
+            case "delete": Assert.Equal(200, p.Handle(new(Method: "DELETE", Session: old)).Status); break;
+            case "revoke": p.RevokeCredential("p2-a"); break;
+            case "expire": p.Grants["p2-a"] = new(ExpiresAt: 20); now = 20; break;
+            case "rotate": p.Grants.Remove("p2-a"); break;
+        }
+        if (change == "epoch" || change == "delete" || change == "revoke")
+        {
+            Assert.Equal(0, p.SessionCount);
+            Assert.Equal(0, p.Queued); // Explicit retirement purges immediately.
+            Assert.Equal(204, p.ExecuteNext().Status);
+        }
+        string current = Open(p, "p2-b", now); // Admission reaps expired/removed grants too.
+        Assert.NotEqual(old, current);
+        Assert.Equal(1, p.SessionCount);
+        Assert.Equal(0, p.Queued);
+        Assert.Equal(0, p.Contacts + p.ToolCalls + p.StateReads);
+        Assert.Equal(200, p.Handle(new(Credential: "p2-b", Session: current, Body: Status), now).Status);
+        Assert.Equal(1, p.Queued);
+        Assert.Equal(200, p.ExecuteNext(now).Status);
+        Assert.Equal(1, p.Contacts);
+        Assert.Equal(1, p.ToolCalls);
+        Assert.Equal(1, p.StateReads);
+        Assert.Equal(0, p.Queued);
+        Assert.Equal(204, p.ExecuteNext(now).Status); // No old work remains behind the new call.
+        Assert.Equal(1, p.ToolCalls);
+        Denied(p, new(Session: old, Body: Status), change == "revoke" || change == "expire" || change == "rotate" ? 401 : 403, now);
     }
 
     [Fact]
@@ -197,6 +255,7 @@ public class SecurityBoundaryTests
             using var body = JsonDocument.Parse(reply.Body);
             Assert.Equal(new[] { "seat", "status" }, body.RootElement.EnumerateObject().Select(x => x.Name));
             Assert.Equal("p2", body.RootElement.GetProperty("seat").GetString());
+            Assert.Equal(200, p.Handle(new(Method: "DELETE", Session: current)).Status);
         }
         Assert.Equal(3, p.ToolCalls);
         Assert.Equal("human", p.P1Role);

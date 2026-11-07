@@ -15,13 +15,13 @@ are used. Credentials, session IDs, epochs and seat state are synthetic.
 | --- | --- |
 | Authentication and authorization | Missing, wrong, expired, revoked and rotated credentials; separate operator/log/diagnostic grants cannot act as P2; missing grants fail closed |
 | Validation before effects | Exact route/method/authority allowlists; IPv4/IPv6 loopback peer; all Origin headers denied; browser simple POST media types, duplicate-header flag, query ambiguity, JSON shape/version/id/params, unknown and mutation tools |
-| Denial privacy and effects | Empty denial body, no session disclosure or wildcard CORS; unchanged reads, contact, enqueue, session count, session-break/deadline counters, roles and clock flags |
-| Session ownership | Initialization required; foreign caller with identical scope denied; predictable legacy session rejected; owner-only DELETE invalidates session and queued work |
-| Save lifecycle | Repeated same-process synthetic epochs; old sessions and accepted work denied after epoch change; fresh initialization required |
+| Denial privacy and effects | Empty denial body, no session disclosure or wildcard CORS; unchanged protected fixture reads, contact, enqueue, session count, session-break/deadline counters, roles and clock flags; intentional request-budget accounting excluded |
+| Session ownership | Initialization required; one live P2 session; second initialization (same or different credential) gets 409; foreign credential with identical scope denied; owner-only DELETE immediately removes the session and its queued work |
+| Save lifecycle | Repeated same-process synthetic epochs; epoch change immediately clears sessions and queued work; fresh initialization required; full old queue cannot block a new owner |
 | P1/P2 isolation | No default-seat/P1 MCP, aggregate state, runtime control, feed or evidence routes; no P1 projection or consent bypass; status result allowlists only P2 seat/status |
 | Discovery | Initialize, ping, tools/list and initialized notification leave contact, clock, deadline and role state unchanged |
 | Execution guard | Queued status rechecks credential validity, owner, epoch, role, activity and disconnect before simulated contact/tool/read counters |
-| Availability | UTF-8 byte, read-duration, batch, queue, connection and request budgets; exact byte boundary; whole-batch preflight prevents partial admission; queue recovers when drained |
+| Availability | UTF-8 byte, read-duration, batch, queue, connection and request budgets; exact byte boundary; whole-batch preflight prevents partial admission; queue recovers when drained or stale work is purged before new-owner admission |
 
 The model intentionally supports only native P2 discovery and a metadata-only
 `status` tool. It proposes strict JSON/media-type handling and whole-batch
@@ -32,6 +32,27 @@ and disconnect flags are supplied inputs; there is no real concurrent reader,
 header parser or timer. Session labels have no cryptographic strength. Synthetic
 grants express ownership and rotation, not secret provisioning or OS ACL policy.
 The fixture is sequential and does not establish atomicity under concurrent callers.
+P1Role is fixed to human; these tests do not cover production role/config fallbacks.
+
+The exclusive lease is the single P2 session for the current synthetic epoch.
+There is no implicit takeover of a live lease, including by the same credential.
+An owner DELETE, explicit `RevokeCredential`, or `NewSaveEpoch` immediately removes
+retired sessions and queued work, releasing capacity without calling `ExecuteNext`.
+A validated initialization also reaps sessions whose grants are expired, removed,
+revoked or no longer authorized before checking exclusivity. This is deliberate
+lifecycle cleanup, separate from protected gameplay effects and request-budget
+accounting. Direct changes to the synthetic grant dictionary are detected at
+initialization or execution; they are not a notification mechanism. Empty
+`ExecuteNext` returns 204 and performs no simulated contact/tool/read effect.
+
+Regressions start with a full old queue, transition through epoch change, DELETE,
+explicit revocation, expiration or grant removal, then admit and execute only new
+work without draining stale entries. Execution guards are tested separately by
+changing grant/role/activity after admission. Ownership means possession of a
+credential and session label: clients sharing both are indistinguishable in this
+model. It does not establish process identity or prevent shared-credential use.
+The status-only fake has no gameplay mutation to test; unchanged clock/deadline
+flags are synthetic invariants, not evidence about the real runtime.
 
 Run with the existing test project:
 
