@@ -13,7 +13,7 @@ The fixture is deliberately **not linked into `StardewMCP` or `AgentHttp`**. It 
 - One exclusive Sunny **P2** controller per host epoch, including concurrent initializations; no global restriction on other upstream AI seats
 - Admission requires explicit human P1, AI P2 and external-brain-disabled role resolution; unknown role/brain state fails closed
 - Independent C (control) and O (observe) grant checks; losing O cancels only P2 observation work while preserving C, whereas losing C retires the owner
-- One synthetic host-load epoch for each host reload; delayed/guest SaveLoaded never rotates it. Returning to title closes the gate
+- One synthetic host-load epoch for each distinct host transition; repeated callbacks sharing the same test-only host-transition key and delayed/guest SaveLoaded do not rotate it. Returning to title closes the gate
 - Both pending action and pending observation lanes are bounded; retirement frees their capacity immediately, with queued work marked `cancelled_before_start`
 - A started operation is separately fenced before every synthetic step. New owners cannot acquire until its quiescence has been confirmed; old-work partial and unknown outcomes remain distinguishable
 - Prior uncertain effects create a **global pending-outcome barrier** for subsequent mutations, including after host reload. Observations can continue for reconciliation. Clearing the barrier is an explicit trusted test-harness operation, never a timeout or DELETE side effect
