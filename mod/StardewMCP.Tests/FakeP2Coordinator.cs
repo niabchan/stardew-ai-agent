@@ -50,6 +50,7 @@ internal sealed class FakeP2Coordinator
     private CoordinatorLease? _owner;
     private string? _epoch;
     private long _epochNumber, _ownerNumber, _roleGeneration, _expiresAt;
+    private string? _lastHostTransition; // synthetic host event key; not a real SMAPI identifier
     private bool _hostReady, _p1Human, _p2Ai, _brainNone;
     private int _actionSteps, _observationSteps;
 
@@ -81,11 +82,20 @@ internal sealed class FakeP2Coordinator
     }
 
     // Only an authoritative HOST callback calls this. Guest callbacks are ignored.
-    internal void HostLoaded()
+    // If a synthetic host-transition key is provided, repeated callbacks for that
+    // same transition do not revoke a valid P2 owner. Distinct reloads use new keys.
+    internal void HostLoaded(string? syntheticTransition = null)
     {
         lock (_gate)
         {
+            if (syntheticTransition is not null)
+            {
+                if (string.IsNullOrWhiteSpace(syntheticTransition))
+                    throw new ArgumentException("Host transition key must not be blank");
+                if (_lastHostTransition == syntheticTransition) return;
+            }
             RetireUnderLock();
+            _lastHostTransition = syntheticTransition;
             _epoch = "synthetic-host-load-" + (++_epochNumber);
             _hostReady = true;
             _roleGeneration++;
