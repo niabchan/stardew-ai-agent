@@ -24,9 +24,10 @@ public static class SunnyP2Preflight
     public static SunnyP2Decision Evaluate(SunnyP2Request request, ISunnyP2PolicyAuthority authority)
     {
         if (request is null || authority is null) return SunnyP2Decision.Deny(400);
-        if (request.Port is < 1 or > 65535 || request.Path != "/mcp/p2"
-            || request.Method is not ("POST" or "DELETE"))
-            return SunnyP2Decision.Deny(request.Path != "/mcp/p2" ? 404 : 405);
+        if (request.Port is < 1 or > 65535 || !string.IsNullOrEmpty(request.RawQuery))
+            return SunnyP2Decision.Deny(400);
+        if (request.Path != "/mcp/p2") return SunnyP2Decision.Deny(404);
+        if (request.Method is not ("POST" or "DELETE")) return SunnyP2Decision.Deny(405);
 
         // No DNS trust, proxy headers, browser-Origin bypass or default-seat aliases.
         if (request.Host != "localhost:" + request.Port
@@ -218,7 +219,8 @@ public sealed record SunnyP2Decision(int Status, SunnyP2Operation Operation, str
 }
 
 public sealed record SunnyP2Request(string Method, string Path, string Host, string PeerAddress,
-    int Port, IReadOnlyList<KeyValuePair<string, string>> Headers, byte[] Body);
+    int Port, IReadOnlyList<KeyValuePair<string, string>> Headers, byte[] Body,
+    string RawQuery = ""); // no v1 query grammar approved in this seam: reject all until specified
 public sealed record SunnyP2Principal(string PrincipalId, string Seat, bool Control, bool Observe);
 
 /// <summary>
