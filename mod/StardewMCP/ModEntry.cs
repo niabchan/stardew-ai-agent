@@ -18,10 +18,12 @@ public class ModEntry : Mod
     private AgentLog _log = null!;
     private AgentHttp _http = null!;
     private bool _autoLoadDone;
+    private DiagnosticEvidenceSampler _diagnostics = null!;
 
     public override void Entry(IModHelper helper)
     {
         _config = helper.ReadConfig<ModConfig>();
+        _diagnostics = new DiagnosticEvidenceSampler(_config.DiagnosticObservation ??= new());
         string logDir = string.IsNullOrWhiteSpace(_config.LogDir)
             ? Path.Combine(helper.DirectoryPath, "logs")
             : _config.LogDir;
@@ -52,12 +54,14 @@ public class ModEntry : Mod
         helper.Events.GameLoop.SaveLoaded += OnSaveLoaded;
         helper.Events.GameLoop.ReturnedToTitle += (_, _) =>
         {
+            _diagnostics.ReturnedToTitle();
             Brains.StopAll();
             SplitScreen.OnReturnedToTitle();
             PassOut.OnReturnedToTitle();
             WorldProgress.Reset();
             NpcInfo.Reset();
         };
+        helper.Events.Display.MenuChanged += (_, _) => _diagnostics.MenuChanged(Players.TryCurrent?.Screen);
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
         helper.Events.GameLoop.DayStarted += (_, _) =>
         {
@@ -69,6 +73,11 @@ public class ModEntry : Mod
         };
         // The day's log is complete here: write day_XXX_summary.json (failure reasons per tool).
         helper.Events.GameLoop.DayEnding += (_, _) => { if (Context.ScreenId == 0) DaySummary.Write(_log, AgentLog.FarmDay, Monitor); };
+
+        helper.ConsoleCommands.Add(
+            "sunny_observe_status",
+            "Read cached P2 diagnostic metadata locally. Does not enable collection or capture. No arguments.",
+            (_, _) => Monitor.Log(_diagnostics.ReadStatus(), LogLevel.Info));
 
         helper.ConsoleCommands.Add(
             "mcp_freeze",
@@ -85,6 +94,8 @@ public class ModEntry : Mod
 
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
+        // Invalidate evidence before existing load helpers can change state or raise menu events.
+        _diagnostics.SaveLoaded(Players.TryCurrent?.Screen);
         // Also raised on each farmhand screen when it joins (before its character exists);
         // SplitScreen logs those joins once they finish.
         SplitScreen.OnSaveLoaded();
@@ -104,7 +115,11 @@ public class ModEntry : Mod
 
     private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
     {
-        var seat = Players.Current;
+        var seat = Players.TryCurrent;
+        if (seat == null)
+            return; // Fail closed: never dispatch gameplay or observation to another logical seat.
+        // Ordinary own-screen capture before this callback's automation; never ticks a runtime for evidence.
+        _diagnostics.Sample(seat, e.Ticks, seat.Screen);
         seat.OnTick();
 
         if (seat.Screen == 0)
@@ -201,3 +216,4 @@ public class ModEntry : Mod
         Monitor.Log($"Freeze while thinking: {(_config.FreezeTimeWhileThinking ? "on" : "off")}", LogLevel.Info);
     }
 }
+
