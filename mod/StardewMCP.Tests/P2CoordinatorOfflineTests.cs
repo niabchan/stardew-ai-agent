@@ -141,6 +141,26 @@ public sealed class P2CoordinatorOfflineTests
     }
 
     [Fact]
+    public void Duplicate_true_host_callback_does_not_rotate_an_existing_lease()
+    {
+        var c = new FakeP2Coordinator();
+        c.HostLoaded("host-transition-A");
+        c.SetRoles(true, true, true);
+        c.SetGrants("luna", CoordinatorGrant.Control);
+        var lease = Assert.IsType<CoordinatorLease>(c.Acquire("luna").Lease);
+        c.HostLoaded("host-transition-A"); // same host transition notified again
+        c.GuestSaveLoaded(); // farmhand join cannot rotate the host epoch
+        Assert.Equal(lease.Epoch, c.Epoch);
+        Assert.Equal(lease, c.Owner);
+        Assert.Equal(CoordinatorDecision.Accepted, c.Enqueue(lease, "same-epoch", CoordinatorLane.Action));
+        c.HostLoaded("host-transition-B"); // same save/day/time, but truly reloaded
+        Assert.NotEqual(lease.Epoch, c.Epoch);
+        Assert.Equal(CoordinatorWorkState.CancelledBeforeStart, c.Inspect("same-epoch")!.State);
+        Assert.Null(c.Owner);
+        Assert.Throws<ArgumentException>(() => c.HostLoaded("  "));
+    }
+
+    [Fact]
     public void Returned_to_title_closes_admission_and_invalidates_old_session()
     {
         var (c, lease) = Open();
