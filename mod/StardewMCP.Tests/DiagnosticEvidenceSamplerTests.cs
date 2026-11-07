@@ -200,5 +200,88 @@ public class DiagnosticEvidenceSamplerTests
         finally { Game1.ThrowOnPlayerRead = false; }
     }
 
+
+    [Fact]
+    public void Reload_diagnostics_distinguish_title_invalidation_from_new_host_epoch()
+    {
+        var sampler = new DiagnosticEvidenceSampler(new() { CollectionEnabled = true });
+        var p2 = new PlayerSlot { Screen = 1, Role = SeatRole.Ai };
+        Context.ScreenId = 0;
+        sampler.SaveLoaded();
+        Assert.Contains("Host SaveLoaded events: 1", sampler.ReadStatus());
+        Assert.Contains("P2 last sample gate: awaiting_p2_tick", sampler.ReadStatus());
+        Assert.Contains("P2 sample attempts: 0", sampler.ReadStatus());
+
+        Context.ScreenId = 1;
+        Context.IsWorldReady = true;
+        Game1.player = new object();
+        Game1.activeClickableMenu = new DialogueBox { Text = "PRIVATE_RELOAD_CANARY" };
+        sampler.SaveLoaded();
+        sampler.Sample(p2, 1);
+        Assert.Contains("P2 sampling: captured", sampler.ReadStatus());
+
+        sampler.ReturnedToTitle();
+        Assert.Contains("P2 sampling: unavailable", sampler.ReadStatus());
+        Assert.Contains("P2 last sample gate: title_invalidated", sampler.ReadStatus());
+        sampler.Sample(p2, 2); // Explicitly simulate a post-title tick without host authority.
+        Assert.Contains("P2 last sample gate: cache_rejected_no_epoch_or_config", sampler.ReadStatus());
+
+        Context.ScreenId = 0;
+        sampler.SaveLoaded();
+        Context.ScreenId = 1;
+        sampler.SaveLoaded();
+        sampler.Sample(p2, 3);
+        var result = sampler.ReadStatus();
+        Assert.Contains("P2 sampling: captured", result);
+        Assert.Contains("Host SaveLoaded events: 2; Title return events: 1; P2 SaveLoaded events: 2", result);
+        Assert.Contains("Last event order (host/title/p2 join): 4/3/5", result);
+        Assert.Contains("P2 sample attempts: 3; successful P2 captures: 2", result);
+        Assert.Contains("P2 last sample gate: captured", result);
+        Assert.DoesNotContain("PRIVATE_RELOAD_CANARY", result);
+        Assert.Equal(0, sampler.CaptureFailureCount);
+    }
+
+    [Fact]
+    public void P2_gate_distinguishes_unready_role_player_and_recovery_without_exceptions()
+    {
+        var sampler = new DiagnosticEvidenceSampler(new() { CollectionEnabled = true });
+        var p2 = new PlayerSlot { Screen = 1, Role = SeatRole.Camera };
+        sampler.HostLoaded();
+        Context.ScreenId = 1;
+        Context.IsWorldReady = true;
+        Game1.player = new object();
+        Game1.activeClickableMenu = null;
+        sampler.Sample(p2, 1);
+        Assert.Contains("P2 last sample gate: p2_role_not_ai", sampler.ReadStatus());
+        p2.Role = SeatRole.Ai;
+        Context.IsWorldReady = false;
+        sampler.Sample(p2, 2);
+        Assert.Contains("P2 last sample gate: world_not_ready", sampler.ReadStatus());
+        Context.IsWorldReady = true;
+        Game1.player = null!;
+        sampler.Sample(p2, 3);
+        Assert.Contains("P2 last sample gate: player_unavailable", sampler.ReadStatus());
+        Game1.player = new object();
+        sampler.Sample(p2, 4);
+        Assert.Contains("P2 last sample gate: captured", sampler.ReadStatus());
+        Assert.Contains("P2 sample attempts: 4; successful P2 captures: 1", sampler.ReadStatus());
+        Assert.Equal(0, sampler.CaptureFailureCount);
+    }
+
+    [Fact]
+    public void P2_screen_mismatch_does_not_touch_player_or_count_as_a_capture()
+    {
+        var sampler = new DiagnosticEvidenceSampler(new() { CollectionEnabled = true });
+        sampler.HostLoaded();
+        var p2 = new PlayerSlot { Screen = 1, Role = SeatRole.Ai };
+        Context.ScreenId = 0;
+        Context.IsWorldReady = true;
+        Game1.Reads = 0;
+        sampler.Sample(p2, 1);
+        Assert.Equal(0, Game1.Reads);
+        Assert.Contains("P2 last sample gate: screen_mismatch", sampler.ReadStatus());
+        Assert.Contains("P2 sample attempts: 1; successful P2 captures: 0", sampler.ReadStatus());
+    }
+
 }
 

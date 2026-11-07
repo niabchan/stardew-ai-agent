@@ -17,7 +17,22 @@ def test_status_is_registered_once_as_an_explicit_local_console_callback():
 
 def test_status_reader_has_no_gameplay_or_sampling_dependencies():
     source = (ROOT / "Agent/DiagnosticEvidenceSampler.cs").read_text()
-    reader = source.split("internal string ReadStatus() =>", 1)[1].split(";", 1)[0]
+    # ReadStatus is now a block-bodied method; isolate its entire body rather than
+    # assuming the old expression-bodied spelling. Keep the source-only safety check.
+    start = source.index("internal string ReadStatus()")
+    opening = source.index("{", start)
+    depth = 0
+    closing = None
+    for index in range(opening, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                closing = index
+                break
+    assert closing is not None
+    reader = source[opening : closing + 1]
     assert "_cache.ReadStatus(" in reader
     for forbidden in ("Game1.", "Players.", "Sample(", "Configure(", "MarkContact",
                       "Enqueue", "TakeMail", "Freeze", "MenuChanged", "HostLoaded"):
