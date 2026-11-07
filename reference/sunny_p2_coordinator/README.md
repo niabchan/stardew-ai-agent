@@ -6,7 +6,7 @@ This phase adds only two C# files under `mod/StardewMCP.Tests/`:
 - `FakeP2Coordinator.cs` — locked, synthetic P2 ownership/epoch/work-state model
 - `P2CoordinatorOfflineTests.cs` — deterministic admission, concurrency and lifecycle tests
 
-The fixture is deliberately **not linked into `StardewMCP` or `AgentHttp`**. It does not receive HTTP, parse authenticated tokens, supply an OS credential provider, touch games/saves, enqueue real `AgentRuntime` work, run an actual coroutine, manipulate freeze status or call OpenAI. None of its synthetic session IDs or host epochs are production-ready. It is a future-contract acceptance model for [the approved design](../docs/sunny-agentic/SERVER_AUTH_SESSION_EPOCH_CONTRACT.md), not a substitute for the existing, differently scoped `FakeSecurityBoundary`.
+The fixture is deliberately **not linked into `StardewMCP` or `AgentHttp`**. It does not receive HTTP, parse authenticated tokens, supply an OS credential provider, touch games/saves, enqueue real `AgentRuntime` work, run an actual coroutine, manipulate freeze status or call OpenAI. None of its synthetic session IDs or host epochs are production-ready. It is a future-contract acceptance model for [the approved design](../../docs/sunny-agentic/SERVER_AUTH_SESSION_EPOCH_CONTRACT.md), not a substitute for the existing, differently scoped `FakeSecurityBoundary`.
 
 ## Modeled invariants
 
