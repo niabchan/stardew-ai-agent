@@ -191,7 +191,8 @@ internal sealed class FakeP2AtomicIntake : ISunnyP2PolicyAuthority
             var held = _coordinator.Owner;
             if (held is null || held.Principal != current.Principal ||
                 held.Session != Header(request, SunnyP2Preflight.SessionHeader) ||
-                held.Epoch != Header(request, SunnyP2Preflight.EpochHeader))
+                held.Epoch != Header(request, SunnyP2Preflight.EpochHeader) ||
+                !_coordinator.ValidateLease(held, now))
                 return new(409, IntakeDisposition.Denied);
 
             if (snapshot.Operation == SunnyP2Operation.Retire)
