@@ -13,10 +13,12 @@ unverified client, game, OS or browser behavior. Tool acknowledgment, observed
 world effect, persisted save and model narrative remain different evidence.
 
 Source baseline is prepared branch commit
-`60298f8a78ff759d9b7c80cc2a447c5d20898bf5`. PR #26 was separately inspected at
-`98319b260a0919ccd6f0193daf29e0fd306fafaa`; its files are not in the prepared
-branch. References to those files use that immutable commit, not a claim that
-this PR imports or merges them.
+`60298f8a78ff759d9b7c80cc2a447c5d20898bf5`, which already includes PR #26
+through merge commit `84082ed`. Its `reference/sunny_transport/` files and
+`mod/tests/test_sunny_transport_adapter.py` are present in the prepared base
+branch. PR #26's original head `98319b260a0919ccd6f0193daf29e0fd306fafaa`
+is retained in source links as immutable provenance. This documentation PR does
+not import or merge those already-included files.
 
 Required prior designs read: [PR #19 boundary](HTTP_MCP_SECURITY_BOUNDARY.md),
 [security review](HTTP_MCP_SECURITY_REVIEW.md), [PR #21 fake fixtures](SECURITY_POLICY_FIXTURES.md),
@@ -62,8 +64,21 @@ per-tool resource/consent policy remains necessary.
 Independent grants (no implicit hierarchy): **C** P2-control; **O** P2-observe with
 separate human-consent record for P1 safety; **A** operator controls with explicit
 subscopes; **H** watchdog; **R** private replay seat/day/field scopes; **V** opt-in
-published viewer. C is not automatically O, R, A or V. Provision C+O for the native
-pilot explicitly. **No P1 automation grant exists.** Unrelated upstream AI seats
+published viewer. C is not automatically O, R, A or V. For v1, provision **one
+P2 credential with explicitly assigned C and O grants** for the native pilot.
+These are independently controlled, revocable server-side scope bits on one
+credential, not separate bearer strings or an implicit grant hierarchy. The same
+bearer is sent on initialize, tool calls and safety reads, matching PR #26's
+single `GameTransport(..., credential: str)` context. A C-only credential is denied
+O routes (403); O alone cannot acquire or mutate P2. Removing O immediately stops
+O disclosure and clears its projection caches without itself revoking C; removing
+C retires control and fences work through the existing lifecycle. O safety reads
+still require a valid P2 owner tuple and separate current P1 consent. Revoking the
+whole credential invalidates both grants. PR #26 conservatively stops all use of
+its credential after any 403, including an O denial; independent server grants do
+not imply that this prototype can continue C calls after that denial.
+
+**No P1 automation grant exists.** Unrelated upstream AI seats
 may retain separate ownership; this profile exclusively coordinates P2, not every
 AI seat globally. This narrows earlier “one controller per save” wording to one
 Sunny P2 controller per save epoch.
@@ -81,7 +96,7 @@ Sunny P2 controller per save epoch.
 | `/api/debug/{op}`, `/api/debug/pN/{op}` config-gated POST | POST A temporary `debug:p2` plus EnableDebugApi | Default off; no P1 targeting or default host. Enumerate allowed ops and validate args; unknown op 404. |
 | `/`, `/replay`, `/overlay` assets served without method guard | GET authorized private shell or explicitly published viewer shell | Assets contain no credentials/private bootstrap data; private replay data requires R. |
 | Proposed `/api/health/v1` | GET H | Minimal health only, no MCP/contact or acquisition. |
-| Proposed `/api/companion/v1/p2/safety` | GET O plus valid P2 owner/session/epoch | Consent-aware typed projection below; no public viewer access. |
+| Proposed `/api/companion/v1/p2/safety` | GET O explicitly assigned to the same v1 P2 credential, plus valid P2 owner/session/epoch | C alone returns 403; P1 consent is additionally required for disclosure. No public viewer access. |
 | Proposed `/api/replay/v1/{config,days,day,memory}` | GET R exact seat/day/field intersection | Server projects nested text before serialization; no legacy P1 diary alias, paths or implicit memory access. |
 | Proposed `/api/view/v1/{config,feed,summary}` | GET V only if explicitly published | Sanitized public text, projection-local cursor/counts; default excludes thoughts, diaries, notes, args/results and P1 text. |
 | Proposed `/api/companion/v1/p2/lease` and `/operations/{id}` | GET C bound owner/session/epoch; retirement status also allowed for matching tombstone | Recovery metadata only; no dispatch, arguments, dialogue or foreign owner disclosure. |
@@ -101,8 +116,8 @@ assets require migration before enforcement, not a hidden no-auth exception.
 ## Native provisioning, instance identity and browser rules (D/U)
 
 A local operator-owned provisioner creates a 256-bit random game credential,
-stores only its verifier and scope/expiry/revocation metadata at the server, and
-hands the client the secret through an authenticated OS-protected named pipe or
+stores only its verifier and independently assigned C/O scope, expiry and
+revocation metadata at the server, and hands the client the secret through an authenticated OS-protected named pipe or
 inherited restricted handle. Native pairing uses an operator-approved UI and
 OS identity/ACL checks, not an unauthenticated HTTP minting route. A restricted
 credential-store entry is a fallback; fail closed if storage/ACL verification is
@@ -111,7 +126,11 @@ JS/localStorage, model prompts, source files, console/chat or logs. Redact reque
 headers/bodies and disable redirect forwarding; never inspect real tokens for tests.
 Windows ACL, pipe impersonation and credential-store properties are U until tested.
 
-Provisioning binds the credential to a random server-instance ID, configured
+The v1 provisioner assigns C and O separately to that single P2 credential; it
+does not issue one secret per grant. P1 consent is separately managed and checked
+for the active epoch, never inferred from possessing the combined credential.
+Operator, watchdog, replay, viewer and provider credentials remain separate.
+Provisioning binds the P2 credential to a random server-instance ID, configured
 scheme/host/port, P2, allowed scopes and an expiry. The client receives the expected
 instance ID through that trusted channel. Server restart creates a new instance
 and invalidates old sessions; re-pair explicitly. First initialize returns the
@@ -155,7 +174,9 @@ no SSE, streaming, server-initiated requests or unsupported capabilities.
 
 Ordering:
 
-1. Provision distinct C+O credentials and expected instance/origin out of band.
+1. Provision one P2 credential with explicitly assigned, independently controlled
+   C and O grants, plus expected instance/origin, out of band. Use that same bearer
+   for initialize, tool calls and safety reads; P1 consent remains a separate check.
 2. POST `/mcp/p2` initialize, Authorization bearer, Content-Type application/json,
    Accept application/json (also accept a list containing it), no session/epoch.
    Validate everything before atomic acquisition. Reply 200 JSON-RPC result with
@@ -490,7 +511,7 @@ assumptions; these are proposed interoperable responses, not working HTTP securi
 | Fake-client assumption / test family | Proposed server response or migration gate |
 | --- | --- |
 | Constructor: explicit loopback origin/port, no URL credentials, no fallback | Provision origin+instance; accept configured 8770 or 18770, deny wrong instance; IPv6 optional verified binding. No redirects. |
-| Separate ASCII bearer, header redaction; `_make` | C/O native bearer in header only; provisioner must ensure it is not provider credential. |
+| Single ASCII bearer, header redaction; constructor `credential: str` and `_make` | One P2 credential explicitly carries independently controlled C and O grants; same bearer on initialize/tools/safety, in headers only. C alone cannot read O routes; P1 consent remains separate. It is never the provider credential. |
 | initialize requires 2025-06-18, unique opaque session and epoch | Exact allowlist negotiation and headers above; no legacy version echo/predictable label. Additional result metadata is additive. |
 | Lost/malformed initialize fences repeated acquisition | Provisional 60s expiry + trusted quiescence reconciliation; no retry/recovery method assumed in adapter. |
 | No initialized notification/discovery/batch implementation | Initialized optional; supported 202 empty; v1 arrays rejected atomically. Explicitly test real future native backend. |
@@ -524,7 +545,7 @@ assumptions; these are proposed interoperable responses, not working HTTP securi
 | Acceptance case (not executed here) | Required assertion / implementation gate |
 | --- | --- |
 | Concurrent initialize same/different principal; initialize vs revoke/load | Exactly one acquisition; losers 409/401/503 as applicable, no lost-reply takeover. Barrier-controlled game-free C# concurrency test. |
-| Validation/auth cross-product | Missing/wrong/expired/revoked credentials; each grant × every method/route including aliases, debug on/off, malformed role config: denial and zero protected effects. |
+| Validation/auth cross-product | Missing/wrong/expired/revoked credentials; C-only, O-only and combined C+O credential scopes × every method/route including aliases, debug on/off and malformed role config. Removing O denies safety without granting or revoking C; removing C fences control, and whole-credential revocation denies both. P1 consent independently gates disclosure. Assert denial and zero protected effects; retain PR #26's all-use fence after 403. |
 | Browser submission | Hostile/null/multiple Origin; simple text/plain/form/no-cors POST, denied OPTIONS, forged Host/forwarded peer, cross-port cookies and CSRF failures: no dispatch even if browser sends request. |
 | JSON/schema/bounds | Duplicate keys/headers, NaN, huge/fractional/null IDs, unknown tool/params, body/time/depth caps, malformed batch tail: zero earlier admissions. |
 | Full both queues vs retire/revoke/role/expiry/load | Immediate capacity reclamation; all waiters terminal once; fresh owner cannot bypass running cleanup; stale observation never executes. |
@@ -573,3 +594,20 @@ The two unavailable suites are existing fake acceptance evidence only; their
 historical results in PR #26 were not rerun successfully here. This report changes
 no executable behavior. Future implementation must execute the new server race,
 real-adapter and platform gates rather than treat historical fake results as proof.
+
+### PR #28 review corrections and follow-up validation
+
+Corrected the baseline against Git ancestry and tree contents: PR #26 is already
+included at `60298f8` through `84082ed`; `98319b2` is provenance, not an absent
+external dependency. V1 now consistently uses one P2 bearer with explicitly
+assigned, independently controlled C/O grants across provisioning, handshake,
+route matrix and PR #26 traceability. Consent and non-P2 credentials remain
+separate; existing retirement and unknown-mutation fences are unchanged.
+
+Follow-up checks: `git diff --check` passed; the offline documentation check
+resolved all 20 relative links, checked balanced fences, and confirmed referenced
+PR #26 files exist in the prepared base and the original head is its ancestor.
+`python -m pytest -q mod/tests/test_sunny_transport_adapter.py` remains unavailable
+(`No module named pytest`, exit 1); `command -v dotnet` returns 1. No dependencies
+were installed. Only this existing Markdown document changed. No runtime or
+platform acceptance was executed; prior CI results are not a new local test run.
