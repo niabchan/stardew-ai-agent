@@ -196,7 +196,8 @@ def test_proposed_safe_p1_projection_no_private_fields():
 def test_release_does_not_assume_inflight_termination():
     t, fake = client()
     t.initialize()
-    t.release()
+    with pytest.raises(OwnershipOutcomeUnknown):
+        t.release()
     assert fake.closed and not t.connected
     assert fake.requests[-1].method == "DELETE"
     with pytest.raises(ProtocolFailure):
@@ -416,8 +417,10 @@ def test_bedtime_1200_wait_is_forwarded_once_and_release_does_not_clear_unknown(
                     timeout_seconds=1200)
     assert fake.requests[-1].timeout_seconds == 1200
     fake.raise_error = None
-    t.release()
-    t.initialize()
+    with pytest.raises(OwnershipOutcomeUnknown):
+        t.release()
+    with pytest.raises(ProtocolFailure):
+        t.initialize()
     assert t.unresolved_mutation
     with pytest.raises(ProtocolFailure):
         t.call_tool("go_to_bed", {}, mutation=True, attempt_id="bed-new", claim_dispatch=lambda _: None)
@@ -513,3 +516,70 @@ def test_safety_flags_cannot_be_truthy_strings():
     t._exchange = lambda _: TransportResponse(200, res.headers, json.dumps(data).encode())
     with pytest.raises(ProtocolFailure):
         t.read_safety()
+
+
+# Candidate acknowledgment fields below are deliberately NOT an approved wire
+# protocol. Even a matching, quiescent-looking body must remain unverified.
+@pytest.mark.parametrize("response", [
+    TransportResponse(200, {}),  # legacy no-op DELETE
+    TransportResponse(202, {}),
+    TransportResponse(204, {}),
+    TransportResponse(200, {"X-Sunny-Save-Epoch": "load-1"}),
+    TransportResponse(200, {}, b"broken"),
+    TransportResponse(200, {}, b'{"retired":true,"retired":false}'),
+    None,  # malformed exchange result
+    TransportResponse(200, {}, "not bytes"),
+    TransportResponse(503, {}),
+    TimeoutError("DELETE reply lost"),
+    *[TransportResponse(200, {"X-Sunny-Save-Epoch": epoch,
+                             "Mcp-Session-Id": session},
+                        json.dumps({"owner": owner, "session": session,
+                                    "epoch": epoch, "state": state}).encode())
+      for owner, session, epoch, state in [
+          ("synthetic-owner", "opaque-fake-owner-1", "load-2", "retired-and-quiescent"),
+          ("synthetic-owner", "other-session", "load-1", "retired-and-quiescent"),
+          ("other-owner", "opaque-fake-owner-1", "load-1", "retired-and-quiescent"),
+          ("synthetic-owner", "opaque-fake-owner-1", "load-1", "unknown"),
+          ("synthetic-owner", "opaque-fake-owner-1", "load-1", "cleanup-required"),
+          ("synthetic-owner", "opaque-fake-owner-1", "load-1", "retired-and-quiescent"),
+      ]],
+])
+@pytest.mark.parametrize("pending_mutation", [False, True])
+def test_unverified_retirement_never_authorizes_lease_or_action(response, pending_mutation):
+    t, fake = client()
+    t.initialize()
+    claims = []
+    if pending_mutation:
+        fake.raise_error = TimeoutError("action reply lost")
+        with pytest.raises(MutationOutcomeUnknown):
+            t.call_tool("say", {}, mutation=True, attempt_id="one", claim_dispatch=claims.append)
+        fake.raise_error = None
+    before = len(fake.requests)
+
+    def retirement(request):
+        fake.requests.append(request)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    t._exchange = retirement
+    with pytest.raises((OwnershipOutcomeUnknown, ProtocolFailure, RequestRejected)):
+        t.release()
+    assert len(fake.requests) == before + 1
+    request = fake.requests[-1]
+    assert request.method == "DELETE"
+    assert request.headers[GameTransport.SESSION_HEADER] == fake.session
+    assert request.headers[GameTransport.EPOCH_HEADER] == fake.epoch
+    assert not t.connected
+    assert t.unresolved_mutation is pending_mutation
+    assert t._claimed == ({"one"} if pending_mutation else set())
+    t.invalidate()
+    t.observe_authoritative_epoch("load-2")
+    t.release()  # disconnected cleanup is a no-op, not evidence of retirement
+    with pytest.raises(ProtocolFailure):
+        t.initialize()
+    for attempt in ("one", "new"):
+        with pytest.raises(ProtocolFailure):
+            t.call_tool("say", {}, mutation=True, attempt_id=attempt, claim_dispatch=claims.append)
+    assert claims == (["one"] if pending_mutation else [])
+    assert len(fake.requests) == before + 1  # no second handshake/DELETE/action

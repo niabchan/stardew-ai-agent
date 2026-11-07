@@ -385,13 +385,21 @@ class GameTransport:
 
     @_exclusive
     def release(self) -> None:
+        """Attempt DELETE once, then retain ownership uncertainty.
+
+        No approved authenticated owner/session/epoch-bound retirement protocol
+        exists yet. Neither HTTP success nor a claimed quiescence body proves
+        retirement. Recovery requires an independently reviewed server-side flow;
+        this object cannot authorize another lease after attempting DELETE.
+        """
         if not self.connected:
             return
         req = self._make("DELETE", "/mcp/p2", session=True)
         self._initialization_uncertain = True
         try:
             self._exchange_once(req, mutating=False)
-            self._initialization_uncertain = False
+            raise OwnershipOutcomeUnknown(
+                "Retirement unverified; lease reconciliation required")
         except ConnectionUnavailable:
             raise OwnershipOutcomeUnknown("Release reply lost; lease reconciliation required") from None
         finally:

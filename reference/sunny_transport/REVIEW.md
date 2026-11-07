@@ -92,6 +92,31 @@ owner/epoch/role/consent before dispatch and coroutine steps; negotiate the comp
 MCP lifecycle; then add real adapter and concurrent server tests. A supported
 Windows build and disposable Test_ save acceptance need separate operator approval.
 
-No remote branch or Draft PR was created: the handoff explicitly prohibits network
-API calls. A local review branch and patch are prepared against PR #22. Publishing
-must also account for any later changes to that base; never merge automatically.
+The original handoff prepared a local review branch and patch against PR #22.
+That historical handoff preceded Draft PR #26; the present follow-up is authorized
+to push only that PR branch and keep it Draft. Never merge automatically.
+
+## PR #26 DELETE blocker follow-up (2026-11-07)
+
+Adopted the review's conservative alternative: every attempted DELETE retains the
+ownership fence. Successful HTTP exchange now raises `OwnershipOutcomeUnknown`
+instead of authorizing another initialize. No acknowledgment schema or verifier
+is invented; even a matching owner/session/epoch and quiescent-looking body is
+unverified. HTTP errors, malformed callbacks and lost responses likewise cannot
+clear the fence. Local invalidation cannot establish server retirement.
+
+Added a matrix of 32 regressions covering bare 200/202/204, epoch-only, malformed,
+mismatched and unknown/cleanup-required dispositions, plausible but unverified
+quiescent acknowledgments, HTTP failure and lost DELETE replies, each with and
+without an unresolved mutation. They check no second handshake, action or DELETE,
+no extra dispatch claim, and preservation of mutation uncertainty and claims.
+Existing durable-claim and mutation-uncertainty tests remain in place.
+
+Follow-up validation:
+- Offline adapter: **116 passed**.
+- Repository Python CI command: **286 passed, 1 existing xfailed** (`close_menu` reason parameter).
+- Game-free C# tests unavailable: `dotnet` is not installed in this runner.
+
+No production code, network backend or server retirement implementation changed.
+Recovery still requires an independently reviewed server-side protocol; neither
+fake tests nor HTTP success establish legacy server safety.

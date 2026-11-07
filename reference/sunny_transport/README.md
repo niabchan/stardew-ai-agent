@@ -94,3 +94,25 @@ separation require independently reviewed provisioning, with no real key access
 in this review.
 
 See [REVIEW.md](REVIEW.md) for source provenance, findings and validation limits.
+
+## DELETE retirement remains fail-closed (PR #26 blocker)
+
+Every attempted DELETE retains ownership uncertainty and disconnects locally.
+A 2xx response raises `OwnershipOutcomeUnknown`, including legacy bare 200,
+202/204, epoch-only responses and even matching, quiescent-looking acknowledgment
+bodies. No retirement acknowledgment schema or verifier is approved or implemented;
+the adapter intentionally accepts none. Lost responses raise the same ownership
+error; malformed responses and HTTP denials retain their existing classifications
+while also keeping the ownership fence. There is no automatic DELETE retry.
+
+`invalidate()`, a repeated disconnected `release()`, and observed epoch changes
+cannot clear this fence. New initialization and tool calls on this object remain
+blocked. Release also preserves unresolved mutation state and all dispatch claims.
+Creating a new object is not recovery: callers still require durable per-owner/epoch
+claims and a global unresolved-operation barrier across restarts.
+
+A future independently reviewed server-side recovery flow must define authenticated
+owner+session+epoch-bound retirement evidence and the disposition of queued/running
+mutations (quiescent retirement or separately fenced cleanup). It must not clear an
+unresolved mutation merely because ownership was retired. The current C# DELETE
+returns 200 without owner teardown; neither it nor this fake proves server safety.
