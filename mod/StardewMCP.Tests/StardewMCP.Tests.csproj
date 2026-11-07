@@ -39,6 +39,8 @@
     <Compile Include="..\StardewMCP\Agent\ToolContract.cs" Link="Mod\ToolContract.cs" />
     <Compile Include="..\StardewMCP\Agent\LoopDetector.cs" Link="Mod\LoopDetector.cs" />
     <Compile Include="..\StardewMCP\Agent\McpDispatcher.cs" Link="Mod\McpDispatcher.cs" />
+    <!-- Dormant P2 HTTP request policy source, never invoked from the real listener. -->
+    <Compile Include="..\StardewMCP\Agent\SunnyP2Preflight.cs" Link="Mod\SunnyP2Preflight.cs" />
     <Compile Include="..\StardewMCP\Agent\Peek.cs" Link="Mod\Peek.cs" />
     <Compile Include="..\StardewMCP\Agent\KnowledgeMath.cs" Link="Mod\KnowledgeMath.cs" />
     <Compile Include="..\StardewMCP\Agent\BobberController.cs" Link="Mod\BobberController.cs" />
