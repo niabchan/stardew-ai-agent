@@ -74,6 +74,21 @@ Reviewed on branch head `9f2cb29`:
 
 The order is a proposal: an implementation PR can split further if it would mix credential provisioning, auth enforcement and gameplay behavior. Never change `main` or auto-deploy as part of this design draft.
 
+
+## Source-review correction and evidence limits (2026-11-07)
+
+See [the prioritized source review](HTTP_MCP_SECURITY_REVIEW.md) for the complete claim disposition, actual route/method inventory, compatibility risks and missing tests at PR #19 head `329fc6d`.
+
+- The pilot/reload success, deployed configuration and socket observations above are **reported operator evidence**, not independently verified by this source review. The default configuration instead uses port 8770, P1 AI, single-screen and freeze enabled. Missing or unrecognized roles can resolve to AI; Brain none does not disable MCP.
+- MCP contact occurs before method/id/params validation, including notifications and failed/unknown requests that reach Dispatch. Before that, HandleMcp can change session-break state and the seat-wide reply deadline. Validate and authorize before **all** these effects. Freeze remains conditional; operator hold can freeze independently of the thinking setting.
+- The predictable Mcp-Session-Id is not validated on requests, tools/call does not require initialization, and DELETE is a 200 no-op. Caller ownership, revocation, queued-work cancellation and save-epoch binding are proposed protections, not present guarantees.
+- Removing wildcard CORS is insufficient to prevent browser-submitted mutations. Add simple POST/no-cors/null-Origin cases and validate before side effects. Actual browser delivery, DNS rebinding and remote reachability remain hypotheses requiring separate authorized platform checks.
+- Include body/read-time/batch/queue/concurrency limits and partial-batch or disconnected-client outcomes. No application-level bounds or HTTP-disconnect cancellation are wired into this path.
+- Overlay/replay fetch without auth headers and default to port 8770 when served on another port unless ?api= overrides it. Define safe browser provisioning and custom-port behavior. External Luna, pilot ZIPs, runner and watchdog implementation compatibility remains **uninspected** because those sources are absent here.
+- Most advertised GET read routes do not check the HTTP method. Use the review's actual inventory rather than comments as acceptance evidence. P1 human MCP rejection does not prevent global control changes, aggregate human-data reads or P2 effects on shared resources.
+- PR-A should extract and test policy without enabling production enforcement; PR-B should deliberately enforce it after compatibility review. FakeEvidenceHttp and dispatcher tests do not establish security of the actual listener, real seat adapter or clock.
+
+
 ## Decision
 
 **Current branch is not production-hardened.** Keep the existing PR #10 as Draft and working PR #17/#18 behavior intact. This document defines risk and acceptance criteria only; it neither grants permission to access other networks nor enables data disclosure.
