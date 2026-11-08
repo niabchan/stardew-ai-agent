@@ -2,7 +2,7 @@
 
 **DESIGN ONLY · NOT EXECUTED · No sockets, Windows live tests, game launches, credentials or deployment.**
 
-This plan describes a **future, separately approved** experiment on an isolated disposable Windows loopback test application. It is **not** a working transport adapter. Source baseline: PR #22 Draft branch at `31da033372b2a8586cd39ec0855550b23b41f7e0`. The checked-in legacy `AgentHttp` remains permissive. Every case in the [machine-readable manifest](../../reference/sunny_windows_http_acceptance/cases.json) is explicitly `not_run`: 50 required cases, including 17 blocker-priority cases. The expected outcome is a **future acceptance requirement**, not an observed HTTP status.
+This plan describes a **future, separately approved** experiment on an isolated disposable Windows loopback test application. It is **not** a working transport adapter. Source baseline: PR #22 Draft branch at `31da033372b2a8586cd39ec0855550b23b41f7e0`. The checked-in legacy `AgentHttp` remains permissive. Every case in the [machine-readable manifest](../../reference/sunny_windows_http_acceptance/cases.json) is explicitly `not_run`: **37 future isolated Windows transport cases (G1)** and **13 separately reviewed runtime/privacy/Luna cases (G2)**, 50 total with 17 highlighted blocker-priority cases. The expected outcome is a **future acceptance requirement**, not an observed HTTP status.
 
 ## The decision and three separate gates
 
@@ -56,7 +56,7 @@ The [case manifest](../../reference/sunny_windows_http_acceptance/cases.json) is
 - **AUTH / PRIV:** wrong/revoked instance credentials, separated C/O/A/H/R/V, atomic queue recheck, no unverified DELETE retirement, P1 consent and default-denied viewer/OBS.
 - **COMP:** deliberate legacy `?breaks=1` / `?reply_within=1200` migration, P12 bedtime long action distinct from short ingress, validated owner presence while Luna thinks, never control P1.
 
-The manifest's 17 `priority=blocker` cases are highlighted stop conditions; **all 50 must have reviewed outcomes**. Do not change its baseline `status=not_run` flags simply to show completion. G1 results belong in separately approved, dated evidence artifacts.
+The manifest's 17 `priority=blocker` cases are highlighted stop conditions, assigned to their **respective stage**. **All 37 G1 transport cases** must have reviewed Windows outcomes before G1 passes; the **13 G2 runtime/privacy/compatibility cases cannot pass at G1** because the isolated testbed has no game or production credentials. All 50 remain mandatory across G1+G2, not interchangeable. Do not change the G0 baseline `status=not_run` flags simply to show completion. Future test results belong in separately approved, dated evidence artifacts.
 
 ## Time/resource limits are deliberately not specified numerically
 
@@ -89,7 +89,7 @@ Never upload real secrets, actual P1 or game data, private logs, local paths or 
 
 **G0 exit (this PR):** docs + manifest + offline validation pass and independent Codex review checks coverage, platform unknowns, deadlines and no unintended real testing. Any green CI from this PR means **plan structure validated**, not Windows acceptance.
 
-**G1 start:** separate explicit user approval for the exact disposable Windows test app and port, traffic scope, caps and rollback. **G1 pass:** every required case has dated, independent transport evidence; 17 blocker cases conclusive; no unprovable mandatory original-wire field, protected-effect violation, unbounded read or cleanup failure. If Windows `HttpListener` cannot provide a required security property, reject that adapter and evaluate a different transport mechanism before any production wiring.
+**G1 start:** separate explicit user approval for the exact disposable Windows test app and port, traffic scope, caps and rollback. **G1 pass:** all **37 transport-stage cases** have dated, independent Windows evidence, including their applicable blocker cases; no unprovable mandatory original-wire field, protected-effect violation, unbounded read or cleanup failure. The **13 G2-stage cases remain pending** and cannot be signed off from an isolated listener. If Windows `HttpListener` cannot provide a required security property, reject that adapter and evaluate a different transport mechanism before any production wiring.
 
 **G2 start/pass:** separate review/approval of all-route real credential issuance, immutable principal and grants, P2 server-owned lease/save epoch + atomic queue/game-thread admission, verified DELETE retirement and unknown effect journal, P1 consent-safe projection, safe browser/OBS, actual Luna client migration and Windows/SMAPI gameplay acceptance. **No merge to `main` or deployment** based on G0/G1 alone.
 
