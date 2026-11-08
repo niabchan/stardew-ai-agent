@@ -14,7 +14,7 @@ namespace StardewMCP.Tests;
 // Every evidence bit below is SUPPLIED BY A TEST. A real HttpListenerRequest has not
 // proved that its normalized Url/Headers preserve raw-target and header multiplicity.
 [Flags]
-internal enum FakeHttpCaptureEvidence
+public enum FakeHttpCaptureEvidence
 {
     None = 0,
     RawTargetPreserved = 1,
