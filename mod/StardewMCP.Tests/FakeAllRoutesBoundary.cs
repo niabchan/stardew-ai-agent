@@ -153,6 +153,13 @@ internal static class FakeAllRoutesBoundary
 
     internal static FakeRouteDecision Check(FakeRouteRequest? request, IFakeRouteAuthority? authority)
     {
+        // Authority property reads can fail too; never let store failure escape as authority.
+        try { return CheckCore(request, authority); }
+        catch { return FakeRouteDecision.Deny(503); }
+    }
+
+    private static FakeRouteDecision CheckCore(FakeRouteRequest? request, IFakeRouteAuthority? authority)
+    {
         if (request is null || authority is null || request.Headers is null || request.Body is null)
             return FakeRouteDecision.Deny(400);
 
@@ -166,6 +173,7 @@ internal static class FakeAllRoutesBoundary
             request.RawPath.Length > 160 || request.RawPath.Contains('%') ||
             request.RawPath.Contains('\\') || request.RawPath.Contains("//", StringComparison.Ordinal) ||
             request.RawPath.Contains('#') || request.RawPath.Contains('?') ||
+            request.RawPath.Split('/').Any(s => s is "." or "..") ||
             (request.RawPath.EndsWith("/", StringComparison.Ordinal) && request.RawPath != "/") ||
             request.RawPath.Any(c => c < 33 || c > 126))
             return FakeRouteDecision.Deny(400);
@@ -180,8 +188,9 @@ internal static class FakeAllRoutesBoundary
                 if (op.StartsWith("p2/", StringComparison.Ordinal))
                 {
                     op = op.Substring(3);
-                    if (op.Length is > 0 and <= 64 && op.All(c =>
-                            c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_'))
+                    // Deliberately narrow subset of DebugApi.All, NOT every existing op.
+                    // Explicit p2 does not make load_save/save/hang/world mutations P2-local.
+                    if (op is "look" or "set_health" or "set_stamina")
                         route = new Route("debug-p2-schema-pending", "POST",
                             FakeRouteGrant.OperatorDebugP2,
                             FakeRouteDisposition.NeedsOperatorValidation, Debug: true);
@@ -239,8 +248,7 @@ internal static class FakeAllRoutesBoundary
             if (!headers.TryGetValue("Content-Type", out var media) || media != "application/json")
                 return FakeRouteDecision.Deny(415);
             if (request.Body.Length == 0) return FakeRouteDecision.Deny(400);
-            try { _ = Utf8Strict.GetString(request.Body); }
-            catch (DecoderFallbackException) { return FakeRouteDecision.Deny(400); }
+            if (!StrictObject(request.Body)) return FakeRouteDecision.Deny(400);
         }
         else if (request.Method == "DELETE" && request.Body.Length != 0)
             return FakeRouteDecision.Deny(400);
@@ -296,6 +304,42 @@ internal static class FakeAllRoutesBoundary
             return FakeRouteDecision.Candidate(route.Next, route.Grants, route.Id);
         }
         catch { return FakeRouteDecision.Deny(503); }
+    }
+
+    private static bool StrictObject(byte[] bytes)
+    {
+        try
+        {
+            _ = Utf8Strict.GetString(bytes); // JsonDocument may defer decoding unused strings.
+            using var doc = JsonDocument.Parse(bytes, new JsonDocumentOptions {
+                MaxDepth = 32, AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow
+            });
+            return doc.RootElement.ValueKind == JsonValueKind.Object && StrictTree(doc.RootElement);
+        }
+        catch (JsonException) { return false; }
+        catch (ArgumentException) { return false; }
+        catch (InvalidOperationException) { return false; }
+    }
+
+    private static bool StrictTree(JsonElement node)
+    {
+        if (node.ValueKind == JsonValueKind.Object)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var p in node.EnumerateObject())
+                if (!names.Add(p.Name) || !StrictTree(p.Value)) return false;
+        }
+        else if (node.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in node.EnumerateArray())
+                if (!StrictTree(item)) return false;
+        }
+        else if (node.ValueKind == JsonValueKind.Number)
+            return node.TryGetDouble(out double n) && !double.IsInfinity(n) && !double.IsNaN(n);
+        else if (node.ValueKind == JsonValueKind.String)
+            _ = node.GetString();
+        return true;
     }
 
     private static bool ValidQuery(string raw, string allowed)

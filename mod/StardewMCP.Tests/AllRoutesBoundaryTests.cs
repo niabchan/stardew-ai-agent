@@ -21,12 +21,12 @@ public sealed class AllRoutesBoundaryTests
     {
         internal readonly Dictionary<string, FakeRoutePrincipal> Credentials = new(StringComparer.Ordinal);
         internal int Resolutions, OwnerChecks;
-        internal bool FailCredential, FailOwner;
+        internal bool FailCredential, FailOwner, FailPort;
         internal int Port = 8770;
         internal string Instance = "synthetic-instance-8770";
         internal bool Consent, DebugOn, Published, ViewerReady, ReplayReady;
         public string IntendedInstanceId => Instance;
-        public int BoundPort => Port;
+        public int BoundPort => FailPort ? throw new InvalidOperationException("offline binding") : Port;
         public bool P1Consent => Consent;
         public bool DebugEnabled => DebugOn;
         public bool ViewerPublicationEnabled => Published;
@@ -162,7 +162,7 @@ public sealed class AllRoutesBoundaryTests
     [InlineData("/api/debug/p1/say")]
     [InlineData("/api/debug/p3/say")]
     [InlineData("/api/debug/p2/")]
-    [InlineData("/api/debug/p2/say/")]
+    [InlineData("/api/debug/p2/look/")]
     [InlineData("/api/unknown")]
     [InlineData("/api/view/v1/raw")]
     [InlineData("/api/replay/v1/full")]
@@ -318,13 +318,13 @@ public sealed class AllRoutesBoundaryTests
     public void Debug_requires_p2_explicit_target_operator_and_local_switch()
     {
         var a = Setup();
-        var request = Request("/api/debug/p2/say", "POST", Operator);
+        var request = Request("/api/debug/p2/look", "POST", Operator);
         Assert.Equal(404, FakeAllRoutesBoundary.Check(request, a).Status);
         a.DebugOn = true;
         Assert.Equal(FakeRouteDisposition.NeedsOperatorValidation,
             FakeAllRoutesBoundary.Check(request, a).Disposition);
         Assert.Equal(403, FakeAllRoutesBoundary.Check(
-            Request("/api/debug/p2/say", "POST", P2), a).Status);
+            Request("/api/debug/p2/look", "POST", P2), a).Status);
         Assert.Equal(404, FakeAllRoutesBoundary.Check(
             Request("/api/debug/p1/say", "POST", Operator), a).Status);
     }
@@ -457,4 +457,158 @@ public sealed class AllRoutesBoundaryTests
             Assert.Null(result.RouteId);
         }
     }
+    [Theory]
+    [InlineData("say")]
+    [InlineData("nonexistent")]
+    [InlineData("load_save")]
+    [InlineData("save")]
+    [InlineData("hang")]
+    [InlineData("set_time")]
+    [InlineData("capture")]
+    [InlineData("makeover")]
+    public void Explicit_p2_debug_does_not_authorize_unknown_or_global_operations(string op)
+    {
+        var a = Setup();
+        a.DebugOn = true;
+        var result = FakeAllRoutesBoundary.Check(Request("/api/debug/p2/" + op, "POST", Operator), a);
+        Assert.Equal(404, result.Status);
+        Assert.False(result.CandidateForFurtherValidation);
+        Assert.Equal(0, a.Resolutions);
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("[]")]
+    [InlineData("null")]
+    [InlineData("{}{}")]
+    [InlineData("{\"x\":1,}")]
+    [InlineData("{\"x\":/*comment*/1}")]
+    [InlineData("{\"x\":1,\"x\":2}")]
+    [InlineData("{\"x\":{\"seat\":\"p2\",\"seat\":\"p1\"}}")]
+    [InlineData("{\"x\":[{\"a\":1,\"a\":2}]}")]
+    [InlineData("{\"x\":1e9999}")]
+    [InlineData("{\"x\":1,\"\\u0078\":2}")]
+    public void Malformed_or_ambiguous_JSON_is_never_a_mutation_candidate(string body)
+    {
+        var a = Setup();
+        a.DebugOn = true;
+        foreach (string path in new[] { "/api/control", "/api/meta", "/api/release_freeze",
+                     "/api/debug/p2/look", "/mcp/p2" })
+        {
+            var result = FakeAllRoutesBoundary.Check(Request(path, "POST",
+                path == "/mcp/p2" ? P2 : Operator, body: body), a);
+            Assert.Equal(400, result.Status);
+            Assert.False(result.CandidateForFurtherValidation);
+        }
+        Assert.Equal(0, a.Resolutions);
+    }
+
+    [Fact]
+    public void Every_request_rechecks_revocation_instance_grants_and_publication()
+    {
+        var a = Setup();
+        a.Published = a.ViewerReady = true;
+        var req = Request("/api/view/v1/feed", credential: Viewer);
+        Assert.True(FakeAllRoutesBoundary.Check(req, a).CandidateForFurtherValidation);
+        a.Published = false;
+        Assert.Equal(403, FakeAllRoutesBoundary.Check(req, a).Status);
+        a.Published = true;
+        a.Grant(Viewer, "viewer", FakeRouteGrant.None);
+        Assert.Equal(403, FakeAllRoutesBoundary.Check(req, a).Status);
+        a.Grant(Viewer, "viewer", FakeRouteGrant.ViewerProjected, "other-instance");
+        Assert.Equal(403, FakeAllRoutesBoundary.Check(req, a).Status);
+        a.Credentials.Remove(Viewer);
+        Assert.Equal(401, FakeAllRoutesBoundary.Check(req, a).Status);
+        // Sequential re-resolution is not atomic generation validation at serialization.
+    }
+
+    [Fact]
+    public void Binding_store_failure_is_a_denial_not_an_exception()
+    {
+        var a = Setup();
+        a.FailPort = true;
+        Assert.Equal(503, FakeAllRoutesBoundary.Check(Request(), a).Status);
+        Assert.Equal(0, a.Resolutions);
+    }
+
+    [Theory]
+    [InlineData("0, 0")]
+    [InlineData("+2")]
+    [InlineData(" 2")]
+    [InlineData("2 ")]
+    [InlineData("2147483648")]
+    [InlineData("9999999999999999999999999")]
+    public void Ambiguous_or_overflowing_lengths_fail_before_credential_lookup(string length)
+    {
+        var a = Setup();
+        var req = Replace(Request("/api/meta", "POST", Operator), "Content-Length", length);
+        Assert.Equal(400, FakeAllRoutesBoundary.Check(req, a).Status);
+        Assert.Equal(0, a.Resolutions);
+    }
+
+    [Fact]
+    public void Each_single_grant_is_checked_against_every_listed_route()
+    {
+        foreach (FakeRouteGrant grant in Enum.GetValues<FakeRouteGrant>())
+        {
+            var a = Setup();
+            a.Consent = a.Published = a.ViewerReady = a.ReplayReady = true;
+            a.Grant("one-scope-token", "luna", grant);
+            foreach (string path in FakeAllRoutesBoundary.ListedPaths)
+            {
+                var req = Request(path, credential: "one-scope-token", ownerHeaders: true,
+                    method: path is "/mcp/p2" or "/api/meta" or "/api/release_freeze" ? "POST" : "GET",
+                    rawQuery: path == "/api/briefing" ? "?seat=p2" : "",
+                    body: path == "/api/release_freeze" ? "{\"seat\":\"p2\"}" : null);
+                var result = FakeAllRoutesBoundary.Check(req, a);
+                if (result.CandidateForFurtherValidation)
+                    Assert.Equal(grant, result.Required);
+                else
+                    Assert.Equal(403, result.Status);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("[::1]:8770")]
+    [InlineData("127.0.0.1:18770")]
+    [InlineData("localhost:8770@evil.invalid")]
+    [InlineData("localhost.:8770")]
+    [InlineData("127.1:8770")]
+    [InlineData("localhost:8770,127.0.0.1:8770")]
+    public void Raw_authority_aliases_are_not_normalized_into_privileged_routes(string host)
+    {
+        var a = Setup();
+        var req = Replace(Request("/api/state", credential: Operator), "Host", host) with { Host = host };
+        Assert.Equal(403, FakeAllRoutesBoundary.Check(req, a).Status);
+        Assert.Equal(0, a.Resolutions);
+    }
+
+    [Fact]
+    public void Second_port_requires_its_own_listener_and_credential_instance()
+    {
+        var a = Setup();
+        a.Port = 18770;
+        a.Instance = "synthetic-instance-18770";
+        var req = Request("/api/state", credential: Operator, port: 18770);
+        Assert.Equal(403, FakeAllRoutesBoundary.Check(req, a).Status);
+        a.Grant(Operator, "operator", FakeRouteGrant.OperatorRawState);
+        Assert.True(FakeAllRoutesBoundary.Check(req, a).CandidateForFurtherValidation);
+        Assert.Equal(400, FakeAllRoutesBoundary.Check(Request("/api/state", credential: Operator), a).Status);
+    }
+
+    [Fact]
+    public void Nested_depth_and_unused_invalid_UTF8_are_rejected_for_operator_posts()
+    {
+        var a = Setup();
+        string deep = "{\"x\":" + new string('[', 33) + "0" + new string(']', 33) + "}";
+        Assert.Equal(400, FakeAllRoutesBoundary.Check(Request("/api/meta", "POST", Operator, body: deep), a).Status);
+        var bytes = Encoding.UTF8.GetBytes("{\"unused\":\"x\"}");
+        bytes[11] = 0xff;
+        var req = Request("/api/meta", "POST", Operator) with { Body = bytes };
+        req = Replace(req, "Content-Length", bytes.Length.ToString());
+        Assert.Equal(400, FakeAllRoutesBoundary.Check(req, a).Status);
+        Assert.Equal(0, a.Resolutions);
+    }
+
 }
