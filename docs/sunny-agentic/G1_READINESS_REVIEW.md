@@ -64,6 +64,6 @@ The test fixture must not reach the existing mod's port or any running service, 
 
 Complete a **reviewable G1 experiment specification** (not executable traffic yet): provide a small source-level interface sketch for raw transport observations and abort ownership; decide how to get a trusted pre-handler clock/connection bound; identify Windows API unknowns; propose a safe synthetic fixture catalog, data-minimization schema, and fallback transport decision if `HttpListener` cannot supply original-wire facts. Independently review proposed 8/2/5/2-second and 32-request limits for feasibility before any permission request.
 
-Then return to the user for **new explicit G1 approval** of a concrete disposable test setup. Approval cannot be inferred from this conversation's permission to continue G0 document work. Even a successful future G1 cannot activate the G2 authenticated server while raw legacy APIs remain unprotected.
+Then return to the user for **new explicit G1 approval** of a concrete disposable test setup. The start gate requires separate explicit user/operator approval, not merely a continuation of current G0 document work. Approval cannot be inferred from this conversation's permission to continue G0 document work. Even a successful future G1 cannot activate the G2 authenticated server while raw legacy APIs remain unprotected.
 
 **Current final finding: NO-GO. The plan is useful, but G1 is not yet approved to begin.**
