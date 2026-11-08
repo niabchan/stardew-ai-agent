@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "name": "sunny-g1-entry-readiness-g0",
+  "baseline_commit": "752db4a7d5fda301947287862f480cc221aafffc",
+  "decision": "NO_GO_G1_START",
+  "decision_type": "offline_document_review_only",
+  "approved_to_open_listener": false,
+  "g1_executed": false,
+  "g2_executed": false,
+  "operator_approval_record": null,
+  "numeric_ratification_record": null,
+  "transport_abort_scope_verified": false,
+  "prehandler_first_byte_source_verified": false,
+  "windows_provenance_verified": false,
+  "all_route_live_authorization_proven": false,
+  "source_plan": "reference/sunny_windows_http_acceptance/cases.json",
+  "source_candidate_profile": "reference/sunny_http_resource_limits/proposed_limits.json",
+  "decision_rule": "Any open G1 entry blocker means NO_GO. Independently reviewed numeric and experiment approvals are required before G1 begins; 37 G1 cases are expected not_run at entry. G1 completion requires measured Windows outcomes for all 37. The 13 G2 cases cannot be discharged by G1.",
+  "expected_case_counts": {
+    "total": 50,
+    "g1": 37,
+    "g2": 13,
+    "highlighted_blockers": 17
+  },
+  "gates": [
+    {
+      "id": "G1E-01",
+      "category": "isolated_testbed",
+      "entry_status": "open",
+      "entry_blocker": true,
+      "required_reviewed_artifact": "reviewed design for disposable loopback server/client and teardown that cannot target installed Sunny",
+      "reason_open": "isolated build, selected unused port and teardown proof are not approved",
+      "g1_case_ids": [
+        "ENV-01",
+        "ENV-02",
+        "ENV-03"
+      ],
+      "evidence_at_entry": "none",
+      "proposed_test_only": true
+    },
+    {
+      "id": "G1E-02",
+      "category": "raw_transport_evidence",
+      "entry_status": "open",
+      "entry_blocker": true,
+      "required_reviewed_artifact": "source-backed observation plan for original request-target, Host, duplicate headers, peer and kernel-vs-handler behavior",
+      "reason_open": "no Windows-proven capture fidelity; test must label unobservable values",
+      "g1_case_ids": [
+        "RAW-01",
+        "HOST-02",
+        "HDR-02",
+        "FRM-12"
+      ],
+      "evidence_at_entry": "none",
+      "proposed_test_only": true
+    },
+    {
+      "id": "G1E-03",
+      "category": "prehandler_time",
+      "entry_status": "open",
+      "entry_blocker": true,
+      "required_reviewed_artifact": "reviewed strategy to observe or enforce first-byte/connection timing before GetContextAsync and account for HTTP.sys queueing",
+      "reason_open": "no trustworthy first-byte anchor or enforceable equivalent has been selected",
+      "g1_case_ids": [
+        "TIME-01",
+        "TIME-04",
+        "TIME-05"
+      ],
+      "evidence_at_entry": "none",
+      "proposed_test_only": true
+    },
+    {
+      "id": "G1E-04",
+      "category": "preauth_capacity",
+      "entry_status": "open",
+      "entry_blocker": true,
+      "required_reviewed_artifact": "explicitly bounded headers, pending connections and HTTP.sys queue without unapproved machine-wide configuration",
+      "reason_open": "pre-auth and kernel queue occupancy are unbounded by the offline post-handler ledger",
+      "g1_case_ids": [
+        "HDR-03",
+        "TIME-01",
+        "TIME-05"
+      ],
+      "evidence_at_entry": "none",
+      "proposed_test_only": true
+    },
+    {
+      "id": "G1E-05",
+      "category": "abort_primitive",
+      "entry_status": "open",
+      "entry_blocker": true,
+      "required_reviewed_artifact": "reviewed transport-owned request-vs-listener abort and no-claim-if-read-pending rule",
+      "reason_open": "specific Windows abort primitive and collateral scope are unproven",
+      "g1_case_ids": [
+        "TIME-02",
+        "TIME-03",
+        "TIME-06"
+      ],
+      "evidence_at_entry": "none",
+      "proposed_test_only": true
+    },
+    {
+      "id": "G1E-06",
+      "category": "cleanup_ownership",
+      "entry_status": "open",
+      "entry_blocker": true,
+      "required_reviewed_artifact": "reviewed plan to observe read completion, buffers, late callbacks, process teardown and bounded cleanup",
+      "reason_open": "no real buffer/task ownership or bounded teardown evidence exists",
+      "g1_case_ids": [
+        "TIME-02",
+        "TIME-04",
+        "TIME-06",
+        "ENV-03"
+      ],
+      "evidence_at_entry": "none",
+      "proposed_test_only": true
+    },
+    {
+      "id": "G1E-07",
+      "category": "quantitative_limits",
+      "entry_status": "open",
+      "entry_blocker": true,
+      "required_reviewed_artifact": "independent peer approval of total/header/body/cleanup/response/concurrency/backlog numbers before any G1 bind",
+      "reason_open": "Phase 2G numeric candidates are not ratified",
+      "g1_case_ids": [
+        "FRM-06",
+        "FRM-07",
+        "TIME-01",
+        "TIME-05"
+      ],
+      "evidence_at_entry": "none",
+      "proposed_test_only": true
+    },
+    {
+      "id": "G1E-08",
+      "category": "synthetic_probes",
+      "entry_status": "open",
+      "entry_blocker": true,
+      "required_reviewed_artifact": "vetted raw-byte fixture catalog that distinguishes permitted good requests, malformed inputs and safe response behavior",
+      "reason_open": "fixture source, caps, rate and expected per-probe evidence are not yet approved",
+      "g1_case_ids": [
+        "FRM-03",
+        "FRM-07",
+        "FRM-09",
+        "FRM-11"
+      ],
+      "evidence_at_entry": "none",
+      "proposed_test_only": true
+    },
+    {
+      "id": "G1E-09",
+      "category": "operator_consent",
+      "entry_status": "open",
+      "entry_blocker": true,
+      "required_reviewed_artifact": "explicit new user/operator approval of test executable, isolated port, bounded probes, machine impact, stop and rollback",
+      "reason_open": "this G0 PR is not permission to open an endpoint or change Windows",
+      "g1_case_ids": [
+        "ENV-01",
+        "ENV-02",
+        "ENV-03"
+      ],
+      "evidence_at_entry": "none",
+      "proposed_test_only": true
+    },
+    {
+      "id": "G1E-10",
+      "category": "isolation_redaction",
+      "entry_status": "open",
+      "entry_blocker": true,
+      "required_reviewed_artifact": "reviewed evidence scrub policy, no P1/user diary/game/token material, no automatic OS edits, no side-effects",
+      "reason_open": "G1 trace collection and data minimization controls have not been approved",
+      "g1_case_ids": [
+        "HOST-04",
+        "HDR-05",
+        "ENV-01",
+        "ENV-03"
+      ],
+      "evidence_at_entry": "none",
+      "proposed_test_only": true
+    },
+    {
+      "id": "G1E-11",
+      "category": "decision_exits",
+      "entry_status": "open",
+      "entry_blocker": true,
+      "required_reviewed_artifact": "reviewed per-case GO/FAIL/BLOCK thresholds for 37 G1 entries, kernel-vs-handler denial, unknown/fail, and rollback",
+      "reason_open": "G1 evidence ledger and acceptance-owner review process remain proposed",
+      "g1_case_ids": [
+        "RAW-01",
+        "FRM-12",
+        "TIME-02",
+        "TIME-05"
+      ],
+      "evidence_at_entry": "none",
+      "proposed_test_only": true
+    }
+  ],
+  "non_entry_separate_future_work": [
+    "G1 completion: run only explicitly approved isolated Windows transport cases and independently review observed evidence",
+    "G2: protect every route, issue/revoke real credentials, atomic P2 lease/epoch and game-step admission, durable retirement and outcome journaling",
+    "G2: P1 consent-safe projection, native Luna/P12 migration, Windows/SMAPI freeze and gameplay acceptance"
+  ]
+}
