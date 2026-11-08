@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "phase": "2G",
+  "profile_id": "SUNNY-P2-TRANSPORT-G0-PROPOSED-v1",
+  "approval_state": "proposed_not_ratified",
+  "g1_approval": false,
+  "windows_http_sys_tested": false,
+  "g2_runtime_tested": false,
+  "notes": "Numbers are review candidates, not Windows API guarantees, permission to start G1, deployment settings or proof that pre-handler timing and transport abort can be enforced.",
+  "source_baseline": "b141f043ed759f6da1a97522403d9560879aafb0",
+  "numeric_candidates": {
+    "max_request_body_bytes": 16384,
+    "max_response_bytes": 262144,
+    "body_read_budget_ms": 5000,
+    "total_first_byte_to_ingress_complete_ms": 8000,
+    "header_first_byte_to_complete_budget_ms": 2000,
+    "abort_and_cleanup_grace_ms": 2000,
+    "max_inflight_global_including_undrained": 32,
+    "max_inflight_general_including_undrained": 28,
+    "reserved_recovery_inflight": 4,
+    "max_inflight_per_authenticated_principal": 8,
+    "max_pending_unresolved_aborts": 4,
+    "max_test_backlog": 16
+  },
+  "needs_operator_review": [
+    "monotonic first byte/connection anchor before GetContextAsync",
+    "HTTP.sys header/queue occupancy limit is enforceable with permitted APIs and no global OS changes",
+    "exact per-request abort primitive scope and safe shutdown fallback",
+    "observed completion and buffer ownership before capacity release",
+    "reasonableness of proposed limits on a disposable Windows test process",
+    "route-wide credential and effect protection remains separate G2"
+  ],
+  "invariants": [
+    "ingress expiry is anchored at verified first byte, not handler entry",
+    "small body pieces never renew whole-ingress deadline",
+    "timeout or response close never frees a live request slot",
+    "only observed transport completion AND safe cleanup free capacity",
+    "unverifiable timestamp provenance is a hard stop",
+    "recovery reserve does not allow unlimited accepted work or bypass auth",
+    "aborted late completion can never requalify a request",
+    "kernel queue, pre-handler slow headers and global connection caps require separate platform proof"
+  ]
+}
