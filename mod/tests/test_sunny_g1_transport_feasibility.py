@@ -61,7 +61,7 @@ def check_matrix(m: dict) -> None:
     assert m["live_experiments_forbidden"] is True
     assert m["no_automatic_go"] is True
     assert len(m["rules"]) >= 7
-    assert "first request" in " ".join(m["rules"])
+    assert "first-request" in " ".join(m["rules"])
     assert "BLOCK" in " ".join(m["rules"])
     assert "EntityBody" in " ".join(m["rules"])
 
