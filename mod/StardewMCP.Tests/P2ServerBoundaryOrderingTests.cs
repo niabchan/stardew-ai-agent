@@ -273,8 +273,11 @@ public sealed class P2ServerBoundaryOrderingTests
         Assert.False(after.FreezeEligible);
         Assert.False(f.FakeStep("bedtime", lease, now: 1200));
         Assert.True(f.Quiesce("bedtime", outcomeKnown: false));
-        Assert.False(f.Handle(Request(Init)).Accepted); // fake credential still present, but no recovery proof
-        // A future client must still independently fence unverified DELETE outcome.
+        // Local fake quiescence may permit server-side lease re-acquisition;
+        // that is NOT permission for the PR #26 client to retry unverified DELETE.
+        var newLease = Assert.IsType<CoordinatorLease>(f.Handle(Request(Init)).Lease);
+        Assert.False(f.Handle(Request(Say, newLease), "blind-retry").Accepted);
+        // Existing unknown-effect barrier and independent client fence both matter.
     }
 
     [Fact]
