@@ -94,7 +94,7 @@ def check_matrix(m: dict) -> None:
             assert [r for r in rows if r["transport"] == t and r["gate_id"] == g]
     assert next(r for r in rows if r["transport"] == "ASPNET-HttpSys" and
                 r["gate_id"] == "G1E-03")["assessment"] == "documented_partial"
-    assert "only after first request" in next(s for s in src if s["id"] == "MS-HTTPSYS-HEADER")["claim"]
+    assert "only enforced after first request" in next(s for s in src if s["id"] == "MS-HTTPSYS-HEADER")["claim"]
     assert next(r for r in rows if r["transport"] == "Kestrel" and
                 r["gate_id"] == "G1E-03")["assessment"] == "documented_partial"
 
