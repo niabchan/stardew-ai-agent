@@ -65,6 +65,7 @@ internal static class FakeHttpStreamIngress
         KeyValuePair<string, string>[] headers;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             headers = capture.RawHeaders?.ToArray() ?? Array.Empty<KeyValuePair<string, string>>();
             if (capture.Evidence != FakeHttpCaptureEvidence.All ||
                 capture.BoundPort is < 1 or > 65535 ||
@@ -150,9 +151,13 @@ internal static class FakeHttpStreamIngress
             int read = 0;
             while (read < length)
             {
-                int n = await input.ReadAsync(body.AsMemory(read, Math.Min(ChunkSize, length - read)),
+                cancellationToken.ThrowIfCancellationRequested();
+                int requested = Math.Min(ChunkSize, length - read);
+                int n = await input.ReadAsync(body.AsMemory(read, requested),
                     cancellationToken).ConfigureAwait(false);
-                if (n <= 0) return FakeHttpIngressResult.Deny(400, read); // early EOF
+                cancellationToken.ThrowIfCancellationRequested();
+                if (n < 0 || n > requested) return FakeHttpIngressResult.Deny(400, read);
+                if (n == 0) return FakeHttpIngressResult.Deny(400, read); // early EOF
                 read += n;
             }
 
@@ -161,8 +166,10 @@ internal static class FakeHttpStreamIngress
             // wire bytes and a one-byte probe may block. Do NOT copy this EOF
             // probe into production without a proven framing API and deadline.
             byte[] extra = new byte[1];
+            cancellationToken.ThrowIfCancellationRequested();
             int trailing = await input.ReadAsync(extra.AsMemory(0, 1),
                 cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             if (trailing != 0) return FakeHttpIngressResult.Deny(400, read + trailing);
 
             // The full route policy is AFTER the bounded read and still has to
@@ -170,6 +177,7 @@ internal static class FakeHttpStreamIngress
             var request = new FakeRouteRequest(capture.Method, path, query,
                 capture.RawHost, capture.PeerAddress, capture.BoundPort, headers, body);
             FakeRouteDecision outcome = FakeAllRoutesBoundary.Check(request, authority);
+            cancellationToken.ThrowIfCancellationRequested();
             return new(outcome.Status, outcome.CandidateForFurtherValidation,
                 outcome.CandidateForFurtherValidation ? outcome.RouteId : null, read);
         }

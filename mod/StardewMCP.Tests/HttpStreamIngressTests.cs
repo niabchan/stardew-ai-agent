@@ -19,16 +19,20 @@ public sealed class HttpStreamIngressTests
     private sealed class Authority : IFakeRouteAuthority
     {
         public string IntendedInstanceId { get; set; } = "synthetic-instance-8770";
-        public int BoundPort { get; set; } = 8770;
+        private int boundPort = 8770;
+        internal bool FailPort;
+        public int BoundPort { get => FailPort ? throw new InvalidOperationException("synthetic store failure") : boundPort; set => boundPort = value; }
         public bool P1Consent => false;
         public bool DebugEnabled => false;
         public bool ViewerPublicationEnabled => false;
         public bool ViewerProjectionReady => false;
         public bool ReplayProjectionReady => false;
         public int Lookups;
+        internal Action? OnResolve;
         public FakeRoutePrincipal? ResolveGameBearer(string token)
         {
             Lookups++;
+            OnResolve?.Invoke();
             return token switch
             {
                 P2 => new("luna", IntendedInstanceId,
@@ -141,7 +145,10 @@ public sealed class HttpStreamIngressTests
         foreach (var raw in new[] { "/api/feed?after=%31", "/api/feed?after=1&after=2",
                  "/api/state?seat=p1", "/api%2Fstate", "/api/../state",
                  "/api/state?x=1?y=2", "http://localhost:8770/api/state",
-                 "/api/state#fragment", "//api/state" })
+                 "/api/state#fragment", "//api/state", "/api/state/",
+                 "/api/./state", "/api/state?after=" + new string('1', 100),
+                 "/api/state?reply_within=1200",
+                 "/api/briefing?seat=p1", "/api/state\t", "/api/státe" })
         {
             var denied = await Read(Capture(raw));
             Assert.False(denied.FurtherValidationCandidate);
@@ -171,12 +178,17 @@ public sealed class HttpStreamIngressTests
     [Theory]
     [InlineData("Origin", "http://localhost:8770", 403)]
     [InlineData("Origin", "null", 403)]
+    [InlineData("oRiGiN", "https://evil.invalid", 403)]
+    [InlineData("Origin", "", 403)]
+    [InlineData("Content-Length", "2", 400)]
+    [InlineData("cOnTeNt-LeNgTh", "2", 400)]
+    [InlineData(" Host", "127.0.0.1:8770", 400)]
+    [InlineData("X-Fold", "value\r\n more", 400)]
     [InlineData("Cookie", "sid=abc", 403)]
     [InlineData("Transfer-Encoding", "chunked", 403)]
     [InlineData("Forwarded", "for=127.0.0.1", 403)]
     [InlineData("host", "127.0.0.1:8770", 400)]
     [InlineData("authorization", "Bearer other", 400)]
-    [InlineData("Content-Length", "2", 400)]
     [InlineData("X-Newline", "value\r\nInjected: x", 400)]
     public async Task Unsafe_native_headers_are_denied_without_body_read_or_auth(
         string header, string value, int status)
@@ -370,6 +382,177 @@ public sealed class HttpStreamIngressTests
             Capture("/api/control", "POST", Operator, bytes), stream, a);
         Assert.Equal(401, result.Status);
         Assert.False(result.FurtherValidationCandidate);
+    }
+
+    // Deliberately ignores cancellation and suspends at a chosen body/EOF read.
+    // The test owns release; ingress has no deadline and cannot abort this stream.
+    private sealed class SuspendedStream : MemoryStream
+    {
+        internal readonly TaskCompletionSource<bool> Started =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly TaskCompletionSource<bool> Release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal int Calls;
+        internal int SuspendOn = 1;
+        internal SuspendedStream(byte[] bytes) : base(bytes, writable: false) { }
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (++Calls == SuspendOn)
+            {
+                Started.TrySetResult(true);
+                await Release.Task;
+            }
+            return await base.ReadAsync(buffer, CancellationToken.None);
+        }
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Cancellation_ignored_by_body_or_EOF_read_never_becomes_candidate(int suspendOn)
+    {
+        var bytes = Encoding.UTF8.GetBytes("{}");
+        using var stream = new SuspendedStream(bytes) { SuspendOn = suspendOn };
+        using var cts = new CancellationTokenSource();
+        var auth = new Authority();
+        var pending = FakeHttpStreamIngress.ProcessAsync(
+            Capture("/api/meta", "POST", body: bytes), stream, auth, cts.Token);
+        try
+        {
+            await stream.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cts.Cancel();
+            // Cancellation does NOT abort an ignoring read. Do not claim a time bound.
+            Assert.False(pending.IsCompleted);
+        }
+        finally { stream.Release.TrySetResult(true); }
+        var result = await pending.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(408, result.Status);
+        Assert.False(result.FurtherValidationCandidate);
+        Assert.Null(result.RouteId);
+        Assert.Equal(0, auth.Lookups);
+        Assert.Equal(suspendOn, stream.Calls);
+    }
+
+    [Fact]
+    public async Task Precancelled_request_does_not_call_even_an_ignoring_stream()
+    {
+        using var stream = new SuspendedStream(Array.Empty<byte>());
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var auth = new Authority();
+        var pending = FakeHttpStreamIngress.ProcessAsync(Capture(), stream, auth, cts.Token);
+        try
+        {
+            var result = await pending.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(408, result.Status);
+            Assert.False(result.FurtherValidationCandidate);
+            Assert.Equal(0, stream.Calls);
+            Assert.Equal(0, auth.Lookups);
+        }
+        finally { stream.Release.TrySetResult(true); }
+    }
+
+    [Fact]
+    public async Task Header_snapshot_and_revocation_survive_a_genuinely_suspended_read()
+    {
+        var bytes = Encoding.UTF8.GetBytes("{}");
+        var auth = new MutableAuthority();
+        var source = Capture("/api/control", "POST", Operator, bytes);
+        var headers = source.RawHeaders.ToList();
+        using var stream = new SuspendedStream(bytes);
+        var pending = FakeHttpStreamIngress.ProcessAsync(source with { RawHeaders = headers },
+            stream, auth);
+        try
+        {
+            await stream.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            auth.Revoked = true;
+            headers.Clear();
+        }
+        finally { stream.Release.TrySetResult(true); }
+        var result = await pending.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(401, result.Status);
+        Assert.False(result.FurtherValidationCandidate);
+        Assert.Null(result.RouteId);
+    }
+
+    [Fact]
+    public async Task Zero_read_is_terminal_EOF_without_retry_or_authority_lookup()
+    {
+        using var stream = new CountingStream(Encoding.UTF8.GetBytes("{}")) { ChunkSize = 0 };
+        var auth = new Authority();
+        var result = await FakeHttpStreamIngress.ProcessAsync(
+            Capture("/api/meta", "POST"), stream, auth);
+        Assert.Equal(400, result.Status);
+        Assert.Equal(0, result.BodyBytesRead);
+        Assert.False(result.FurtherValidationCandidate);
+        Assert.Equal(1, stream.Calls);
+        Assert.Equal(0, auth.Lookups);
+    }
+
+    [Fact]
+    public async Task Cancellation_during_authority_resolution_cannot_return_a_candidate()
+    {
+        using var cts = new CancellationTokenSource();
+        var auth = new Authority { OnResolve = () => cts.Cancel() };
+        using var stream = new CountingStream(Array.Empty<byte>());
+        var result = await FakeHttpStreamIngress.ProcessAsync(Capture(), stream, auth, cts.Token);
+        Assert.Equal(408, result.Status);
+        Assert.False(result.FurtherValidationCandidate);
+        Assert.Null(result.RouteId);
+        Assert.Equal(1, auth.Lookups);
+    }
+
+    private sealed class InvalidCountStream : MemoryStream
+    {
+        internal int Count;
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer,
+            CancellationToken cancellationToken = default) => new(Count);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(3)]
+    [InlineData(int.MaxValue)]
+    public async Task Broken_stream_count_is_denied_without_accounting_or_authority(int count)
+    {
+        using var stream = new InvalidCountStream { Count = count };
+        var auth = new Authority();
+        var result = await FakeHttpStreamIngress.ProcessAsync(
+            Capture("/api/meta", "POST"), stream, auth);
+        Assert.Equal(400, result.Status);
+        Assert.Equal(0, result.BodyBytesRead);
+        Assert.False(result.FurtherValidationCandidate);
+        Assert.Equal(0, auth.Lookups);
+    }
+
+    [Fact]
+    public async Task Authority_property_and_resolver_failures_are_unavailable_not_candidates()
+    {
+        foreach (var auth in new[] {
+            new Authority { FailPort = true },
+            new Authority { OnResolve = () => throw new InvalidOperationException("synthetic store failure") }
+        })
+        {
+            using var stream = new CountingStream(Array.Empty<byte>());
+            var result = await FakeHttpStreamIngress.ProcessAsync(Capture(), stream, auth);
+            Assert.Equal(503, result.Status);
+            Assert.False(result.FurtherValidationCandidate);
+            Assert.Null(result.RouteId);
+        }
+    }
+
+    [Theory]
+    [InlineData("?breaks=1")]
+    [InlineData("?reply_within=1200")]
+    public async Task Proposed_P2_route_does_not_accept_legacy_query_controls(string query)
+    {
+        var bytes = Encoding.UTF8.GetBytes("{}");
+        var auth = new Authority();
+        var result = await Read(Capture("/mcp/p2" + query, "POST", P2, bytes), bytes, auth);
+        Assert.Equal(400, result.Status);
+        Assert.False(result.FurtherValidationCandidate);
+        Assert.Equal(0, auth.Lookups);
     }
 
     private sealed class MutableAuthority : IFakeRouteAuthority

@@ -24,7 +24,7 @@ synthetic FakeHttpCapture
   -> reject unusable native Bearer header (not credential verification)
   -> exact Content-Type for POST; strict one-value decimal Content-Length
   -> reject missing POST length or length >16KiB *before* reading body
-  -> bounded Stream.ReadAsync loop with caller CancellationToken
+  -> byte-bounded Stream.ReadAsync loop with explicit cancellation checks
   -> synthetic EOF check; deny early EOF or visible trailing bytes
   -> Phase 2D fake route/grant classifier checks strict JSON, instance/role
   -> only a further-validation CANDIDATE (never tool execution/data access)
@@ -38,9 +38,9 @@ The in-memory stream fixture exposes EOF after a fixed byte array. We probe one 
 
 ## Explicit security limitations
 
-- Synthetic Host, peer, raw target, header multiplicity, framing evidence, configured port and instance are **caller-supplied test data**, not authenticated OS proofs. IPv6 and alternate loopback aliases remain unapproved. If underlying `HttpListener` cannot provide lossless raw target/Host evidence, evaluate an appropriate different transport API or conservatively reject; do not silently convert `Url.AbsolutePath` into evidence of original raw bytes.
+- Synthetic Host, peer, raw target, header multiplicity, framing evidence, configured port and instance are **caller-supplied test data**, not authenticated OS proofs. IPv6 Host forms and alternate Host aliases remain unapproved; the synthetic peer parser accepts IPAddress.IsLoopback addresses, including IPv6 loopback, without proving a real listener binding. If underlying `HttpListener` cannot provide lossless raw target/Host evidence, evaluate an appropriate different transport API or conservatively reject; do not silently convert `Url.AbsolutePath` into evidence of original raw bytes.
 - The harness returns **candidate-only** status from Phase 2D. It does not create, compare, retire, re-provision or persist a P2 session, credential generation, host epoch, role owner tuple, operation journal or stable reading snapshot. Unknown action outcomes remain unresolved. A fake token string is not a real provisioned game credential or the provider API token.
-- No limits on connection concurrency, slow headers, socket duration, pipelining, response size, actual HTTP body deadline, per-client rate budgets or request-task creation. Cancellation is supplied by tests; a real caller must create a bounded cancellation policy and ensure the stream respects it. The fake `ReadAsync` test shows *one* well-behaved implementation, not protection against a hung Windows input stream.
+- No limits on connection concurrency, slow headers, socket duration, pipelining, response size, actual HTTP body deadline, per-client rate budgets or request-task creation. Cancellation is supplied by tests. The harness checks it before and after reads and after classification, so a completed read that ignored cancellation cannot yield a candidate. A pending read that ignores cancellation still remains pending: the regression deliberately suspends both a body read and the EOF probe, cancels, asserts noncompletion, then releases the fixture explicitly. This is a byte bound, **not a time bound**. A real adapter needs a monotonic total-body deadline (not a resettable per-fragment timeout), transport-owned abort, bounded concurrency and a cleanup contract that observes/drains outstanding reads before releasing or reusing buffers. Merely racing a read against a timer or passing a token does not abort I/O or reclaim its resources.
 - GET/DELETE synthetic body probes detect visible memory bytes but do not establish wire-level absence of bytes. `HttpListener` may normalize Content-Length or transfer encoding; the dedicated raw adapter still needs a verified framing and multiplexing contract.
 - Operator POST schemas, debug tool effects, C/O consented P1 safety, browser pairing/CSRF, replay and viewer redaction/publication, watchdog projection, real native Luna v0.3.11 compatibility, P12 1200-second action and WorldClock freeze semantics are outside this phase. Legacy wildcard CORS, unauthenticated `/api/control` and raw reads **remain unchanged**.
 - Fake `MemoryStream` tests do not exercise Windows HTTP.sys, `HttpListenerRequest`, a real TCP socket, SMAPI, the installed game or any user's data. The presence of `using System.Net` in test code is not network activity.
@@ -61,3 +61,26 @@ python -m pytest -q mod/tests reference/sunny_gift/tests
 ```
 
 GitHub CI runs only the game-free projects. No real listener or save should be exercised. Independent Codex review should focus on timeout/EOF behavior, authority/path/header evidence trust, cancellation, concurrent mutation of test captures, negative cases and false assertions. Keep the PR **Draft and unmerged** pending that review. Any merge should target PR #22's **Draft design branch** only, never `main` or an installed DLL.
+
+## Issue #40 independent review
+
+The review is limited to this inert fixture and its upstream contracts:
+[all-route authority contract](../../docs/sunny-agentic/SERVER_AUTH_SESSION_EPOCH_CONTRACT.md),
+[dormant P2 preflight](../../mod/StardewMCP/Agent/SunnyP2Preflight.cs),
+[fake all-route classifier](../../mod/StardewMCP.Tests/FakeAllRoutesBoundary.cs)
+and [unchanged listener](../../mod/StardewMCP/Agent/AgentHttp.cs).
+
+- **Medium, corrected:** token forwarding alone allowed a stream that ignored cancellation to finish with a candidate. Explicit checks now surround body/EOF reads and follow classification. Tests use genuinely suspended reads, not just synchronous callbacks, and verify no credential lookup after read cancellation.
+- **Low, corrected:** invalid stream return counts (negative or larger than the requested buffer) are denied before advancing body accounting; regression streams exercise those contract violations.
+- **Medium, unresolved platform gate:** the synthetic EOF probe and cancellation do not bound a hanging read or prove wire framing. The controlled ignoring-stream tests intentionally demonstrate that noncompletion, then release their own fixture. No listener/deadline implementation is added.
+- **Medium, unresolved trust gate:** every evidence bit, configured instance and peer is test supplied. Neither Host equality, a loopback peer nor a syntactically valid bearer authenticates a server or credential. HTTP version, original header-line framing/obs-fold and raw wire multiplicity are not parsed here. Tests cannot establish those facts.
+- Header pairs are copied before await; mutation while a custom collection is being copied is not an atomic transport snapshot. Authority properties, grants, owner/epoch and consent are separate reads, not a stable transaction. Resolution after body/EOF catches revocation *during those reads*, but revocation after resolution or candidate return still requires atomic admission and disclosure checks.
+- GET/DELETE reject declared or visible bodies; POST requires exact JSON media type and 1–16384 declared bytes. Decimal syntax permits leading zeroes; duplicate fields and CL/TE are refused. A zero read into a nonempty buffer is terminal EOF, never a reason to retry. None of this parses HTTP wire version or request lines.
+- `/mcp/p2` with `{}` remains only a classifier candidate; it is not valid JSON-RPC admission or retirement proof. Legacy `?breaks`/`?reply_within` are not accepted by this proposed route. P12's 1200-second action budget is distinct from a future short ingress deadline; owner pinning, unknown outcomes, unrelated AI seats, P1 human control and viewer/OBS separation remain unchanged.
+
+For a future isolated/manual acceptance pass, retain exact sent bytes and OS/API observations separately, including explicit duplicate/case-varied Host/Origin/CL, CL+TE, folded and malformed header lines, HTTP versions, absolute/percent/dot targets, pipelined requests, short bodies and stalled body/EOF reads. Record which inputs HTTP.sys rejects, combines, normalizes or hides, and prove that deadlines abort outstanding I/O without effects or buffer reuse. Verify expected listener identity and port from trusted configuration, never from these flags. Use a disposable endpoint, no game or installed Sunny service, under separate operator authorization. **This procedure has not been executed.**
+
+Acceptable only as an inert source/reference addition on PR #22's Draft branch.
+Green game-free tests do not establish real HttpListener security or Windows/SMAPI safety.
+
+Local review validation: `python -m pytest -q mod/tests reference/sunny_gift/tests` (workspace virtual environment): **286 passed, 1 existing xfailed**. `dotnet test mod/StardewMCP.Tests` was attempted with a workspace-local .NET 6.0.428 SDK, but the execution environment disconnected during restore; no local C# pass is claimed. See the final PR-head GitHub Actions run for compilation and game-free C# results.
