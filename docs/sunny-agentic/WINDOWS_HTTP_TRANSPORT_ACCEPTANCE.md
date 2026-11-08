@@ -45,6 +45,8 @@ This plan describes a **future, separately approved** experiment on an isolated 
 
 A client-visible 400, 403, 408, 413, 500 or 200 **alone is not acceptance evidence**. Each case needs the layer of rejection, exact sent test bytes, exposed handler metadata, absence of protected side effects and cleanup outcome.
 
+**Not every case expects denial.** The manifest's `outcome_class` distinguishes approved **positive synthetic candidate-only** checks (such as an exact Host or a valid 16 KiB body), **observation-only** probes (raw target/EOF framing), **isolation/teardown**, **separately framed requests**, **bounded abort+cleanup**, ordinary **deny-before-effects** and **G2-reviewed runtime evidence**. A valid synthetic candidate never authorizes an installed game tool or private response. A measured Windows transformation is not automatically a passed security property.
+
 ## Coverage families (all 50 cases required)
 
 The [case manifest](../../reference/sunny_windows_http_acceptance/cases.json) is the source of case IDs and scenario definitions:
