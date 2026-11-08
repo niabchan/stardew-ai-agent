@@ -182,6 +182,18 @@ internal sealed class FakeP2Coordinator
         && lease.Generation == _roleGeneration
         && HasGrant(lease.Principal, CoordinatorGrant.Control);
 
+    // Non-renewing admission revalidation; advances fake time and may retire expiry.
+    // Discovery never renews the lease, but expiry must still invalidate it.
+    internal bool ValidateLease(CoordinatorLease lease, long now = 0)
+    {
+        lock (_gate)
+        {
+            now = AdvanceClockUnderLock(now);
+            ExpireUnderLock(now);
+            return ValidUnderLock(lease);
+        }
+    }
+
     internal CoordinatorDecision Enqueue(CoordinatorLease lease, string operationId, CoordinatorLane lane,
         long now = 0)
     {
