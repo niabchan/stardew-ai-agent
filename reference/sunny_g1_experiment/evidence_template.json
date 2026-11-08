@@ -75,7 +75,20 @@
     "independent_stop_invoked": null,
     "all_collateral_candidates_invalidated": null,
     "cleanup_end_ms": null,
-    "still_pending_count": null
+    "still_pending_count": null,
+    "read_task_alias": null,
+    "buffer_owner_alias": null,
+    "buffer_quarantine_state": null,
+    "late_completion_observed": null,
+    "response_write_completion_observed": null,
+    "stop_control_path": null,
+    "stop_owner_alias": null,
+    "stop_deadline_ms": null,
+    "escalation_due_ms": null,
+    "escalation_action": null,
+    "escalation_observed_ms": null,
+    "halt_latched": null,
+    "manual_rollback_reference": null
   },
   "review": {
     "verdict": "not_run",
@@ -102,7 +115,19 @@
     "unexpected_candidate",
     "timeout_unaborted",
     "not_run",
-    "unobserved"
+    "unobserved",
+    "separate_requests_isolated",
+    "bounded_abort_and_cleanup",
+    "isolation_and_teardown"
   ],
-  "notes": "Empty G0 template only. After separate approval, future Windows observations must be stored as separate reviewed, sanitized evidence; do not overwrite this template to claim G1 completion."
+  "notes": "Empty G0 template only. After separate approval, future Windows observations must be stored as separate reviewed, sanitized evidence; do not overwrite this template to claim G1 completion.",
+  "request_attribution": {
+    "connection_alias": null,
+    "request_alias": null,
+    "sequence_on_connection": null,
+    "synthetic_identity_alias": null,
+    "fixture_variant_alias": null,
+    "observation_source_references": [],
+    "clock_domain_mapping": null
+  }
 }

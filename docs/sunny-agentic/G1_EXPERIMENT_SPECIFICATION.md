@@ -36,7 +36,7 @@ ISyntheticFixtureCatalog
 
 IClientWireRecorder
   - RecordAttempt(fixtureId, connectionAlias, intendedDisposableEndpoint)
-  - RecordActualWrites(bytesConfirmedSent, monotonicTimestampSource)
+  - RecordActualWrites(bytesAcceptedByClientTransport, monotonicTimestampSource)
   - RecordResponse(status, interimResponses, sanitizedHeaders, closure)
 
 IWindowsTransportObserver
@@ -107,3 +107,13 @@ Prior to asking for new G1 approval, the owner/reviewer should be able to name t
 **Stop / NO-GO conditions:** any unknown port or running service; P1/game data; unapproved URLACL/firewall/elevation; inability to bound pre-auth headers/queue; missing first-byte provenance without a reviewed equivalent; unresolved read/abort cleanup; unknown buffer ownership; unexpected synthetic protected candidate; private response; failure to shut down; or operator stop not available independently of the test listener. Repeated runs require a **new explicit approval**, never an implicit restart. There is **no automatic restart** or safety-halt clearance after a timeout or emergency stop.
 
 This document is one **G0 design artifact**, not closure of all 11 Phase 2H readiness gates. The exact transport observation and numerical capabilities remain platform questions. A green Python CI only proves internal consistency of reference files. **Current decision: NO-GO for G1 start. G2 is separate.**
+
+## Request attribution and finite stop contract
+
+Every conceptual probe requires per-request attribution, effects/response and lifecycle evidence in addition to its transport-specific fields. The template is one record per request/variant; pipelined and keep-alive cases require linked records with a connection alias, sequence and distinct synthetic identity aliases. Record each observation source and clock domain mapping; unsynchronized client and server timestamps cannot establish elapsed ingress time. Client write completion means bytes accepted by the client transport, not proven delivery to HTTP.sys. Unknown correlation or provenance remains BLOCK.
+
+FRM-07 distinguishes candidate-only 16,383/16,384-byte valid JSON from denied 16,385-byte input and invalid encoding/JSON. HDR-05 includes browser form as well as preflight, cookies and interim responses; FRM-05 includes overlong decimal lengths. No single outcome class or status substitutes for these variant-specific decisions. The future-verdict vocabulary describes observations, not permission or automatic case acceptance.
+
+Before bind, the independent stop design must name an external operator control path, a finite stop deadline, escalation deadline and separately approved fallback when abort or listener shutdown hangs. It must not depend on listener/recovery slots, request locks or the evidence writer. The ledger tracks task/buffer aliases, quarantine, late completion, response-write completion, collateral invalidation, latched halt and manual rollback. If quiescence remains unproven after escalation, the case stays BLOCK and ownership stays quarantined. This specification does not implement that stop mechanism.
+
+Offline validation uses a closed, versioned G0 contract: unknown or missing keys, type changes, nonempty observations, policy weakening and modified conceptual recipes must fail. Reviewed contract fingerprints detect fixture drift, including changes that preserve prose length; they are change-control checks, not cryptographic authentication of operator consent, Windows provenance or human evidence. Updating a fingerprint requires independent review of the changed inert specification. All 11 G1 entry blockers remain open.

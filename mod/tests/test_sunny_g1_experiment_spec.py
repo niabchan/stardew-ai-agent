@@ -7,6 +7,7 @@ validates a G0 planning artifact; it never authorizes Windows tests.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -15,8 +16,24 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 REF = ROOT / "reference" / "sunny_g1_experiment"
-PLAN = json.loads((REF / "experiment_plan.json").read_text(encoding="utf-8"))
-TEMPLATE = json.loads((REF / "evidence_template.json").read_text(encoding="utf-8"))
+
+
+def reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def load_g0(path):
+    return json.loads(path.read_text(encoding="utf-8"),
+                      object_pairs_hook=reject_duplicate_keys)
+
+
+PLAN = load_g0(REF / "experiment_plan.json")
+TEMPLATE = load_g0(REF / "evidence_template.json")
 CATALOG = json.loads((ROOT / "reference" / "sunny_windows_http_acceptance" /
                       "cases.json").read_text(encoding="utf-8"))
 READINESS = json.loads((ROOT / "reference" / "sunny_g1_readiness" /
@@ -34,8 +51,18 @@ PLATFORM_IDS = {"PLATFORM-01", "PLATFORM-02", "PLATFORM-03", "PLATFORM-04"}
 LAYER_KEYS = {"client_transmitted", "http_sys_pre_handler", "listener_exposed"}
 
 
+def contract_digest(value):
+    return hashlib.sha256(json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")).hexdigest()
+
+
 def validate_plan(plan: dict, template: dict) -> None:
     """Deliberately NO 'GO' outcome; rejects forged G1 execution evidence."""
+    # Pinned reviewed inert contract closes every key/type/value, including prose.
+    # This is drift detection, NOT authentication of future evidence or approval.
+    assert contract_digest(plan) == "e9371f44642976557f8aebf6dc5d55401c3319b8b70325534978641ba46eceef"
+    assert contract_digest(template) == "02ac9a85441e9086ef0042112ac55aa9f046bf5145b0955df65878ce9ef849ae"
     assert plan["schema_version"] == 1
     assert plan["phase"] == "2I"
     assert plan["name"] == "sunny-g1-disposable-experiment-g0-spec"
@@ -132,7 +159,7 @@ def validate_plan(plan: dict, template: dict) -> None:
     assert len(template["forbidden_evidence"]) >= 5
     # Explicitly reject any fabricated measurements or authorization in G0.
     for section in ("approved_testbed", "three_layer_observations",
-                    "effects_and_responses", "lifecycle"):
+                    "effects_and_responses", "lifecycle", "request_attribution"):
         def check_unrun(obj):
             if isinstance(obj, dict):
                 for key, value in obj.items():
@@ -289,3 +316,51 @@ def test_document_retains_no_go_stop_and_separate_g1_g2() -> None:
     ):
         assert part.lower() in doc.lower(), part
     assert PLAN["g1_decision"] == "NO_GO_G1_START"
+
+
+def contract_mutations(value):
+    """Mutate every container and leaf, rather than selected happy-path fields."""
+    if isinstance(value, dict):
+        yield {**value, "unreviewed_claim": None}
+        for key, child in value.items():
+            removed = copy.deepcopy(value)
+            del removed[key]
+            yield removed
+            for replacement in contract_mutations(child):
+                changed = copy.deepcopy(value)
+                changed[key] = replacement
+                yield changed
+    elif isinstance(value, list):
+        yield value + ["unreviewed_claim"]
+        if value:
+            yield value[:-1]
+        for index, child in enumerate(value):
+            for replacement in contract_mutations(child):
+                changed = copy.deepcopy(value)
+                changed[index] = replacement
+                yield changed
+    else:
+        # Include false/zero substitutions: Python equality alone conflates them.
+        for replacement in (None, True, False, 0, 1, "fabricated_pass", {}, []):
+            if type(replacement) is not type(value) or replacement != value:
+                yield replacement
+        if isinstance(value, str):
+            yield "X" * len(value)  # prose length is no safety contract
+
+
+@pytest.mark.parametrize("artifact", ["plan", "template"])
+def test_every_g0_field_and_unknown_key_is_closed(artifact):
+    original = PLAN if artifact == "plan" else TEMPLATE
+    count = 0
+    for mutation in contract_mutations(original):
+        with pytest.raises((AssertionError, KeyError, TypeError, ValueError)):
+            validate_plan(mutation if artifact == "plan" else PLAN,
+                          mutation if artifact == "template" else TEMPLATE)
+        count += 1
+    assert count > 500
+
+
+def test_duplicate_json_keys_cannot_hide_a_forged_claim():
+    with pytest.raises(ValueError, match="Duplicate JSON key"):
+        json.loads('{"review": {"g1_approval": true, "g1_approval": false}}',
+                   object_pairs_hook=reject_duplicate_keys)
