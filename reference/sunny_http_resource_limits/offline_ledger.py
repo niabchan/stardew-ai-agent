@@ -111,6 +111,10 @@ class OfflineIngressLedger:
             return "invalid"
         if handler_ms >= first_byte_ms + self.limits.total_ms:
             return "expired_before_handler"
+        if handler_ms >= first_byte_ms + self.limits.header_ms:
+            # Detects a late delivery at handler time. This does NOT prove the
+            # kernel/transport bounded the pre-handler connection occupancy.
+            return "late_headers_unenforced"
         held, general, recovery, _ = self.counts()
         if (held >= self.limits.global_slots or
                 (lane == "general" and general >= self.limits.general_slots) or
@@ -197,6 +201,8 @@ class OfflineIngressLedger:
     def release(self, request_id: str, *, buffers_safely_released: bool) -> bool:
         t = self.tickets[request_id]
         if t.phase == "released":
+            return False
+        if not (t.body_finished or t.phase == "abort_pending"):
             return False
         if not (t.read_completion_observed and t.transport_quiescence_proven and
                 buffers_safely_released):
