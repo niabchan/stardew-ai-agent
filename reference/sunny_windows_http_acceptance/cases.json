@@ -22,13 +22,14 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future Windows evidence of disposable process isolation, intended listener binding and complete teardown without accessing installed Sunny.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "isolation_and_teardown"
     },
     {
       "id": "ENV-02",
@@ -37,13 +38,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "ENV-03",
@@ -52,13 +54,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future Windows evidence of disposable process isolation, intended listener binding and complete teardown without accessing installed Sunny.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "isolation_and_teardown"
     },
     {
       "id": "RAW-01",
@@ -67,13 +70,14 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future capture of sent synthetic wire bytes versus Windows exposed observations, with no invented raw provenance or protected side effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "measure_platform_behavior"
     },
     {
       "id": "RAW-02",
@@ -82,13 +86,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "RAW-03",
@@ -97,13 +102,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "RAW-04",
@@ -112,13 +118,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "RAW-05",
@@ -127,13 +134,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "RAW-06",
@@ -142,13 +150,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "HOST-01",
@@ -157,13 +166,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future valid synthetic input may become an isolated candidate after reviewed checks; never a game action or proof of real authorization.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "authorized_synthetic_candidate_only"
     },
     {
       "id": "HOST-02",
@@ -172,13 +182,14 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "HOST-03",
@@ -187,13 +198,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "HOST-04",
@@ -202,13 +214,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "HOST-05",
@@ -217,13 +230,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "HDR-01",
@@ -232,13 +246,14 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "HDR-02",
@@ -247,13 +262,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "HDR-03",
@@ -262,13 +278,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "HDR-04",
@@ -277,13 +294,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "HDR-05",
@@ -292,13 +310,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "FRM-01",
@@ -307,13 +326,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "FRM-02",
@@ -322,13 +342,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "FRM-03",
@@ -337,13 +358,14 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "FRM-04",
@@ -352,13 +374,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "FRM-05",
@@ -367,13 +390,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "FRM-06",
@@ -382,13 +406,14 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "FRM-07",
@@ -397,13 +422,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future valid synthetic input may become an isolated candidate after reviewed checks; never a game action or proof of real authorization.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "authorized_synthetic_candidate_only"
     },
     {
       "id": "FRM-08",
@@ -412,13 +438,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "FRM-09",
@@ -427,13 +454,14 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "FRM-10",
@@ -442,13 +470,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "deny_before_effects"
     },
     {
       "id": "FRM-11",
@@ -457,13 +486,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future proof each framed synthetic request is separately bounded and authorized, with no principal or body inherited across requests.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "separate_requests_isolated"
     },
     {
       "id": "FRM-12",
@@ -472,13 +502,14 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future capture of sent synthetic wire bytes versus Windows exposed observations, with no invented raw provenance or protected side effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "measure_platform_behavior"
     },
     {
       "id": "TIME-01",
@@ -487,13 +518,14 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future proof a monotonic total deadline, transport-owned abort, observed completion and safe cleanup with no late protected effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "bounded_abort_and_cleanup"
     },
     {
       "id": "TIME-02",
@@ -502,13 +534,14 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future proof a monotonic total deadline, transport-owned abort, observed completion and safe cleanup with no late protected effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "bounded_abort_and_cleanup"
     },
     {
       "id": "TIME-03",
@@ -517,13 +550,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future proof a monotonic total deadline, transport-owned abort, observed completion and safe cleanup with no late protected effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "bounded_abort_and_cleanup"
     },
     {
       "id": "TIME-04",
@@ -532,13 +566,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future proof a monotonic total deadline, transport-owned abort, observed completion and safe cleanup with no late protected effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "bounded_abort_and_cleanup"
     },
     {
       "id": "TIME-05",
@@ -547,13 +582,14 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future proof a monotonic total deadline, transport-owned abort, observed completion and safe cleanup with no late protected effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "bounded_abort_and_cleanup"
     },
     {
       "id": "TIME-06",
@@ -562,13 +598,14 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
+      "expected": "Future proof a monotonic total deadline, transport-owned abort, observed completion and safe cleanup with no late protected effects.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "bounded_abort_and_cleanup"
     },
     {
       "id": "AUTH-01",
@@ -577,13 +614,14 @@
       "priority": "required",
       "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
     },
     {
       "id": "AUTH-02",
@@ -592,13 +630,14 @@
       "priority": "required",
       "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
     },
     {
       "id": "AUTH-03",
@@ -607,13 +646,14 @@
       "priority": "blocker",
       "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
     },
     {
       "id": "AUTH-04",
@@ -622,13 +662,14 @@
       "priority": "blocker",
       "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
     },
     {
       "id": "AUTH-05",
@@ -637,13 +678,14 @@
       "priority": "required",
       "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
     },
     {
       "id": "AUTH-06",
@@ -652,13 +694,14 @@
       "priority": "blocker",
       "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
     },
     {
       "id": "PRIV-01",
@@ -667,13 +710,14 @@
       "priority": "blocker",
       "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
     },
     {
       "id": "PRIV-02",
@@ -682,13 +726,14 @@
       "priority": "required",
       "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
     },
     {
       "id": "COMP-01",
@@ -697,13 +742,14 @@
       "priority": "required",
       "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
     },
     {
       "id": "COMP-02",
@@ -712,13 +758,14 @@
       "priority": "required",
       "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
     },
     {
       "id": "COMP-03",
@@ -727,13 +774,14 @@
       "priority": "blocker",
       "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
     },
     {
       "id": "COMP-04",
@@ -742,13 +790,14 @@
       "priority": "blocker",
       "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
     },
     {
       "id": "COMP-05",
@@ -757,13 +806,14 @@
       "priority": "required",
       "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
         "protected effects count and request cleanup outcome"
-      ]
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
     }
   ]
 }
