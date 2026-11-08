@@ -13,7 +13,7 @@
     "real provider API keys",
     "PR main"
   ],
-  "global_acceptance": "All blocker and required cases must have dated trusted Windows evidence and independently reviewed outcomes; no missing raw provenance, unauthorized protected effect or unbounded worker is acceptable. Neither test-only CI nor synthetic flags can satisfy this gate.",
+  "global_acceptance": "G0: offline plan validation only. G1: all isolated-Windows transport cases with reviewed Windows evidence and time-bounded abort/cleanup; G2: all runtime/security/privacy/compatibility cases with separate reviewed implementation and real-game acceptance. Never count a G0/G1 result as G2 proof.",
   "cases": [
     {
       "id": "ENV-01",
@@ -22,7 +22,7 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -37,7 +37,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -52,7 +52,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -67,7 +67,7 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -82,7 +82,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -97,7 +97,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -112,7 +112,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -127,7 +127,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -142,7 +142,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -157,7 +157,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -172,7 +172,7 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -187,7 +187,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -202,7 +202,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -217,7 +217,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -232,7 +232,7 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -247,7 +247,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -262,7 +262,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -277,7 +277,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -292,7 +292,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -307,7 +307,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -322,7 +322,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -337,7 +337,7 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -352,7 +352,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -367,7 +367,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -382,7 +382,7 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -397,7 +397,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -412,7 +412,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -427,7 +427,7 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -442,7 +442,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -457,7 +457,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -472,7 +472,7 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -487,7 +487,7 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -502,7 +502,7 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -517,7 +517,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -532,7 +532,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -547,7 +547,7 @@
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -562,7 +562,7 @@
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future Windows platform rejection before handler or deliberate adapter pre-effect denial",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -575,9 +575,9 @@
       "category": "authorization",
       "scenario": "No bearer, wrong bearer, wrong instance and revoked bearer denied without legacy API fallback",
       "priority": "required",
-      "stage": "future_isolated_windows_only",
+      "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -590,9 +590,9 @@
       "category": "authorization",
       "scenario": "P2 C/O and operator/watchdog/replay/viewer grants remain disjoint for raw state, control and P1 data",
       "priority": "required",
-      "stage": "future_isolated_windows_only",
+      "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -605,9 +605,9 @@
       "category": "authorization",
       "scenario": "Credential/revision changed between parse and queue commit requires atomic server-side recheck",
       "priority": "blocker",
-      "stage": "future_isolated_windows_only",
+      "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -620,9 +620,9 @@
       "category": "authorization",
       "scenario": "Unverified DELETE cannot return proved retirement or clear unknown-outcome fence",
       "priority": "blocker",
-      "stage": "future_isolated_windows_only",
+      "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -635,9 +635,9 @@
       "category": "authorization",
       "scenario": "Malformed JSON, duplicated JSON names and unsafe tool/seat schema cannot queue actions",
       "priority": "required",
-      "stage": "future_isolated_windows_only",
+      "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -650,9 +650,9 @@
       "category": "authorization",
       "scenario": "Denied traffic never changes MarkContact, SessionBreaks, reply budget, freeze, Stats, logs or mutation queues",
       "priority": "blocker",
-      "stage": "future_isolated_windows_only",
+      "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -665,9 +665,9 @@
       "category": "privacy",
       "scenario": "Browser and OBS/viewer must be default-denied; no P1/diary/raw data serialization in failure path",
       "priority": "blocker",
-      "stage": "future_isolated_windows_only",
+      "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -680,9 +680,9 @@
       "category": "privacy",
       "scenario": "P1 consent revoked before protected safety projection serialization prevents disclosure",
       "priority": "required",
-      "stage": "future_isolated_windows_only",
+      "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -695,9 +695,9 @@
       "category": "compatibility",
       "scenario": "Legacy Luna ?breaks=1 query: explicit new contract/migration gate, not assumed supported",
       "priority": "required",
-      "stage": "future_isolated_windows_only",
+      "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -710,9 +710,9 @@
       "category": "compatibility",
       "scenario": "Legacy Luna ?reply_within=1200 query: no accidental accept or shared-seat timeout override",
       "priority": "required",
-      "stage": "future_isolated_windows_only",
+      "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -725,9 +725,9 @@
       "category": "compatibility",
       "scenario": "P12 1200-second bedtime execution remains distinct from short ingress deadline and cancellation",
       "priority": "blocker",
-      "stage": "future_isolated_windows_only",
+      "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -740,9 +740,9 @@
       "category": "compatibility",
       "scenario": "Authenticated owner-presence preserves first thinking freeze; discovery or unauthorized requests do not rearm it",
       "priority": "blocker",
-      "stage": "future_isolated_windows_only",
+      "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
@@ -755,9 +755,9 @@
       "category": "compatibility",
       "scenario": "P1 remains human and upstream non-P2 AI seats are not accidentally taken over",
       "priority": "required",
-      "stage": "future_isolated_windows_only",
+      "stage": "future_runtime_acceptance_only",
       "status": "not_run",
-      "expected": "platform rejection before handler or deliberate pre-effect denial; never a protected effect",
+      "expected": "future reviewed runtime or migration evidence, no protected side effects; NOT provable by isolated Windows transport alone",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
