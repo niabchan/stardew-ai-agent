@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "phase": "2I",
+  "template_only": true,
+  "evidence_status": "not_run",
+  "real_windows_evidence": false,
+  "g1_approval": false,
+  "case_id": null,
+  "fixture_id": null,
+  "source_plan_sha": null,
+  "approved_testbed": {
+    "approval_reference": null,
+    "operator_id_alias": null,
+    "binary_sha256": null,
+    "os_build": null,
+    "dotnet_version": null,
+    "http_sys_version": null,
+    "bound_endpoints": [],
+    "listen_process_id_alias": null,
+    "test_window_utc": null
+  },
+  "three_layer_observations": {
+    "client_transmitted": {
+      "synthetic_fixture_hash": null,
+      "bytes_attempted": null,
+      "bytes_confirmed_sent": null,
+      "connection_alias": null,
+      "destination_alias": null,
+      "raw_bytes_reference_redacted": null
+    },
+    "http_sys_pre_handler": {
+      "direct_observation": null,
+      "observability": "unobserved",
+      "reject_stage": null,
+      "connection_first_byte_source": null,
+      "kernel_queue_observation": null,
+      "parser_transformation": null
+    },
+    "listener_exposed": {
+      "handler_entered": null,
+      "rawurl_as_exposed": null,
+      "parsed_path_as_exposed": null,
+      "headers_as_exposed_redacted": null,
+      "remote_endpoint_source": null,
+      "content_length64": null,
+      "protocol_version": null,
+      "raw_field_provenance_confirmed": null
+    }
+  },
+  "effects_and_responses": {
+    "outcome_class": "unobserved",
+    "client_http_status": null,
+    "interim_100_continue_observed": null,
+    "cors_headers_observed_redacted": null,
+    "candidate_count": null,
+    "auth_lookup_count": null,
+    "contact_count": null,
+    "queue_count": null,
+    "private_field_count": null,
+    "protected_effect_count": null,
+    "no_protected_effect_evidence": null
+  },
+  "lifecycle": {
+    "monotonic_clock_origin_proven": null,
+    "first_byte_ms": null,
+    "handler_entry_ms": null,
+    "ingress_deadline_ms": null,
+    "abort_due_ms": null,
+    "abort_issued_ms": null,
+    "abort_scope": null,
+    "read_completion_observed": null,
+    "transport_quiescence_proven": null,
+    "buffer_ownership_proven": null,
+    "independent_operator_stop_available": null,
+    "independent_stop_invoked": null,
+    "all_collateral_candidates_invalidated": null,
+    "cleanup_end_ms": null,
+    "still_pending_count": null,
+    "read_task_alias": null,
+    "buffer_owner_alias": null,
+    "buffer_quarantine_state": null,
+    "late_completion_observed": null,
+    "response_write_completion_observed": null,
+    "stop_control_path": null,
+    "stop_owner_alias": null,
+    "stop_deadline_ms": null,
+    "escalation_due_ms": null,
+    "escalation_action": null,
+    "escalation_observed_ms": null,
+    "halt_latched": null,
+    "manual_rollback_reference": null
+  },
+  "review": {
+    "verdict": "not_run",
+    "observability_gaps": [],
+    "stop_triggered": false,
+    "unknowns_blocked": true,
+    "reviewer_alias": null,
+    "review_reference": null,
+    "new_restart_approval": null
+  },
+  "forbidden_evidence": [
+    "actual bearer/API key",
+    "private P1 dialogue/diary",
+    "personal path or save contents",
+    "unredacted headers",
+    "installed game process logs",
+    "unapproved endpoint details"
+  ],
+  "allowed_future_verdicts": [
+    "os_rejected_pre_handler",
+    "adapter_denied_pre_effect",
+    "authorized_test_candidate",
+    "ambiguous_transform",
+    "unexpected_candidate",
+    "timeout_unaborted",
+    "not_run",
+    "unobserved",
+    "separate_requests_isolated",
+    "bounded_abort_and_cleanup",
+    "isolation_and_teardown"
+  ],
+  "notes": "Empty G0 template only. After separate approval, future Windows observations must be stored as separate reviewed, sanitized evidence; do not overwrite this template to claim G1 completion.",
+  "request_attribution": {
+    "connection_alias": null,
+    "request_alias": null,
+    "sequence_on_connection": null,
+    "synthetic_identity_alias": null,
+    "fixture_variant_alias": null,
+    "observation_source_references": [],
+    "clock_domain_mapping": null
+  }
+}
