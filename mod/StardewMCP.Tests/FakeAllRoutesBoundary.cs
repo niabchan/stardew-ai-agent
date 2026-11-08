@@ -12,7 +12,7 @@ namespace StardewMCP.Tests;
 // A positive result is a *candidate for additional route-specific validation*
 // and CANNOT dispatch work, serve a file, or serialize private information.
 [Flags]
-internal enum FakeRouteGrant
+public enum FakeRouteGrant
 {
     None = 0,
     P2Control = 1 << 0,
