@@ -27,14 +27,15 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "approved disposable endpoint inventory and bound process identity; no existing-service probes"
       ],
       "outcome_class": "isolation_and_teardown"
     },
     {
       "id": "ENV-02",
       "category": "environment",
-      "scenario": "Same synthetic request sent to wrong port or wrong test instance must not resolve to first running server",
+      "scenario": "Wrong port or instance tested only against a second explicitly approved disposable endpoint or offline mismatch fixture; no discovery or existing service probes",
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
@@ -43,7 +44,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "approved disposable endpoint inventory and bound process identity; no existing-service probes"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -59,7 +61,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "approved disposable endpoint inventory and bound process identity; no existing-service probes"
       ],
       "outcome_class": "isolation_and_teardown"
     },
@@ -75,7 +78,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "sent request-line octets versus RawUrl/Url transformations and unobservable fields"
       ],
       "outcome_class": "measure_platform_behavior"
     },
@@ -91,7 +95,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "sent request-line octets versus RawUrl/Url transformations and unobservable fields"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -107,7 +112,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "sent request-line octets versus RawUrl/Url transformations and unobservable fields"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -123,7 +129,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "sent request-line octets versus RawUrl/Url transformations and unobservable fields"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -139,7 +146,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "sent request-line octets versus RawUrl/Url transformations and unobservable fields"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -155,7 +163,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "sent request-line octets versus RawUrl/Url transformations and unobservable fields"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -171,7 +180,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "original Host line multiplicity versus exposed values; trusted peer/local endpoint and configured instance"
       ],
       "outcome_class": "authorized_synthetic_candidate_only"
     },
@@ -187,7 +197,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "original Host line multiplicity versus exposed values; trusted peer/local endpoint and configured instance"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -203,14 +214,15 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "original Host line multiplicity versus exposed values; trusted peer/local endpoint and configured instance"
       ],
       "outcome_class": "deny_before_effects"
     },
     {
       "id": "HOST-04",
       "category": "authority",
-      "scenario": "Loopback peer endpoint comes from transport, not forwarded/request-controlled headers",
+      "scenario": "Forged peer/Forwarded identity rejected; genuine loopback transport peer measured separately, never denied merely for being loopback",
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
@@ -219,7 +231,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "original Host line multiplicity versus exposed values; trusted peer/local endpoint and configured instance"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -235,7 +248,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "original Host line multiplicity versus exposed values; trusted peer/local endpoint and configured instance"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -251,7 +265,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "original header-line order/case/multiplicity versus exposed values; interim responses and CORS headers"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -267,14 +282,15 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "original header-line order/case/multiplicity versus exposed values; interim responses and CORS headers"
       ],
       "outcome_class": "deny_before_effects"
     },
     {
       "id": "HDR-03",
       "category": "headers",
-      "scenario": "Obsolete folded header lines, whitespace before colon and control chars rejected before route selection",
+      "scenario": "Obsolete folded lines, whitespace before colon, control chars and malformed request-line/HTTP versions rejected before route selection",
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
@@ -283,7 +299,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "original header-line order/case/multiplicity versus exposed values; interim responses and CORS headers"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -299,14 +316,15 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "original header-line order/case/multiplicity versus exposed values; interim responses and CORS headers"
       ],
       "outcome_class": "deny_before_effects"
     },
     {
       "id": "HDR-05",
       "category": "headers",
-      "scenario": "Cookie, browser form and cross-site preflight cannot substitute for native bearer authorization",
+      "scenario": "Cookie, browser form, cross-site preflight, Expect: 100-continue and Connection tokens cannot bypass native policy; record interim responses",
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
@@ -315,7 +333,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "original header-line order/case/multiplicity versus exposed values; interim responses and CORS headers"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -331,7 +350,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -347,7 +367,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -363,7 +384,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -379,7 +401,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -395,7 +418,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -411,14 +435,15 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
       ],
       "outcome_class": "deny_before_effects"
     },
     {
       "id": "FRM-07",
       "category": "framing",
-      "scenario": "Exactly 16384-byte valid synthetic JSON body obeys cap; non-JSON/invalid UTF-8 denied",
+      "scenario": "Exactly 16384-byte valid synthetic JSON is candidate-only; test 16383 and 16385 bytes separately; non-JSON/invalid UTF-8 denied",
       "priority": "required",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
@@ -427,7 +452,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
       ],
       "outcome_class": "authorized_synthetic_candidate_only"
     },
@@ -443,25 +469,27 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
       ],
       "outcome_class": "deny_before_effects"
     },
     {
       "id": "FRM-09",
       "category": "framing",
-      "scenario": "Extra trailing bytes/pipelined second request cannot make CL/TE ambiguity or cross-request authorization",
+      "scenario": "Valid pipelined requests remain separate; malformed trailing bytes or CL/TE ambiguity denied without cross-request authorization",
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
-      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "expected": "Future proof valid pipelined synthetic requests are independently framed and authorized; malformed trailing input is denied, never appended to the first body or granted its principal.",
       "evidence": [
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
       ],
-      "outcome_class": "deny_before_effects"
+      "outcome_class": "separate_requests_isolated"
     },
     {
       "id": "FRM-10",
@@ -475,7 +503,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
       ],
       "outcome_class": "deny_before_effects"
     },
@@ -491,7 +520,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
       ],
       "outcome_class": "separate_requests_isolated"
     },
@@ -507,14 +537,15 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
       ],
       "outcome_class": "measure_platform_behavior"
     },
     {
       "id": "TIME-01",
       "category": "liveness",
-      "scenario": "Slow-drip body under 16KiB reaches total monotonic ingress deadline regardless of fragments",
+      "scenario": "Slow headers before GetContextAsync and slow-drip body under 16KiB share a total monotonic ingress deadline independent of fragments",
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
@@ -523,7 +554,9 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "monotonic first-byte/header/body/deadline/abort/completion timestamps and pre-handler observability",
+        "outstanding reads/tasks, buffer ownership/quarantine, connection/backlog counts and bounded teardown"
       ],
       "outcome_class": "bounded_abort_and_cleanup"
     },
@@ -539,7 +572,9 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "monotonic first-byte/header/body/deadline/abort/completion timestamps and pre-handler observability",
+        "outstanding reads/tasks, buffer ownership/quarantine, connection/backlog counts and bounded teardown"
       ],
       "outcome_class": "bounded_abort_and_cleanup"
     },
@@ -555,7 +590,9 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "monotonic first-byte/header/body/deadline/abort/completion timestamps and pre-handler observability",
+        "outstanding reads/tasks, buffer ownership/quarantine, connection/backlog counts and bounded teardown"
       ],
       "outcome_class": "bounded_abort_and_cleanup"
     },
@@ -571,14 +608,16 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "monotonic first-byte/header/body/deadline/abort/completion timestamps and pre-handler observability",
+        "outstanding reads/tasks, buffer ownership/quarantine, connection/backlog counts and bounded teardown"
       ],
       "outcome_class": "bounded_abort_and_cleanup"
     },
     {
       "id": "TIME-05",
       "category": "liveness",
-      "scenario": "Bounded concurrent slow requests and backlog cannot exhaust request tasks or game tick",
+      "scenario": "Bounded concurrent slow headers/bodies and HTTP.sys backlog cannot exhaust isolated request tasks; game-tick acceptance remains G2",
       "priority": "blocker",
       "stage": "future_isolated_windows_only",
       "status": "not_run",
@@ -587,7 +626,9 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "monotonic first-byte/header/body/deadline/abort/completion timestamps and pre-handler observability",
+        "outstanding reads/tasks, buffer ownership/quarantine, connection/backlog counts and bounded teardown"
       ],
       "outcome_class": "bounded_abort_and_cleanup"
     },
@@ -603,7 +644,9 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "monotonic first-byte/header/body/deadline/abort/completion timestamps and pre-handler observability",
+        "outstanding reads/tasks, buffer ownership/quarantine, connection/backlog counts and bounded teardown"
       ],
       "outcome_class": "bounded_abort_and_cleanup"
     },
@@ -619,7 +662,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "separate G2 principal/grant/owner/session/save-epoch and admission/retirement evidence; no real credentials in artifacts"
       ],
       "outcome_class": "reviewed_runtime_evidence"
     },
@@ -635,7 +679,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "separate G2 principal/grant/owner/session/save-epoch and admission/retirement evidence; no real credentials in artifacts"
       ],
       "outcome_class": "reviewed_runtime_evidence"
     },
@@ -651,7 +696,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "separate G2 principal/grant/owner/session/save-epoch and admission/retirement evidence; no real credentials in artifacts"
       ],
       "outcome_class": "reviewed_runtime_evidence"
     },
@@ -667,7 +713,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "separate G2 principal/grant/owner/session/save-epoch and admission/retirement evidence; no real credentials in artifacts"
       ],
       "outcome_class": "reviewed_runtime_evidence"
     },
@@ -683,7 +730,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "separate G2 principal/grant/owner/session/save-epoch and admission/retirement evidence; no real credentials in artifacts"
       ],
       "outcome_class": "reviewed_runtime_evidence"
     },
@@ -699,7 +747,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "separate G2 principal/grant/owner/session/save-epoch and admission/retirement evidence; no real credentials in artifacts"
       ],
       "outcome_class": "reviewed_runtime_evidence"
     },
@@ -715,7 +764,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "separate G2 consent revision at serialization and field-level disclosure audit using sanitized artifacts"
       ],
       "outcome_class": "reviewed_runtime_evidence"
     },
@@ -731,7 +781,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "separate G2 consent revision at serialization and field-level disclosure audit using sanitized artifacts"
       ],
       "outcome_class": "reviewed_runtime_evidence"
     },
@@ -747,7 +798,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "separate G2 actual Sunny/Luna version and runtime behavior trace; isolated synthetic results insufficient"
       ],
       "outcome_class": "reviewed_runtime_evidence"
     },
@@ -763,7 +815,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "separate G2 actual Sunny/Luna version and runtime behavior trace; isolated synthetic results insufficient"
       ],
       "outcome_class": "reviewed_runtime_evidence"
     },
@@ -779,7 +832,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "separate G2 actual Sunny/Luna version and runtime behavior trace; isolated synthetic results insufficient"
       ],
       "outcome_class": "reviewed_runtime_evidence"
     },
@@ -795,7 +849,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "separate G2 actual Sunny/Luna version and runtime behavior trace; isolated synthetic results insufficient"
       ],
       "outcome_class": "reviewed_runtime_evidence"
     },
@@ -811,7 +866,8 @@
         "synthetic bytes or script fixture hash",
         "HTTP.sys or adapter observation",
         "sanitized response and handler-contact result",
-        "protected effects count and request cleanup outcome"
+        "protected effects count and request cleanup outcome",
+        "separate G2 actual Sunny/Luna version and runtime behavior trace; isolated synthetic results insufficient"
       ],
       "outcome_class": "reviewed_runtime_evidence"
     }

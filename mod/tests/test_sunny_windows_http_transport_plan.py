@@ -78,7 +78,8 @@ def test_each_case_has_unambiguous_nonexecuted_acceptance_evidence(case: dict) -
     assert case["status"] == "not_run"
     assert len(case["scenario"]) > 30
     assert len(case["expected"]) > 45
-    assert set(case["evidence"]) == EVIDENCE
+    assert EVIDENCE < set(case["evidence"])
+    assert len(case["evidence"]) == len(set(case["evidence"]))
     if case["category"] in {"authorization", "privacy", "compatibility"}:
         assert case["stage"] == "future_runtime_acceptance_only"
         assert case["outcome_class"] == "reviewed_runtime_evidence"
@@ -137,3 +138,33 @@ def test_no_fake_timestamp_or_observed_windows_evidence_sneaks_into_plan() -> No
     assert "No sockets" in doc
     assert not any(c["status"] in {"pass", "passed", "complete"} for c in MANIFEST["cases"])
     assert "TBD" in doc
+
+
+def test_framing_and_liveness_require_specific_evidence() -> None:
+    cases = {c["id"]: c for c in MANIFEST["cases"]}
+    assert cases["FRM-09"]["outcome_class"] == "separate_requests_isolated"
+    assert cases["FRM-11"]["outcome_class"] == "separate_requests_isolated"
+    for case in MANIFEST["cases"]:
+        evidence = " ".join(case["evidence"])
+        if case["category"] == "liveness":
+            assert "pre-handler" in evidence
+            assert "buffer ownership/quarantine" in evidence
+        if case["category"] == "framing":
+            assert "per-connection ordered request/response IDs" in evidence
+        if case["stage"] == "future_runtime_acceptance_only":
+            assert "separate G2" in evidence
+    assert all(n in cases["FRM-07"]["scenario"] for n in ("16383", "16384", "16385"))
+    assert "GetContextAsync" in cases["TIME-01"]["scenario"]
+    assert "explicitly approved disposable" in cases["ENV-02"]["scenario"]
+
+
+def test_source_links_resolve_and_safety_gates_are_explicit() -> None:
+    doc = DOC_FILE.read_text(encoding="utf-8")
+    for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", doc):
+        assert (DOC_FILE.parent / target).is_file(), target
+    for requirement in (
+        "G1 start and signoff are blocked", "monotonic first-byte/connection anchor",
+        "Client bytes are comparison input", "All-route stop rule",
+        "No wildcard listener prefixes", "interim `100 Continue`",
+    ):
+        assert requirement in doc
