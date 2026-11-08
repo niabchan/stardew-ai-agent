@@ -30,6 +30,15 @@ EXPECTED_CATEGORIES = {
     "compatibility",
 }
 STAGES = {"future_isolated_windows_only", "future_runtime_acceptance_only"}
+OUTCOMES = {
+    "deny_before_effects",
+    "isolation_and_teardown",
+    "measure_platform_behavior",
+    "authorized_synthetic_candidate_only",
+    "separate_requests_isolated",
+    "bounded_abort_and_cleanup",
+    "reviewed_runtime_evidence",
+}
 EVIDENCE = {
     "synthetic bytes or script fixture hash",
     "HTTP.sys or adapter observation",
@@ -65,14 +74,19 @@ def test_each_case_has_unambiguous_nonexecuted_acceptance_evidence(case: dict) -
     assert case["category"] in EXPECTED_CATEGORIES
     assert case["priority"] in {"blocker", "required"}
     assert case["stage"] in STAGES
+    assert case["outcome_class"] in OUTCOMES
     assert case["status"] == "not_run"
     assert len(case["scenario"]) > 30
     assert len(case["expected"]) > 45
     assert set(case["evidence"]) == EVIDENCE
     if case["category"] in {"authorization", "privacy", "compatibility"}:
         assert case["stage"] == "future_runtime_acceptance_only"
+        assert case["outcome_class"] == "reviewed_runtime_evidence"
     else:
         assert case["stage"] == "future_isolated_windows_only"
+        assert case["outcome_class"] != "reviewed_runtime_evidence"
+    if case["category"] == "liveness":
+        assert case["outcome_class"] == "bounded_abort_and_cleanup"
     # Never treat a successful synthetic test as measured Windows acceptance.
     assert "future" in case["expected"].lower()
 
