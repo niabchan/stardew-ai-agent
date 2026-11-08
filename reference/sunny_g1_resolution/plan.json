@@ -153,7 +153,7 @@
       "source_required_artifact": "source-backed observation plan for original request-target, Host, duplicate headers, peer and kernel-vs-handler behavior",
       "deliverable": "Three-source raw target/Host/duplicate-header/peer observation and kernel-vs-handler denial feasibility matrix",
       "entry_closure_evidence": "Reviewed per-field observation method and unobservable/BLOCK fallback; do not require already-measured Windows results for G1 entry",
-      "explicit_fallback": "Block raw-dependent security claims or choose an alternate transport if original-wire fidelity cannot be established",
+      "explicit_fallback": "NO-GO for the proposed experiment if any mandatory original-wire observation lacks a feasible method; review an alternate isolated transport offline, never waive required evidence",
       "review_owner_role": "independent_windows_transport_reviewer",
       "approval_reference": null,
       "evidence_reference": null,
@@ -220,6 +220,9 @@
       "packet": "P2_STOP_AND_ISOLATE",
       "mode": "offline_source_design",
       "depends_on": [
+        "G1E-03",
+        "G1E-04",
+        "G1E-02",
         "G1E-05",
         "G1E-06"
       ],
@@ -310,7 +313,8 @@
       "depends_on": [
         "G1E-01",
         "G1E-02",
-        "G1E-07"
+        "G1E-07",
+        "G1E-10"
       ],
       "status": "open",
       "g0_work_state": "not_started",
@@ -322,8 +326,8 @@
         "FRM-11"
       ],
       "source_required_artifact": "vetted raw-byte fixture catalog that distinguishes permitted good requests, malformed inputs and safe response behavior",
-      "deliverable": "Reviewed bounded synthetic sendable fixture source, variant-to-case matrix, finite rates, approved endpoint binding and non-private response rules",
-      "entry_closure_evidence": "Review of source and exact 37-case probe/variant manifest, no test traffic, including 16383/16384/16385 byte bounds and pipelining separation",
+      "deliverable": "Reviewed bounded synthetic sendable fixture source, variant-to-case matrix, finite rates, proposed endpoint parameters conditional on later G1E-09 consent and non-private response rules",
+      "entry_closure_evidence": "Independent review of source and exact 37-case probe/variant manifest, no test traffic, boundary variants derived from G1E-07 ratified experiment limits (16383/16384/16385 only if 16KiB is ratified), pipelining separation and no existing-service probes",
       "explicit_fallback": "Do not run ambiguous, unbounded or endpoint-discovering fixtures",
       "review_owner_role": "independent_fixture_reviewer",
       "approval_reference": null,
@@ -355,7 +359,7 @@
       ],
       "source_required_artifact": "reviewed per-case GO/FAIL/BLOCK thresholds for 37 G1 entries, kernel-vs-handler denial, unknown/fail, and rollback",
       "deliverable": "Per-case observation/verdict and escalation charter, including BLOCK on unknown, kernel-vs-handler provenance and independent outcome review",
-      "entry_closure_evidence": "Reviewer accepts attribution, outcomes, evidence and stop criteria for all 37 G1 cases; no requirement to have run them before G1 entry",
+      "entry_closure_evidence": "Reviewer accepts proposed per-case outcome thresholds, attribution, evidence and stop criteria for all 37 G1 cases; measured outcomes are not required for entry",
       "explicit_fallback": "Any unobservable critical field remains BLOCK and requires review/redesign; never convert missing proof to passing status",
       "review_owner_role": "independent_acceptance_reviewer",
       "approval_reference": null,
@@ -411,5 +415,21 @@
     "modify installed Sunny, Luna, SMAPI, Stardew saves",
     "touch main branch",
     "claim ratified limits or Windows acceptance"
-  ]
+  ],
+  "safety_review_scheduling": {
+    "start_with": "P1_TRANSPORT_FEASIBILITY",
+    "parallel_gate_ids": [
+      "G1E-05",
+      "G1E-06"
+    ],
+    "transport_choice_finalization_requires": [
+      "G1E-02",
+      "G1E-03",
+      "G1E-04",
+      "G1E-05",
+      "G1E-06"
+    ],
+    "unknown_required_safety_property": "BLOCK_NO_GO",
+    "review_iteration": "P1 and P2 may revise proposals together offline; no mutual gate-closure dependency and no listener"
+  }
 }

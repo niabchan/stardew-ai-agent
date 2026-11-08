@@ -39,10 +39,10 @@ ALLOWED_MODES = {
 EXPECTED_DEPENDENCIES = {
     "G1E-03": [], "G1E-04": [], "G1E-02": [],
     "G1E-05": [], "G1E-06": ["G1E-05"],
-    "G1E-01": ["G1E-05", "G1E-06"],
+    "G1E-01": ["G1E-03", "G1E-04", "G1E-02", "G1E-05", "G1E-06"],
     "G1E-10": ["G1E-02"],
     "G1E-07": ["G1E-03", "G1E-04", "G1E-05", "G1E-06"],
-    "G1E-08": ["G1E-01", "G1E-02", "G1E-07"],
+    "G1E-08": ["G1E-01", "G1E-02", "G1E-07", "G1E-10"],
     "G1E-11": ["G1E-02", "G1E-05", "G1E-06", "G1E-08", "G1E-10"],
     "G1E-09": [
         "G1E-01", "G1E-02", "G1E-03", "G1E-04", "G1E-05",
@@ -51,7 +51,28 @@ EXPECTED_DEPENDENCIES = {
 }
 
 
-def check_plan(plan: dict) -> str:
+EXPECTED_GATE_REVIEW = {
+    "G1E-03": ("platform_method_selection", "independent_windows_transport_reviewer"),
+    "G1E-04": ("platform_method_selection", "independent_windows_transport_reviewer"),
+    "G1E-02": ("platform_method_selection", "independent_windows_transport_reviewer"),
+    "G1E-05": ("offline_source_design", "independent_safety_reviewer"),
+    "G1E-06": ("offline_source_design", "independent_safety_reviewer"),
+    "G1E-01": ("offline_source_design", "independent_isolation_reviewer"),
+    "G1E-10": ("offline_source_design", "independent_privacy_reviewer"),
+    "G1E-07": ("numeric_signoff_required", "independent_limits_reviewer"),
+    "G1E-08": ("fixture_source_review", "independent_fixture_reviewer"),
+    "G1E-11": ("offline_source_design", "independent_acceptance_reviewer"),
+    "G1E-09": ("explicit_user_operator_approval", "user_operator"),
+}
+EXPECTED_PACKET_GATES = (
+    ["G1E-03", "G1E-04", "G1E-02"],
+    ["G1E-05", "G1E-06", "G1E-01"],
+    ["G1E-10", "G1E-07", "G1E-08", "G1E-11"],
+    ["G1E-09"],
+)
+
+
+def check_plan(plan: dict, experiment: dict = EXPERIMENT) -> str:
     """Only validates the current unapproved baseline: no GO return path."""
     assert plan["schema_version"] == 1
     assert plan["name"] == "sunny-g1-blocker-resolution-phase2j"
@@ -92,10 +113,32 @@ def check_plan(plan: dict) -> str:
     assert LIMITS["approval_state"] == "proposed_not_ratified"
     assert LIMITS["g1_approval"] is False
     assert LIMITS["windows_http_sys_tested"] is False
-    assert EXPERIMENT["g1_decision"] == "NO_GO_G1_START"
-    assert EXPERIMENT["operator_authorized"] is False
-    assert len(EXPERIMENT["case_plans"]) == 37
-    assert all(x["status"] == "not_run" for x in EXPERIMENT["case_plans"])
+    assert experiment["g1_decision"] == "NO_GO_G1_START"
+    assert experiment["operator_authorized"] is False
+    assert len(experiment["case_plans"]) == 37
+    assert all(x["status"] == "not_run" for x in experiment["case_plans"])
+
+    g1_ids = {c["id"] for c in CASES["cases"]
+              if c["stage"] == "future_isolated_windows_only"}
+    probes = experiment["case_plans"]
+    assert {x["case_id"] for x in probes} == g1_ids
+    assert all(x["stage"] == "future_isolated_windows_only" and
+               x["post_run_verdict"] == "unobserved" and
+               x["evidence_reference"] is None for x in probes)
+    for key in ("g1_executed", "g2_executed", "tests_run_on_windows", "numeric_ratified"):
+        assert experiment[key] is False
+    for key in ("selected_transport", "disposable_port", "second_disposable_port",
+                "executable_build_sha", "approved_process_inventory",
+                "independent_stop_owner", "approval_reference"):
+        assert experiment[key] is None
+    assert plan["safety_review_scheduling"] == {
+        "start_with": "P1_TRANSPORT_FEASIBILITY",
+        "parallel_gate_ids": ["G1E-05", "G1E-06"],
+        "transport_choice_finalization_requires": [
+            "G1E-02", "G1E-03", "G1E-04", "G1E-05", "G1E-06"],
+        "unknown_required_safety_property": "BLOCK_NO_GO",
+        "review_iteration": "P1 and P2 may revise proposals together offline; no mutual gate-closure dependency and no listener",
+    }
 
     assert plan["expected_counts"] == {
         "entry_open": 11, "phase2f_total": 50, "g1_not_run": 37,
@@ -117,6 +160,7 @@ def check_plan(plan: dict) -> str:
         assert entry["platform_measurement_claimed"] is False
         assert entry["approval_reference"] is None
         assert entry["evidence_reference"] is None
+        assert (entry["mode"], entry["review_owner_role"]) == EXPECTED_GATE_REVIEW[gate_id]
         assert entry["mode"] in ALLOWED_MODES
         assert entry["packet"] in PACKETS
         assert entry["source_case_ids"] == src["g1_case_ids"]
@@ -134,6 +178,7 @@ def check_plan(plan: dict) -> str:
     packets = plan["packets"]
     assert len(packets) == 4
     assert tuple(p["id"] for p in packets) == PACKETS
+    assert tuple(p["gate_ids"] for p in packets) == EXPECTED_PACKET_GATES
     assert [p["sequence"] for p in packets] == [1, 2, 3, 4]
     assert all(p["status"] == "not_started" for p in packets)
     assert [p["can_progress_offline"] for p in packets] == [True, True, True, False]
@@ -240,3 +285,51 @@ def test_operator_consent_is_only_last_step_after_all_other_ten_gates() -> None:
     assert operator["review_owner_role"] == "user_operator"
     assert set(operator["depends_on"]) == set(EXPECTED_ORDER[:-1])
     assert operator["approval_reference"] is None
+
+
+@pytest.mark.parametrize("change", [
+    "coordinated_packet_move", "wrong_mode", "wrong_owner", "remove_transport_barrier",
+    "stop_delayed", "unknown_safety_deferred", "self_cycle", "mutual_cycle", "skip_privacy_review",
+])
+def test_review_and_safety_contract_mutations(change):
+    p = copy.deepcopy(PLAN)
+    entries = {e["id"]: e for e in p["entries"]}
+    if change == "coordinated_packet_move":
+        p["packets"][0]["gate_ids"].remove("G1E-02")
+        p["packets"][1]["gate_ids"].append("G1E-02")
+        entries["G1E-02"]["packet"] = PACKETS[1]
+    elif change == "wrong_mode":
+        entries["G1E-07"]["mode"] = "offline_source_design"
+    elif change == "wrong_owner":
+        entries["G1E-07"]["review_owner_role"] = "independent_fixture_reviewer"
+    elif change == "remove_transport_barrier":
+        entries["G1E-01"]["depends_on"] = ["G1E-05", "G1E-06"]
+    elif change == "skip_privacy_review":
+        entries["G1E-08"]["depends_on"].remove("G1E-10")
+    elif change == "stop_delayed":
+        p["safety_review_scheduling"]["parallel_gate_ids"] = []
+    elif change == "unknown_safety_deferred":
+        p["safety_review_scheduling"]["unknown_required_safety_property"] = "measure_during_G1"
+    elif change == "self_cycle":
+        entries["G1E-03"]["depends_on"] = ["G1E-03"]
+    else:
+        entries["G1E-05"]["depends_on"] = ["G1E-06"]
+    with pytest.raises(AssertionError):
+        check_plan(p)
+
+
+@pytest.mark.parametrize("change", ["duplicate_id", "g2_substitution", "fake_verdict", "fake_evidence"])
+def test_experiment_identity_and_unobserved_evidence_mutations(change):
+    experiment = copy.deepcopy(EXPERIMENT)
+    probes = experiment["case_plans"]
+    if change == "duplicate_id":
+        probes[0]["case_id"] = probes[1]["case_id"]
+    elif change == "g2_substitution":
+        probes[0]["case_id"] = next(c["id"] for c in CASES["cases"]
+                                    if c["stage"] == "future_runtime_acceptance_only")
+    elif change == "fake_verdict":
+        probes[0]["post_run_verdict"] = "GO"
+    else:
+        probes[0]["evidence_reference"] = "CI-is-not-Windows-proof"
+    with pytest.raises(AssertionError):
+        check_plan(PLAN, experiment)
