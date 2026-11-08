@@ -1,0 +1,934 @@
+{
+  "schema_version": 1,
+  "phase": "2I",
+  "name": "sunny-g1-disposable-experiment-g0-spec",
+  "source_parent_sha": "83609912c36f20e8e7d4b325e749c0a4399d9b02",
+  "g0_status": "offline_design_only",
+  "g1_decision": "NO_GO_G1_START",
+  "operator_authorized": false,
+  "g1_executed": false,
+  "g2_executed": false,
+  "tests_run_on_windows": false,
+  "numeric_ratified": false,
+  "selected_transport": null,
+  "disposable_port": null,
+  "second_disposable_port": null,
+  "executable_build_sha": null,
+  "approved_process_inventory": null,
+  "independent_stop_owner": null,
+  "approval_reference": null,
+  "current_experiment_stage": "source_review_only",
+  "no_live_targets": [
+    "installed Sunny HTTP listener",
+    "any existing service port",
+    "Stardew Valley/SMAPI",
+    "P1 human data or diary",
+    "Luna/OpenAI credentials",
+    "Windows URLACL and firewall settings",
+    "main branch"
+  ],
+  "measurement_interfaces": [
+    {
+      "id": "CLIENT_SENT",
+      "origin": "test-client-owned-synthetic",
+      "fields": [
+        "fixture_id",
+        "sent_hash_sha256",
+        "actual_bytes_written",
+        "requested_destination",
+        "connection_id",
+        "client_monotonic_start",
+        "client_response_trace"
+      ],
+      "trusted_for": [
+        "what client attempted"
+      ],
+      "not_trusted_for": [
+        "HTTP.sys reception",
+        "raw host presented to listener"
+      ]
+    },
+    {
+      "id": "HTTP_SYS",
+      "origin": "separately-approved-windows-observation-if-available",
+      "fields": [
+        "prehandler_reject_stage",
+        "connection_admission",
+        "first_byte_or_equivalent",
+        "kernel_queue_observation"
+      ],
+      "trusted_for": [],
+      "not_trusted_for": [
+        "any field unavailable through selected API"
+      ],
+      "open_question": true
+    },
+    {
+      "id": "LISTENER",
+      "origin": "test-server-observed-only-after-handler",
+      "fields": [
+        "raw_url_as_exposed",
+        "parsed_absolute_path",
+        "protocol_version",
+        "headers_as_exposed",
+        "content_length64",
+        "has_entity_body",
+        "remote_endpoint",
+        "local_endpoint",
+        "handler_entered"
+      ],
+      "trusted_for": [
+        "fields actually exposed by chosen API"
+      ],
+      "not_trusted_for": [
+        "original wire byte fidelity by assertion"
+      ]
+    },
+    {
+      "id": "CANDIDATE",
+      "origin": "isolated-test-only",
+      "fields": [
+        "synthetic_candidate_counter",
+        "auth_lookup_counter",
+        "private_fields_counter",
+        "contact_counter",
+        "queue_counter"
+      ],
+      "trusted_for": [
+        "isolated synthetic instrumentation only"
+      ],
+      "not_trusted_for": [
+        "real Sunny/P1 or credential authorization"
+      ]
+    },
+    {
+      "id": "CLEANUP",
+      "origin": "transport-owned-test-lifecycle",
+      "fields": [
+        "timeout_anchor_source",
+        "abort_requested",
+        "abort_scope",
+        "read_task_observed_complete",
+        "transport_quiescence",
+        "buffer_owner",
+        "independent_stop_attempt",
+        "listener_terminated"
+      ],
+      "trusted_for": [],
+      "not_trusted_for": [
+        "process exit as per-request proof"
+      ],
+      "open_question": true
+    }
+  ],
+  "unresolved_platform_choices": [
+    {
+      "id": "PLATFORM-01",
+      "question": "Can selected Windows APIs observe/enforce first-byte or connection timing before GetContextAsync including slow headers and queueing?",
+      "status": "not_established",
+      "fallback": "BLOCK; evaluate alternate isolated transport or enforceable OS-level policy only under separate approval"
+    },
+    {
+      "id": "PLATFORM-02",
+      "question": "Are original Host/target, case-insensitive duplicates, CL/TE and peer provenance reconstructible from authoritative server-visible evidence?",
+      "status": "not_established",
+      "fallback": "BLOCK if lost; never derive fake raw evidence from normalized Url.AbsolutePath"
+    },
+    {
+      "id": "PLATFORM-03",
+      "question": "What request-scoped abort ends an uncooperative InputStream read without unsafe collateral, and how is actual completion observed?",
+      "status": "not_established",
+      "fallback": "BLOCK; isolate process with independently owned stop and quarantine"
+    },
+    {
+      "id": "PLATFORM-04",
+      "question": "Can pre-auth connections, header occupancy, HTTP.sys backlog and concurrent reads be capped without system-wide unapproved configuration?",
+      "status": "not_established",
+      "fallback": "BLOCK until separately reviewed enforceability method"
+    }
+  ],
+  "go_no_go_policy": {
+    "entry": "NO_GO until all 11 Phase 2H gates separately reviewed, numeric and experiment approval recorded, independent operator stop designed, then new explicit approval",
+    "exit": "G1 evidence for all 37 cases must be independently reviewed; 13 G2 Sunny/Luna cases remain independent",
+    "unknown": "BLOCK; unobservable provenance never converts to success",
+    "unsafe": "STOP traffic; latch halt, invalidate all collateral candidates, quarantine unresolved buffers; use independent operator stop",
+    "no_automatic_restart": true
+  },
+  "case_plans": [
+    {
+      "case_id": "ENV-01",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-ENV-01",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Describe isolated test process and explicit loopback binding; inventory permitted PIDs/prefixes without probing any existing port.",
+      "source_scenario": "Disposable loopback-only listener on a unique unused port; no existing Sunny listener or game process",
+      "required_outcome_class": "isolation_and_teardown",
+      "priority": "blocker",
+      "capture_fields": [
+        "endpoint_inventory",
+        "process_identity",
+        "operator_stop"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "ENV-02",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-ENV-02",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Prefer offline Host/instance mismatch; optional second disposable endpoint ONLY under separate explicit approval; never probe another service.",
+      "source_scenario": "Wrong port or instance tested only against a second explicitly approved disposable endpoint or offline mismatch fixture; no discovery or existing service probes",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "endpoint_inventory",
+        "process_identity",
+        "operator_stop"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "offline_mismatch_by_default_or_separately_approved_disposable_only",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "ENV-03",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-ENV-03",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Define orderly stop and independent emergency process stop; record terminal tasks, buffers, OS changes and cleanup observations.",
+      "source_scenario": "Listener teardown restores temporary resources without port residue, pending work or system-wide changes",
+      "required_outcome_class": "isolation_and_teardown",
+      "priority": "required",
+      "capture_fields": [
+        "endpoint_inventory",
+        "process_identity",
+        "operator_stop"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "RAW-01",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-RAW-01",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Exact synthetic POST /mcp/p2; compare sent request-target with RawUrl and Url.AbsolutePath independently.",
+      "source_scenario": "Simple exact POST /mcp/p2 request target compared against parsed Url and RawUrl",
+      "required_outcome_class": "measure_platform_behavior",
+      "priority": "blocker",
+      "capture_fields": [
+        "sent_request_target",
+        "http_sys_result",
+        "listener_rawurl",
+        "listener_absolute_path"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "RAW-02",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-RAW-02",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Synthetic encoded slash, encoded backslash and double encoding in path; check no alias to privileged route.",
+      "source_scenario": "Encoded slash/backslash and double-encoded path characters cannot alias privileged routes",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_request_target",
+        "http_sys_result",
+        "listener_rawurl",
+        "listener_absolute_path"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "RAW-03",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-RAW-03",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Synthetic dot segment, repeated slash, mixed-case path and trailing slash variations, individually.",
+      "source_scenario": "Dot segments, double slashes, trailing slash and mixed-case routes are refused unless explicitly specified",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_request_target",
+        "http_sys_result",
+        "listener_rawurl",
+        "listener_absolute_path"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "RAW-04",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-RAW-04",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Absolute-form target with separately specified Host; check server-selected bound instance.",
+      "source_scenario": "Absolute-form request target and ambiguous authority do not bypass bound-instance checks",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_request_target",
+        "http_sys_result",
+        "listener_rawurl",
+        "listener_absolute_path"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "RAW-05",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-RAW-05",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Ambiguous '?' delimiters, encoded query values, fragment-like target bytes; no normalized route approval.",
+      "source_scenario": "Duplicate question marks, percent-encoded query and fragment-like bytes remain unambiguous and denied",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_request_target",
+        "http_sys_result",
+        "listener_rawurl",
+        "listener_absolute_path"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "RAW-06",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-RAW-06",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Explicit /mcp, /mcp/p1 and host-default debug aliases as negative tests; do not call installed server.",
+      "source_scenario": "Host/P1 aliases /mcp and /mcp/p1, plus debug host fallback, do not acquire P2 or P1 control",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_request_target",
+        "http_sys_result",
+        "listener_rawurl",
+        "listener_absolute_path"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "HOST-01",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-HOST-01",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Valid synthetic Host form for independently selected disposable port, one header only.",
+      "source_scenario": "Exactly one Host matching configured 127.0.0.1:test-port or localhost:test-port; record raw and parsed values",
+      "required_outcome_class": "authorized_synthetic_candidate_only",
+      "priority": "required",
+      "capture_fields": [
+        "sent_host_headers",
+        "bound_listener",
+        "remote_endpoint_source"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "HOST-02",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-HOST-02",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Two Host headers, casing variation, contradictory authorities; preserve client-sent values.",
+      "source_scenario": "Duplicate Host including case-varied headers cannot be interpreted as a single trusted Host",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "blocker",
+      "capture_fields": [
+        "sent_host_headers",
+        "bound_listener",
+        "remote_endpoint_source"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "HOST-03",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-HOST-03",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Host name/port mismatch, suffix and unrelated-instance authority against approved disposable endpoint only.",
+      "source_scenario": "Mismatched Host port, unknown hostname, suffix injection or non-listener instance rejected",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_host_headers",
+        "bound_listener",
+        "remote_endpoint_source"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "HOST-04",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-HOST-04",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Fake Forwarded peer string vs OS transport-derived loopback endpoint; genuine peer can remain valid.",
+      "source_scenario": "Forged peer/Forwarded identity rejected; genuine loopback transport peer measured separately, never denied merely for being loopback",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_host_headers",
+        "bound_listener",
+        "remote_endpoint_source"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "HOST-05",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-HOST-05",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "IPv6 and alternate loopback Host aliases are opt-out negative probes unless explicitly approved and testbed supports.",
+      "source_scenario": "IPv6 ::1 and alternate loopback Host spellings remain denied unless approved by separately evidenced policy",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_host_headers",
+        "bound_listener",
+        "remote_endpoint_source"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "HDR-01",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-HDR-01",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Synthetic Origin null/empty/same/foreign values in native-only bearer profile; deny regardless apparent same-origin.",
+      "source_scenario": "Origin null, empty, same-origin and foreign-origin native bearer requests rejected before authorization",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "blocker",
+      "capture_fields": [
+        "sent_header_multiset",
+        "http_sys_result",
+        "listener_header_multiset",
+        "interim_response_headers"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "HDR-02",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-HDR-02",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Duplicated/case-varied security headers and MCP session; verify OS transformations before app decision.",
+      "source_scenario": "Repeated/case-variant Origin, Authorization, MCP session and Host are not silently coalesced into trusted input",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_header_multiset",
+        "http_sys_result",
+        "listener_header_multiset",
+        "interim_response_headers"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "HDR-03",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-HDR-03",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Obs-fold, control chars, whitespace around colon, malformed request-line and protocol versions, bounded one-by-one.",
+      "source_scenario": "Obsolete folded lines, whitespace before colon, control chars and malformed request-line/HTTP versions rejected before route selection",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_header_multiset",
+        "http_sys_result",
+        "listener_header_multiset",
+        "interim_response_headers"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "HDR-04",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-HDR-04",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Forwarded/X-Forwarded-*/Proxy-Authorization spoofing; transport identity must be independent.",
+      "source_scenario": "Forwarded, X-Forwarded-Host, X-Forwarded-For, Proxy-Authorization spoofing never controls transport identity",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_header_multiset",
+        "http_sys_result",
+        "listener_header_multiset",
+        "interim_response_headers"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "HDR-05",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-HDR-05",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Cookie, browser preflight, Expect 100-continue and Connection options; collect any interim responses and no private body.",
+      "source_scenario": "Cookie, browser form, cross-site preflight, Expect: 100-continue and Connection tokens cannot bypass native policy; record interim responses",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_header_multiset",
+        "http_sys_result",
+        "listener_header_multiset",
+        "interim_response_headers"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "FRM-01",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-FRM-01",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "POST without Content-Length; no indefinite read and no chunked fallback.",
+      "source_scenario": "Missing Content-Length for POST denied; no unbounded read or implicit chunked fallback",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_framing_bytes",
+        "http_sys_result",
+        "listener_body_metadata",
+        "abort_observed"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "FRM-02",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-FRM-02",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Equal and conflicting Content-Length duplicates with casing variants; inspect kernel-vs-handler decision.",
+      "source_scenario": "Duplicate Content-Length equal or conflicting and mixed case denied before body parsing",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_framing_bytes",
+        "http_sys_result",
+        "listener_body_metadata",
+        "abort_observed"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "FRM-03",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-FRM-03",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Content-Length plus Transfer-Encoding ambiguity; ensure no protected candidate.",
+      "source_scenario": "Content-Length plus Transfer-Encoding denied; verify HTTP.sys rejection/normalization at wire boundary",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "blocker",
+      "capture_fields": [
+        "sent_framing_bytes",
+        "http_sys_result",
+        "listener_body_metadata",
+        "abort_observed"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "FRM-04",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-FRM-04",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Correct synthetic chunked wire framing must be rejected by native-only policy; no live client.",
+      "source_scenario": "Chunked Transfer-Encoding denied in this pilot even with syntactically correct chunks",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_framing_bytes",
+        "http_sys_result",
+        "listener_body_metadata",
+        "abort_observed"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "FRM-05",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-FRM-05",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Negative, positive-sign, comma-separated, overflow and nondecimal Content-Length representations.",
+      "source_scenario": "Negative, signed, nondecimal, overlong, overflow, and comma-separated Content-Length denied",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_framing_bytes",
+        "http_sys_result",
+        "listener_body_metadata",
+        "abort_observed"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "FRM-06",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-FRM-06",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Advertised body 16385 bytes or more; no oversized application allocation; disambiguate kernel rejection.",
+      "source_scenario": "Declared body 16385+ bytes rejected before allocation/read; document OS vs application effect",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "blocker",
+      "capture_fields": [
+        "sent_framing_bytes",
+        "http_sys_result",
+        "listener_body_metadata",
+        "abort_observed"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "FRM-07",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-FRM-07",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Three separate valid JSON sizes 16383, 16384 and 16385 plus invalid UTF8/nonJSON negative controls.",
+      "source_scenario": "Exactly 16384-byte valid synthetic JSON is candidate-only; test 16383 and 16385 bytes separately; non-JSON/invalid UTF-8 denied",
+      "required_outcome_class": "authorized_synthetic_candidate_only",
+      "priority": "required",
+      "capture_fields": [
+        "sent_framing_bytes",
+        "http_sys_result",
+        "listener_body_metadata",
+        "abort_observed"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "FRM-08",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-FRM-08",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Declared body exceeds delivered body before synthetic disconnect; observe completion/abort rather than trusting response.",
+      "source_scenario": "Short body and early FIN do not create a request candidate or leave workers pending",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_framing_bytes",
+        "http_sys_result",
+        "listener_body_metadata",
+        "abort_observed"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "FRM-09",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-FRM-09",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Valid pipelined second request separately attributed; malformed trailing bytes separately denied.",
+      "source_scenario": "Valid pipelined requests remain separate; malformed trailing bytes or CL/TE ambiguity denied without cross-request authorization",
+      "required_outcome_class": "separate_requests_isolated",
+      "priority": "blocker",
+      "capture_fields": [
+        "sent_framing_bytes",
+        "http_sys_result",
+        "listener_body_metadata",
+        "abort_observed"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "FRM-10",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-FRM-10",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "GET and DELETE with declared/sent body; no retirement proof or protected action.",
+      "source_scenario": "GET/DELETE with declared or transmitted body cannot bypass rejection or fake retirement status",
+      "required_outcome_class": "deny_before_effects",
+      "priority": "required",
+      "capture_fields": [
+        "sent_framing_bytes",
+        "http_sys_result",
+        "listener_body_metadata",
+        "abort_observed"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "FRM-11",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-FRM-11",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Two sequential keep-alive requests with distinct synthetic identities and independent candidate counters.",
+      "source_scenario": "Keep-alive two sequential requests remain separately bounded/authenticated; no first-request principal inheritance",
+      "required_outcome_class": "separate_requests_isolated",
+      "priority": "required",
+      "capture_fields": [
+        "sent_framing_bytes",
+        "http_sys_result",
+        "listener_body_metadata",
+        "abort_observed"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "FRM-12",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-FRM-12",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Measure actual InputStream framing and whether extra read can hang; do NOT copy extra-byte EOF probe into real adapter.",
+      "source_scenario": "Actual HttpListener InputStream read boundary and one-extra-byte probe behavior measured without adopting probe",
+      "required_outcome_class": "measure_platform_behavior",
+      "priority": "blocker",
+      "capture_fields": [
+        "sent_framing_bytes",
+        "http_sys_result",
+        "listener_body_metadata",
+        "abort_observed"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "TIME-01",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-TIME-01",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Slow header before GetContextAsync combined with trickled body; independent first-byte/queue timeline and total budget.",
+      "source_scenario": "Slow headers before GetContextAsync and slow-drip body under 16KiB share a total monotonic ingress deadline independent of fragments",
+      "required_outcome_class": "bounded_abort_and_cleanup",
+      "priority": "blocker",
+      "capture_fields": [
+        "first_byte_time_source",
+        "handler_entry_time",
+        "abort_completion",
+        "buffer_ownership",
+        "shutdown_evidence"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "TIME-02",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-TIME-02",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Cancellation-ignoring read with transport-owned abort; evidence of actual completion and buffer lifetime.",
+      "source_scenario": "ReadAsync that ignores cancellation requires transport-owned abort and drained/observed completion",
+      "required_outcome_class": "bounded_abort_and_cleanup",
+      "priority": "blocker",
+      "capture_fields": [
+        "first_byte_time_source",
+        "handler_entry_time",
+        "abort_completion",
+        "buffer_ownership",
+        "shutdown_evidence"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "TIME-03",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-TIME-03",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Stalled end-of-body/EOF condition; independent stop must work without worker slot.",
+      "source_scenario": "Stalled EOF/extra-byte read does not hold a worker indefinitely; do not use unproven EOF probe",
+      "required_outcome_class": "bounded_abort_and_cleanup",
+      "priority": "required",
+      "capture_fields": [
+        "first_byte_time_source",
+        "handler_entry_time",
+        "abort_completion",
+        "buffer_ownership",
+        "shutdown_evidence"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "TIME-04",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-TIME-04",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Disconnect during headers and separately during body; verify task and transport cleanup.",
+      "source_scenario": "Client disconnect during header or body does not leak task, buffer, socket or authenticated authority",
+      "required_outcome_class": "bounded_abort_and_cleanup",
+      "priority": "required",
+      "capture_fields": [
+        "first_byte_time_source",
+        "handler_entry_time",
+        "abort_completion",
+        "buffer_ownership",
+        "shutdown_evidence"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "TIME-05",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-TIME-05",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Finite concurrency/queue occupancy; bounded synthetic load and independent stop; do not stress live services.",
+      "source_scenario": "Bounded concurrent slow headers/bodies and HTTP.sys backlog cannot exhaust isolated request tasks; game-tick acceptance remains G2",
+      "required_outcome_class": "bounded_abort_and_cleanup",
+      "priority": "blocker",
+      "capture_fields": [
+        "first_byte_time_source",
+        "handler_entry_time",
+        "abort_completion",
+        "buffer_ownership",
+        "shutdown_evidence"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    },
+    {
+      "case_id": "TIME-06",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "fixture_id": "FX-TIME-06",
+      "fixture_kind": "described_only_no_raw_payload",
+      "recipe": "Late completion after timeout must not reacquire candidate or reuse unsafe buffers.",
+      "source_scenario": "After deadline cancellation, late completion cannot return candidate or mutate response/game state",
+      "required_outcome_class": "bounded_abort_and_cleanup",
+      "priority": "required",
+      "capture_fields": [
+        "first_byte_time_source",
+        "handler_entry_time",
+        "abort_completion",
+        "buffer_ownership",
+        "shutdown_evidence"
+      ],
+      "test_environment": "future_disposable_loopback_only",
+      "secondary_port_policy": "never_discover_existing_services",
+      "post_run_verdict": "unobserved",
+      "evidence_reference": null
+    }
+  ]
+}
