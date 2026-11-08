@@ -140,7 +140,7 @@ def validate_plan(plan: dict, template: dict) -> None:
                         check_unrun(value)
                     elif isinstance(value, list):
                         assert value == []
-                    elif key == "observability":
+                    elif key in ("observability", "outcome_class"):
                         assert value == "unobserved"
                     else:
                         assert value is None
