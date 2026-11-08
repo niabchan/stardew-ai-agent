@@ -218,7 +218,7 @@ internal static class FakeAllRoutesBoundary
 
         string target = request.ConfiguredPort.ToString(CultureInfo.InvariantCulture);
         if (!headers.TryGetValue("Host", out var host) || host != request.Host ||
-            host is not (var h) || (h != "localhost:" + target && h != "127.0.0.1:" + target) ||
+            (host != "localhost:" + target && host != "127.0.0.1:" + target) ||
             !IPAddress.TryParse(request.PeerAddress, out var peer) || !IPAddress.IsLoopback(peer))
             return FakeRouteDecision.Deny(403);
 
