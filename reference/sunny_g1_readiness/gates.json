@@ -171,6 +171,7 @@
       "reason_open": "G1 trace collection and data minimization controls have not been approved",
       "g1_case_ids": [
         "HOST-04",
+        "HDR-01",
         "HDR-05",
         "ENV-01",
         "ENV-03"
