@@ -28,7 +28,12 @@ class Limits:
     def from_proposal(cls, raw: dict) -> "Limits":
         if raw.get("approval_state") != "proposed_not_ratified" or raw.get("g1_approval") is not False:
             raise ValueError("G0 fixture must not consume an approved/runtime profile")
+        if any(raw.get(k) is not False for k in
+               ("windows_http_sys_tested", "g2_runtime_tested")):
+            raise ValueError("G0 cannot claim platform/runtime evidence")
         v = raw["numeric_candidates"]
+        if any(type(value) is not int or value <= 0 for value in v.values()):
+            raise ValueError("limits must be positive integer candidates")
         out = cls(
             v["total_first_byte_to_ingress_complete_ms"],
             v["header_first_byte_to_complete_budget_ms"],
@@ -63,6 +68,7 @@ class Ticket:
     body_finished: bool = False
     phase: str = "active"  # active | abort_pending | released
     abort_requested_ms: int | None = None
+    abort_due_ms: int | None = None
     transport_abort_scope: str | None = None
     read_completion_observed: bool = False
     transport_quiescence_proven: bool = False
@@ -80,7 +86,24 @@ class OfflineIngressLedger:
         self.limits = limits
         self.tickets: dict[str, Ticket] = {}
         self.halted_reason: str | None = None
+        self.last_ms = 0
         self.potential_authorization_effects = 0  # must remain zero
+
+    def _advance(self, now_ms: int) -> bool:
+        if type(now_ms) is not int or now_ms < self.last_ms:
+            self.halted_reason = self.halted_reason or "invalid_monotonic_time"
+            return False
+        self.last_ms = now_ms
+        self._expire_due(now_ms)
+        self.enforce_cleanup_deadline(now_ms, _advanced=True)
+        return True
+
+    def _abort(self, t: Ticket, due_ms: int) -> None:
+        t.phase = "abort_pending"
+        t.abort_due_ms = due_ms
+        # Earlier claims cannot acknowledge this terminal lifecycle.
+        t.read_completion_observed = False
+        t.transport_quiescence_proven = False
 
     def _held(self) -> list[Ticket]:
         return [t for t in self.tickets.values() if t.phase != "released"]
@@ -100,12 +123,12 @@ class OfflineIngressLedger:
     def admit(self, request_id: str, principal: str, lane: Lane,
               first_byte_ms: int | None, handler_ms: int,
               provenance_verified: bool) -> str:
-        if self.halted_reason:
+        if not self._advance(handler_ms) or self.halted_reason:
             return "halted"
         if not provenance_verified or first_byte_ms is None:
-            self.halted_reason = "unverifiable_prehandler_time"
+            self.halted_reason = self.halted_reason or "unverifiable_prehandler_time"
             return "no_trusted_anchor"
-        if (first_byte_ms < 0 or handler_ms < first_byte_ms or
+        if (type(first_byte_ms) is not int or first_byte_ms < 0 or handler_ms < first_byte_ms or
                 lane not in ("general", "recovery") or
                 not request_id or not principal or request_id in self.tickets):
             return "invalid"
@@ -130,6 +153,8 @@ class OfflineIngressLedger:
         return "reserved"
 
     def begin_body(self, request_id: str, now_ms: int) -> bool:
+        if not self._advance(now_ms) or self.halted_reason:
+            return False
         t = self.tickets[request_id]
         if t.phase != "active" or t.body_started_ms is not None:
             return False
@@ -142,6 +167,11 @@ class OfflineIngressLedger:
         return True
 
     def expire(self, now_ms: int) -> list[str]:
+        before = {t.request_id for t in self._pending()}
+        self._advance(now_ms)
+        return [t.request_id for t in self._pending() if t.request_id not in before]
+
+    def _expire_due(self, now_ms: int) -> list[str]:
         changed = []
         for t in self._held():
             if t.phase != "active":
@@ -150,14 +180,15 @@ class OfflineIngressLedger:
             if t.body_started_ms is not None and not t.body_finished:
                 deadline = min(deadline, t.body_started_ms + self.limits.body_ms)
             if now_ms >= deadline:
-                t.phase = "abort_pending"
-                t.abort_requested_ms = now_ms
+                self._abort(t, deadline)
                 changed.append(t.request_id)
         if len(self._pending()) >= self.limits.unresolved_slots:
-            self.halted_reason = "unresolved_abort_cap"
+            self.halted_reason = self.halted_reason or "unresolved_abort_cap"
         return changed
 
     def complete_body(self, request_id: str, now_ms: int) -> bool:
+        if not self._advance(now_ms) or self.halted_reason:
+            return False
         t = self.tickets[request_id]
         if t.phase != "active" or t.body_started_ms is None or t.body_finished:
             return False
@@ -170,51 +201,77 @@ class OfflineIngressLedger:
         return True
 
     def eligible_for_next_policy_check(self, request_id: str, now_ms: int) -> bool:
-        self.expire(now_ms)
+        if not self._advance(now_ms):
+            return False
         t = self.tickets[request_id]
         return (t.phase == "active" and t.body_finished and
                 not self.halted_reason and now_ms < t.deadline_ms)
         # Even True is NOT a credential, lease or authorization decision.
 
     def abort_requested(self, request_id: str, now_ms: int, scope: str) -> bool:
+        if not self._advance(now_ms):
+            return False
         t = self.tickets[request_id]
-        if t.phase != "abort_pending" or t.abort_requested_ms is None:
+        if t.phase != "abort_pending" or t.abort_due_ms is None:
             return False
         if scope not in ("request", "whole_listener"):
             return False
+        if t.abort_requested_ms is None:
+            t.abort_requested_ms = now_ms
         t.transport_abort_scope = scope
         if scope == "whole_listener":
-            self.halted_reason = "whole_listener_abort_collateral"
-        if now_ms > t.abort_requested_ms + self.limits.cleanup_ms:
-            self.halted_reason = "cleanup_deadline_exceeded"
+            self.halted_reason = self.halted_reason or "whole_listener_abort_collateral"
+            for other in self._held():
+                if other.phase == "active":
+                    self._abort(other, now_ms)
+        if now_ms >= t.abort_due_ms + self.limits.cleanup_ms:
+            self.halted_reason = self.halted_reason or "cleanup_deadline_exceeded"
         return True
 
-    def record_observed_completion(self, request_id: str, *, read_complete: bool,
+    def record_observed_completion(self, request_id: str, *, now_ms: int, read_complete: bool,
                                    transport_quiescent: bool) -> None:
-        t = self.tickets[request_id]
-        if t.phase == "released":
+        if not self._advance(now_ms):
             return
-        t.read_completion_observed = read_complete
-        t.transport_quiescence_proven = transport_quiescent
+        t = self.tickets[request_id]
+        if not (t.phase == "abort_pending" or
+                (t.phase == "active" and t.body_finished)):
+            return
+        t.read_completion_observed = read_complete is True
+        t.transport_quiescence_proven = transport_quiescent is True
         # These Booleans are SYNTHETIC CLAIMS, not HttpListener evidence.
 
-    def release(self, request_id: str, *, buffers_safely_released: bool) -> bool:
+    def release(self, request_id: str, *, now_ms: int, buffers_safely_released: bool) -> bool:
+        if not self._advance(now_ms):
+            return False
         t = self.tickets[request_id]
         if t.phase == "released":
             return False
         if not (t.body_finished or t.phase == "abort_pending"):
             return False
         if not (t.read_completion_observed and t.transport_quiescence_proven and
-                buffers_safely_released):
+                buffers_safely_released is True):
             return False
         t.buffers_safely_released = True
         t.phase = "released"
         return True
 
-    def enforce_cleanup_deadline(self, now_ms: int) -> bool:
+    def cancel(self, request_id: str, now_ms: int) -> bool:
+        """Synthetic cancel/read-failure/response-close event; never frees capacity."""
+        if not self._advance(now_ms):
+            return False
+        t = self.tickets[request_id]
+        if t.phase != "active":
+            return False
+        self._abort(t, now_ms)
+        self._expire_due(now_ms)
+        return True
+
+    def enforce_cleanup_deadline(self, now_ms: int, *, _advanced: bool = False) -> bool:
+        if not _advanced:
+            return self._advance(now_ms) and not bool(self.halted_reason)
         for t in self._pending():
-            assert t.abort_requested_ms is not None
-            if now_ms >= t.abort_requested_ms + self.limits.cleanup_ms:
-                self.halted_reason = "cleanup_deadline_exceeded"
+            assert t.abort_due_ms is not None
+            if now_ms >= t.abort_due_ms + self.limits.cleanup_ms:
+                self.halted_reason = self.halted_reason or "cleanup_deadline_exceeded"
                 return False
         return not bool(self.halted_reason)

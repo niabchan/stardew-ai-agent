@@ -38,6 +38,10 @@
     "unverifiable timestamp provenance is a hard stop",
     "recovery reserve does not allow unlimited accepted work or bypass auth",
     "aborted late completion can never requalify a request",
-    "kernel queue, pre-handler slow headers and global connection caps require separate platform proof"
+    "kernel queue, pre-handler slow headers and global connection caps require separate platform proof",
+    "monotonic model events cannot roll back or restart cleanup grace",
+    "abort due time and actual abort request time are distinct synthetic events",
+    "listener-wide abort invalidates every held active candidate",
+    "halt is latched even after verified synthetic cleanup; no automatic restart"
   ]
 }

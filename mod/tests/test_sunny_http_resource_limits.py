@@ -26,8 +26,9 @@ def ledger() -> OfflineIngressLedger:
 
 def reserve(ledger: OfflineIngressLedger, ticket: str = "t", *,
             principal: str = "luna", lane: str = "general",
-            first: int | None = 0, handler: int = 1, proven: bool = True) -> str:
-    return ledger.admit(ticket, principal, lane, first, handler, proven)
+            first: int | None = 0, handler: int | None = None, proven: bool = True) -> str:
+    return ledger.admit(ticket, principal, lane, first,
+                        max(1, ledger.last_ms) if handler is None else handler, proven)
 
 
 def test_proposed_numbers_are_unratified_and_never_authorize_G1() -> None:
@@ -53,7 +54,7 @@ def test_proposed_numbers_are_unratified_and_never_authorize_G1() -> None:
     (0, 2000, True, "late_headers_unenforced"),
     (0, 1999, True, "reserved"),
     (1000, 1001, True, "reserved"),
-    (0, -1, True, "invalid"),
+    (0, -1, True, "halted"),
     (-1, 0, True, "invalid"),
 ])
 def test_first_byte_prehandler_and_header_gate(first, handler, proven, result):
@@ -109,7 +110,7 @@ def test_timeout_no_immediate_slot_reuse(ledger):
     assert ledger.counts() == (1, 1, 0, 1)
     assert ledger.abort_requested("t", 8000, "request")
     assert ledger.counts()[0] == 1
-    assert not ledger.release("t", buffers_safely_released=True)
+    assert not ledger.release("t", now_ms=ledger.last_ms, buffers_safely_released=True)
     assert ledger.counts()[0] == 1
 
 
@@ -125,16 +126,16 @@ def test_all_three_completion_and_buffer_proofs_required_for_release(
     assert reserve(ledger) == "reserved"
     ledger.begin_body("t", 2)
     ledger.expire(8000)
-    ledger.record_observed_completion("t", read_complete=read,
+    ledger.record_observed_completion("t", now_ms=ledger.last_ms, read_complete=read,
                                       transport_quiescent=transport)
-    assert ledger.release("t", buffers_safely_released=buffers) is allowed
+    assert ledger.release("t", now_ms=ledger.last_ms, buffers_safely_released=buffers) is allowed
     assert ledger.counts()[0] == (0 if allowed else 1)
 
 
 def test_premature_release_before_read_or_abort_denied(ledger):
     assert reserve(ledger) == "reserved"
-    ledger.record_observed_completion("t", read_complete=True, transport_quiescent=True)
-    assert not ledger.release("t", buffers_safely_released=True)
+    ledger.record_observed_completion("t", now_ms=ledger.last_ms, read_complete=True, transport_quiescent=True)
+    assert not ledger.release("t", now_ms=ledger.last_ms, buffers_safely_released=True)
     assert ledger.counts()[0] == 1
 
 
@@ -142,11 +143,11 @@ def test_late_observed_completion_never_resurrects_candidate(ledger):
     assert reserve(ledger) == "reserved"
     assert ledger.begin_body("t", 10)
     ledger.expire(8000)
-    ledger.record_observed_completion("t", read_complete=True,
+    ledger.record_observed_completion("t", now_ms=ledger.last_ms, read_complete=True,
                                       transport_quiescent=True)
     assert not ledger.complete_body("t", 8001)
     assert not ledger.eligible_for_next_policy_check("t", 8001)
-    assert ledger.release("t", buffers_safely_released=True)
+    assert ledger.release("t", now_ms=ledger.last_ms, buffers_safely_released=True)
     assert not ledger.eligible_for_next_policy_check("t", 8002)
     assert ledger.potential_authorization_effects == 0
 
@@ -180,7 +181,7 @@ def test_pending_abort_capacity_triggers_admission_halt(ledger):
     for i in range(4):
         assert reserve(ledger, str(i), principal=f"p{i}") == "reserved"
         ledger.begin_body(str(i), 5)
-    assert len(ledger.expire(8000)) == 4
+    assert len(ledger.expire(5005)) == 4
     assert ledger.counts() == (4, 4, 0, 4)
     assert ledger.halted_reason == "unresolved_abort_cap"
     assert reserve(ledger, "fifth") == "halted"
@@ -189,10 +190,10 @@ def test_pending_abort_capacity_triggers_admission_halt(ledger):
 def test_cleanup_deadline_requires_observed_completion(ledger):
     assert reserve(ledger) == "reserved"
     ledger.begin_body("t", 2)
-    ledger.expire(8000)
-    assert ledger.abort_requested("t", 8000, "request")
-    assert ledger.enforce_cleanup_deadline(9999)
-    assert not ledger.enforce_cleanup_deadline(10000)
+    ledger.expire(5002)
+    assert ledger.abort_requested("t", 5002, "request")
+    assert ledger.enforce_cleanup_deadline(7001)
+    assert not ledger.enforce_cleanup_deadline(7002)
     assert ledger.halted_reason == "cleanup_deadline_exceeded"
     assert ledger.counts()[0] == 1
 
@@ -209,8 +210,8 @@ def test_unknown_abort_scope_does_not_claim_safe_cleanup(ledger):
 def test_whole_listener_abort_requires_stopping_new_work(ledger):
     assert reserve(ledger) == "reserved"
     ledger.begin_body("t", 2)
-    ledger.expire(8000)
-    assert ledger.abort_requested("t", 8000, "whole_listener")
+    ledger.expire(5002)
+    assert ledger.abort_requested("t", 5002, "whole_listener")
     assert ledger.halted_reason == "whole_listener_abort_collateral"
     assert reserve(ledger, "next", principal="someone-else") == "halted"
 
@@ -231,9 +232,9 @@ def test_duplicate_request_claim_cannot_reuse_ticket_id(ledger):
     assert reserve(ledger) == "invalid"
     ledger.begin_body("t", 2)
     assert ledger.complete_body("t", 3)
-    ledger.record_observed_completion("t", read_complete=True,
+    ledger.record_observed_completion("t", now_ms=ledger.last_ms, read_complete=True,
                                       transport_quiescent=True)
-    assert ledger.release("t", buffers_safely_released=True)
+    assert ledger.release("t", now_ms=ledger.last_ms, buffers_safely_released=True)
     assert ledger.counts()[0] == 0
     assert reserve(ledger) == "invalid"
 
@@ -241,8 +242,122 @@ def test_duplicate_request_claim_cannot_reuse_ticket_id(ledger):
 def test_existing_windows_g0_manifest_still_unexecuted():
     p = ROOT / "reference" / "sunny_windows_http_acceptance" / "cases.json"
     m = json.loads(p.read_text(encoding="utf-8"))
+    assert len(m["cases"]) == 50
+    assert sum(x["priority"] == "blocker" for x in m["cases"]) == 17
     assert m["execution_status"] == "not_run"
     assert m["real_transport_tested"] is False
     assert all(x["status"] == "not_run" for x in m["cases"])
     assert sum(x["stage"] == "future_isolated_windows_only" for x in m["cases"]) == 37
     assert sum(x["stage"] == "future_runtime_acceptance_only" for x in m["cases"]) == 13
+
+
+@pytest.mark.parametrize("terminal", ["complete", "cancel", "expire"])
+def test_preterminal_claims_cannot_free_later_operation(ledger, terminal):
+    reserve(ledger)
+    ledger.record_observed_completion("t", now_ms=ledger.last_ms, read_complete=True, transport_quiescent=True)
+    ledger.begin_body("t", 2)
+    if terminal == "complete":
+        assert ledger.complete_body("t", 3)
+    elif terminal == "cancel":
+        assert ledger.cancel("t", 3)
+    else:
+        ledger.expire(5002)
+    assert not ledger.release("t", now_ms=ledger.last_ms, buffers_safely_released=True)
+    assert ledger.counts()[0] == 1
+
+
+def test_clock_rollback_cannot_qualify_completed_body(ledger):
+    reserve(ledger)
+    ledger.begin_body("t", 2)
+    ledger.complete_body("t", 100)
+    assert not ledger.eligible_for_next_policy_check("t", 99)
+    assert ledger.halted_reason == "invalid_monotonic_time"
+
+
+def test_delayed_expiry_does_not_restart_cleanup_or_claim_abort(ledger):
+    reserve(ledger)
+    ledger.begin_body("t", 2)
+    ledger.expire(20000)
+    t = ledger.tickets["t"]
+    assert t.abort_due_ms == 5002
+    assert t.abort_requested_ms is None
+    assert ledger.halted_reason == "cleanup_deadline_exceeded"
+    ledger.abort_requested("t", 20000, "request")
+    assert t.abort_requested_ms == 20000
+    ledger.record_observed_completion("t", now_ms=ledger.last_ms, read_complete=True, transport_quiescent=True)
+    assert ledger.release("t", now_ms=ledger.last_ms, buffers_safely_released=True)
+    assert reserve(ledger, "new", first=20000, handler=20001) == "halted"
+
+
+def test_admission_advances_existing_deadlines_before_reservation(ledger):
+    reserve(ledger)
+    ledger.begin_body("t", 2)
+    assert reserve(ledger, "new", first=8000, handler=8001) == "halted"
+    assert ledger.counts() == (1, 1, 0, 1)
+
+
+def test_listener_abort_invalidates_all_collateral_candidates(ledger):
+    reserve(ledger)
+    reserve(ledger, "other")
+    ledger.begin_body("other", 2)
+    ledger.complete_body("other", 3)
+    assert ledger.cancel("t", 4)
+    assert ledger.abort_requested("t", 4, "whole_listener")
+    assert ledger.tickets["other"].phase == "abort_pending"
+    assert ledger.counts() == (2, 2, 0, 2)
+    assert not ledger.eligible_for_next_policy_check("other", 4)
+
+
+@pytest.mark.parametrize("event", ["cancel", "expire"])
+def test_safe_cleanup_never_restarts_halted_ledger(ledger, event):
+    for i in range(4):
+        reserve(ledger, str(i))
+    if event == "expire":
+        ledger.expire(8000)
+    else:
+        for i in range(4):
+            ledger.cancel(str(i), 2)
+    for i in range(4):
+        ledger.record_observed_completion(str(i), now_ms=ledger.last_ms, read_complete=True, transport_quiescent=True)
+        assert ledger.release(str(i), now_ms=ledger.last_ms, buffers_safely_released=True)
+    assert ledger.counts() == (0, 0, 0, 0)
+    assert reserve(ledger, "new") == "halted"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("body_read_budget_ms", True), ("body_read_budget_ms", 1.5),
+    ("max_test_backlog", 0),
+])
+def test_invalid_numeric_profile_rejected(field, value):
+    raw = json.loads(json.dumps(PROFILE))
+    raw["numeric_candidates"][field] = value
+    with pytest.raises(ValueError):
+        Limits.from_proposal(raw)
+
+
+@pytest.mark.parametrize("field", ["windows_http_sys_tested", "g2_runtime_tested"])
+def test_evidence_flags_cannot_upgrade_offline_fixture(field):
+    raw = json.loads(json.dumps(PROFILE))
+    raw[field] = True
+    with pytest.raises(ValueError):
+        Limits.from_proposal(raw)
+
+
+def test_late_release_observes_cleanup_failure_before_freeing(ledger):
+    reserve(ledger)
+    ledger.cancel("t", 2)
+    ledger.record_observed_completion("t", now_ms=3,
+                                      read_complete=True, transport_quiescent=True)
+    assert ledger.release("t", now_ms=2002, buffers_safely_released=True)
+    assert ledger.halted_reason == "cleanup_deadline_exceeded"
+    assert reserve(ledger, "new", first=2002, handler=2002) == "halted"
+
+
+def test_exact_total_boundary_cannot_reuse_success_claims(ledger):
+    reserve(ledger)
+    ledger.begin_body("t", 2)
+    ledger.complete_body("t", 3)
+    ledger.record_observed_completion("t", now_ms=3,
+                                      read_complete=True, transport_quiescent=True)
+    assert not ledger.release("t", now_ms=8000, buffers_safely_released=True)
+    assert ledger.tickets["t"].phase == "abort_pending"
