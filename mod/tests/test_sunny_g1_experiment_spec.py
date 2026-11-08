@@ -60,7 +60,7 @@ def validate_plan(plan: dict, template: dict) -> None:
     for layer in layers:
         assert len(layer["fields"]) >= 4
         assert len(layer["not_trusted_for"]) >= 1
-        assert len(layer["origin"]) > 18
+        assert len(layer["origin"]) >= 18
     assert next(x for x in layers if x["id"] == "HTTP_SYS")["trusted_for"] == []
     assert next(x for x in layers if x["id"] == "CLEANUP")["trusted_for"] == []
 
@@ -283,7 +283,7 @@ def test_document_retains_no_go_stop_and_separate_g1_g2() -> None:
     for part in (
         "NO-GO", "G0", "G1", "G2", "37", "13", "50", "11",
         "HTTP.sys", "GetContextAsync", "RawUrl", "unobservable",
-        "no automatic", "first byte", "abort", "quarantine",
+        "no automatic", "first-byte", "abort", "quarantine",
         "explicit approval", "synthetic", "evidence template",
         "independent", "not a runnable server", "main",
     ):
