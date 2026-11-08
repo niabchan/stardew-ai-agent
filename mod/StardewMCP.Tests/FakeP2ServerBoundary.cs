@@ -8,8 +8,9 @@ namespace StardewMCP.Tests;
 // Simulated event counters are NOT real game contact, pause, diagnostics or logs.
 internal sealed record FakeP2BoundarySnapshot(
     int AcceptedSessionBreakStarts,
+    int AcceptedOwnerPresenceEvents,
     int AcceptedToolContactMarks,
-    int AcceptedToolReplyBudgetSets,
+    int AcceptedExecutionBudgetStarts,
     int AcceptedActionStartLogs,
     int AcceptedFreezeEligibilityEvents,
     bool FreezeEligible,
@@ -23,14 +24,15 @@ internal sealed class FakeP2ServerBoundary
     private readonly object _gate = new();
     private readonly FakeP2AtomicIntake _intake = new();
 
+    private int _presenceEvents;
     private int _sessionStarts, _contactMarks, _replyBudgets, _actionLogs, _freezeEvents;
     private bool _freezeEligible;
 
     internal FakeP2BoundarySnapshot Snapshot()
     {
         lock (_gate)
-            return new(_sessionStarts, _contactMarks, _replyBudgets, _actionLogs,
-                _freezeEvents, _freezeEligible,
+            return new(_sessionStarts, _presenceEvents, _contactMarks, _replyBudgets, _actionLogs,
+                _freezeEvents, _freezeEligible && _intake.Owner is not null,
                 _intake.PendingActions, _intake.PendingObservations,
                 _intake.RunningCount, _intake.EffectSteps);
     }
@@ -70,14 +72,20 @@ internal sealed class FakeP2ServerBoundary
     }
 
     internal void Provision(string token, string principal, CoordinatorGrant grants)
-    { lock (_gate) _intake.Provision(token, principal, grants); }
+    {
+        lock (_gate)
+        {
+            _intake.Provision(token, principal, grants);
+            if (_intake.Owner is null) _freezeEligible = false;
+        }
+    }
 
     internal void ChangeGrants(string token, CoordinatorGrant grants)
     {
         lock (_gate)
         {
             _intake.ChangeGrants(token, grants);
-            if ((grants & CoordinatorGrant.Control) == 0) _freezeEligible = false;
+            if (_intake.Owner is null) _freezeEligible = false;
         }
     }
 
@@ -86,7 +94,7 @@ internal sealed class FakeP2ServerBoundary
         lock (_gate)
         {
             _intake.Revoke(token);
-            _freezeEligible = false;
+            if (_intake.Owner is null) _freezeEligible = false;
         }
     }
 
@@ -102,21 +110,28 @@ internal sealed class FakeP2ServerBoundary
         {
             // IMPORTANT: test-only injection, not a request-controlled callback.
             var reply = _intake.Admit(request, trustedAttemptId, betweenPhases, now);
-            // A validated and acquired initialize may reset *context break*
-            // bookkeeping only; it does not mark gameplay contact or set deadlines.
+            // Presence is separate from admitted tool start: otherwise the first
+            // planning interval after initialize would advance game time.
+            // This does NOT call PlayerSlot.MarkContact or model timeout/release reset.
             if (reply.Disposition == IntakeDisposition.Acquired)
+            {
                 _sessionStarts++;
-            if (reply.Disposition == IntakeDisposition.RetirementUnverified)
-                _freezeEligible = false;
-            // Queued != started. A queued request is not enough to mark contact,
-            // modify per-seat deadline, emit an action log, or trigger gameplay.
+                _presenceEvents++;
+                _freezeEligible = true;
+            }
+            // Trusted expiry/retirement may invalidate presence even on a denial;
+            // that is lifecycle housekeeping, not authority granted to the request.
+            if (_intake.Owner is null) _freezeEligible = false;
+            // Queued != started: no tool-start counters, execution budget or action log.
+            // Discovery/notifications never refresh presence or lease lifetime.
             return reply;
         }
     }
 
     /// <summary>
     /// Only when fake coordinator STARTS valid work, mirror post-admission
-    /// contact/deadline/freeze and action-log notifications. This is NOT
+    /// tool-start/execution-budget/rearm and action-log notifications. Presence already
+    /// exists after acquired initialize; eligibility is not actual WorldClock pause. This is NOT
     /// an AgentRuntime.Lane.Start call and holds no real game-thread lock.
     /// </summary>
     internal CoordinatorWorkView? TryStart(CoordinatorLane lane, long now = 0)
@@ -126,7 +141,7 @@ internal sealed class FakeP2ServerBoundary
             var view = _intake.Start(lane, now);
             if (view?.State != CoordinatorWorkState.Running) return view;
             _contactMarks++;
-            _replyBudgets++; // per admitted started operation, not PlayerSlot's global volatile field
+            _replyBudgets++; // execution budget only; response deadline must include queue wait
             _freezeEligible = true;
             _freezeEvents++;
             if (lane == CoordinatorLane.Action) _actionLogs++;

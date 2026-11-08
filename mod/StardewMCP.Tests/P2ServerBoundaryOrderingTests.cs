@@ -62,15 +62,14 @@ public sealed class P2ServerBoundaryOrderingTests
     private static void NoToolEffects(FakeP2BoundarySnapshot s)
     {
         Assert.Equal(0, s.AcceptedToolContactMarks);
-        Assert.Equal(0, s.AcceptedToolReplyBudgetSets);
+        Assert.Equal(0, s.AcceptedExecutionBudgetStarts);
         Assert.Equal(0, s.AcceptedActionStartLogs);
         Assert.Equal(0, s.AcceptedFreezeEligibilityEvents);
-        Assert.False(s.FreezeEligible);
         Assert.Equal(0, s.FakeGameSteps);
     }
 
     [Fact]
-    public void Authenticated_initialize_only_starts_fake_context_break_session_not_gameplay_contact()
+    public void Authenticated_acquisition_establishes_presence_before_first_tool_start()
     {
         var f = Prepared();
         var response = f.Handle(Request(Init));
@@ -78,6 +77,9 @@ public sealed class P2ServerBoundaryOrderingTests
         var state = f.Snapshot();
         Assert.Equal(1, state.AcceptedSessionBreakStarts);
         NoToolEffects(state);
+        Assert.Equal(1, state.AcceptedOwnerPresenceEvents);
+        Assert.True(state.FreezeEligible); // first thinking interval, before any tool
+        Assert.Equal(0, state.StartedWork);
 
         var conflict = f.Handle(Request(Init));
         Assert.Equal(409, conflict.Status);
@@ -88,8 +90,10 @@ public sealed class P2ServerBoundaryOrderingTests
     public void Discovery_and_initialized_notification_never_mark_contact_or_deadline()
     {
         var (f, lease) = Open();
+        var before = f.Snapshot();
         Assert.Equal(IntakeDisposition.Discovery, f.Handle(Request(Ping, lease)).Disposition);
         Assert.Equal(IntakeDisposition.Notification, f.Handle(Request(Initialized, lease)).Disposition);
+        Assert.Equal(before, f.Snapshot());
         var state = f.Snapshot();
         Assert.Equal(1, state.AcceptedSessionBreakStarts);
         NoToolEffects(state);
@@ -110,7 +114,7 @@ public sealed class P2ServerBoundaryOrderingTests
         Assert.Equal(CoordinatorWorkState.Running, f.TryStart(CoordinatorLane.Action)!.State);
         var started = f.Snapshot();
         Assert.Equal(2, started.AcceptedToolContactMarks);
-        Assert.Equal(2, started.AcceptedToolReplyBudgetSets);
+        Assert.Equal(2, started.AcceptedExecutionBudgetStarts);
         Assert.Equal(1, started.AcceptedActionStartLogs);
         Assert.Equal(2, started.AcceptedFreezeEligibilityEvents);
         Assert.True(started.FreezeEligible);
@@ -173,6 +177,8 @@ public sealed class P2ServerBoundaryOrderingTests
         Assert.Equal(0, f.Snapshot().AcceptedSessionBreakStarts);
         NoToolEffects(f.Snapshot());
         Assert.Null(f.Owner);
+        Assert.False(f.Snapshot().FreezeEligible);
+        Assert.Equal(0, f.Snapshot().AcceptedOwnerPresenceEvents);
     }
 
     [Fact]
@@ -184,6 +190,7 @@ public sealed class P2ServerBoundaryOrderingTests
         Assert.Null(f.TryStart(CoordinatorLane.Action));
         var state = f.Snapshot();
         Assert.Equal(0, state.QueuedActions);
+        Assert.False(state.FreezeEligible);
         NoToolEffects(state);
         Assert.False(f.FakeStep("queued-before-revoke", lease));
     }
@@ -288,6 +295,7 @@ public sealed class P2ServerBoundaryOrderingTests
             betweenPhases: () => f.Revoke(Token));
         Assert.False(reply.Accepted);
         Assert.Null(f.TryStart(CoordinatorLane.Action));
+        Assert.False(f.Snapshot().FreezeEligible);
         NoToolEffects(f.Snapshot());
     }
 
@@ -295,9 +303,44 @@ public sealed class P2ServerBoundaryOrderingTests
     public void Noop_discovery_cannot_rearm_freeze_or_renew_provisional_owner()
     {
         var (f, lease) = Open();
+        var before = f.Snapshot();
+        Assert.True(before.FreezeEligible);
         Assert.Equal(IntakeDisposition.Discovery, f.Handle(Request(Ping, lease), now: 59).Disposition);
+        Assert.Equal(before, f.Snapshot()); // no presence refresh or tool-start event
         Assert.False(f.Handle(Request(Ping, lease), now: 60).Accepted);
+        Assert.False(f.Snapshot().FreezeEligible); // trusted expiry, not denial effect
         Assert.Null(f.Owner);
+        NoToolEffects(f.Snapshot());
+    }
+
+    [Fact]
+    public void Unrelated_credential_changes_do_not_release_current_owners_thinking_freeze()
+    {
+        var (f, lease) = Open();
+        f.Provision("other-token", "other-principal", CoordinatorGrant.Control);
+        var before = f.Snapshot();
+        f.ChangeGrants("other-token", CoordinatorGrant.None);
+        f.Revoke("other-token");
+        Assert.Equal(before, f.Snapshot());
+        Assert.Equal(lease, f.Owner);
+        Assert.True(f.Snapshot().FreezeEligible);
+        f.Provision(Token, "luna", CoordinatorGrant.Control); // new credential incarnation
+        Assert.Null(f.Owner);
+        Assert.False(f.Snapshot().FreezeEligible);
+    }
+
+    [Fact]
+    public void Pending_observation_is_purged_and_presence_cleared_on_title()
+    {
+        var (f, lease) = Open();
+        f.Handle(Request(Status, lease), "pending-observation");
+        Assert.Equal(1, f.Snapshot().QueuedObservations);
+        Assert.True(f.Snapshot().FreezeEligible);
+        f.ReturnedToTitle();
+        Assert.Null(f.TryStart(CoordinatorLane.Observation));
+        Assert.False(f.FakeStep("pending-observation", lease));
+        Assert.Equal(0, f.Snapshot().QueuedObservations);
+        Assert.False(f.Snapshot().FreezeEligible);
         NoToolEffects(f.Snapshot());
     }
 
