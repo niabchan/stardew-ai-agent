@@ -10,6 +10,8 @@ require separate authorized processes outside this fixture.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from collections import Counter
 from typing import Any
 
@@ -28,6 +30,49 @@ CRITICAL_G1_IDS = frozenset({
 })
 
 
+# Pins are baseline consistency checks, not signatures or approval evidence.
+# Changing sources requires a new independent G0 review, never auto-ratification.
+SOURCE_DIGESTS = (
+    "ae192787a75bbc8ccec6e362720adfd540ebb88a1d7bda3b9b2f40d88dc24f82",
+    "61ac96429122658058c18e903f69d934fdaafafa9cd991e41d7d2b0f16da9605",
+)
+READINESS_FIELDS = frozenset({
+    "all_route_live_authorization_proven", "approved_to_open_listener",
+    "baseline_commit", "decision", "decision_rule", "decision_type",
+    "expected_case_counts", "g1_executed", "g2_executed", "gates", "name",
+    "non_entry_separate_future_work", "numeric_ratification_record",
+    "operator_approval_record", "prehandler_first_byte_source_verified",
+    "schema_version", "source_candidate_profile", "source_plan",
+    "transport_abort_scope_verified", "windows_provenance_verified",
+})
+GATE_FIELDS = frozenset({
+    "category", "entry_blocker", "entry_status", "evidence_at_entry", "g1_case_ids",
+    "id", "proposed_test_only", "reason_open", "required_reviewed_artifact",
+})
+GATE_CASE_IDS = {
+    'G1E-01': ('ENV-01', 'ENV-02', 'ENV-03'),
+    'G1E-02': ('RAW-01', 'HOST-02', 'HDR-02', 'FRM-12'),
+    'G1E-03': ('TIME-01', 'TIME-04', 'TIME-05'),
+    'G1E-04': ('HDR-03', 'TIME-01', 'TIME-05'),
+    'G1E-05': ('TIME-02', 'TIME-03', 'TIME-06'),
+    'G1E-06': ('TIME-02', 'TIME-04', 'TIME-06', 'ENV-03'),
+    'G1E-07': ('FRM-06', 'FRM-07', 'TIME-01', 'TIME-05'),
+    'G1E-08': ('FRM-03', 'FRM-07', 'FRM-09', 'FRM-11'),
+    'G1E-09': ('ENV-01', 'ENV-02', 'ENV-03'),
+    'G1E-10': ('HOST-04', 'HDR-01', 'HDR-05', 'ENV-01', 'ENV-03'),
+    'G1E-11': ('RAW-01', 'FRM-12', 'TIME-02', 'TIME-05'),
+}
+
+
+def _source_digest(value: dict[str, Any]) -> str:
+    try:
+        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"),
+                             ensure_ascii=True, allow_nan=False).encode("ascii")
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ReadinessError("source is not finite JSON") from exc
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _require(condition: bool, reason: str) -> None:
     if not condition:
         raise ReadinessError(reason)
@@ -42,7 +87,13 @@ def evaluate_g0_entry(readiness: dict[str, Any], catalog: dict[str, Any],
     """
     _require(isinstance(readiness, dict) and isinstance(catalog, dict) and
              isinstance(profile, dict), "nonobject inputs")
-    _require(readiness.get("schema_version") == 1, "readiness schema")
+    _require(set(readiness) == READINESS_FIELDS, "missing/unknown readiness fields")
+    _require(type(readiness.get("schema_version")) is int and
+             readiness["schema_version"] == 1, "readiness schema")
+    _require(readiness.get("baseline_commit") ==
+             "752db4a7d5fda301947287862f480cc221aafffc", "wrong PR #22 baseline")
+    _require((_source_digest(catalog), _source_digest(profile)) == SOURCE_DIGESTS,
+             "Phase 2F/2G source snapshot changed; independent G0 review required")
     _require(readiness.get("name") == "sunny-g1-entry-readiness-g0", "readiness name")
     _require(readiness.get("decision") == "NO_GO_G1_START", "decision must be NO_GO")
     _require(readiness.get("decision_type") == "offline_document_review_only",
@@ -99,7 +150,10 @@ def evaluate_g0_entry(readiness: dict[str, Any], catalog: dict[str, Any],
     gates = readiness.get("gates")
     _require(isinstance(gates, list) and len(gates) == len(REQUIRED_GATES),
              "entry prerequisite matrix incomplete")
-    gate_ids = [g.get("id") for g in gates if isinstance(g, dict)]
+    _require(all(isinstance(g, dict) and set(g) == GATE_FIELDS and
+                 isinstance(g.get("id"), str) for g in gates),
+             "missing/unknown gate fields or invalid gate id")
+    gate_ids = [g["id"] for g in gates]
     _require(len(gate_ids) == len(gates) and set(gate_ids) == REQUIRED_GATES,
              "missing or duplicate entry prerequisite")
     covered: set[str] = set()
@@ -114,7 +168,10 @@ def evaluate_g0_entry(readiness: dict[str, Any], catalog: dict[str, Any],
                      f"missing {key} for {gate.get('id')}")
         refs = gate.get("g1_case_ids")
         _require(isinstance(refs, list) and len(refs) > 0 and
-                 len(set(refs)) == len(refs), "empty/repeated G1 case links")
+                 all(isinstance(cid, str) for cid in refs) and
+                 len(set(refs)) == len(refs), "empty/repeated/invalid G1 case links")
+        _require(set(refs) == set(GATE_CASE_IDS[gate["id"]]),
+                 "changed gate-specific G1 case links")
         for cid in refs:
             _require(cid in by_id, f"missing source case {cid}")
             _require(by_id[cid]["stage"] == "future_isolated_windows_only",

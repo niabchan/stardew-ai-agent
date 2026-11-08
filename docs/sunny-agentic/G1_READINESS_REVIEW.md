@@ -13,7 +13,7 @@ The machine-readable [entry gates](../../reference/sunny_g1_readiness/gates.json
 | Question | Current result | Rationale |
 | --- | --- | --- |
 | Is G0 plan content structurally checkable? | **Yes (offline scope only)** | Case inventory, PR #22 source references and Phase 2G numerical *candidates* can be cross-checked |
-| May the user or assistant start an actual G1 disposable listener now? | **NO-GO** | No separately approved test executable, network/port setup, numeric limits, or verified abort/provenance approach |
+| May the user or assistant start an actual G1 disposable listener now? | **NO-GO** | No separately approved test executable, network/port setup, numeric limits, or reviewed abort/provenance measurement and safe-stop design |
 | Have all 37 G1 Windows cases passed? | **not_run** | Not a G1 *entry* prerequisite; G1's future job is to measure these cases, once starting it is separately authorized |
 | Can a G1 test certify Sunny/Luna security or P1 consent? | **No** | The 13 G2 cases are distinct; real all-route auth, game ownership and migration remain outside isolated HTTP transport |
 | Is production HTTP security enabled by PR #22? | **No** | Existing `AgentHttp`/runtime code remains the legacy implementation; reference fixtures do not replace real enforcement |
@@ -26,13 +26,13 @@ All rows are **Open**. The IDs correspond to [gates.json](../../reference/sunny_
 
 | Gate | Required *before* G1 execution | What is missing today |
 | --- | --- | --- |
-| **G1E-01 — Isolation** | Peer-reviewed disposable loopback-only server/client design and complete rollback without touching live Sunny | No reviewed, authorized test executable and teardown |
+| **G1E-01 — Isolation** | Peer-reviewed disposable loopback-only server/client design and manual rollback design and explicit endpoint/process inventory without touching live Sunny | No reviewed, authorized test executable or teardown method; observed teardown belongs to G1 |
 | **G1E-02 — Raw provenance** | Proposed trusted observation layers for transmitted bytes, HTTP.sys decisions and actual listener-exposed fields, marking missing fields `unobservable` | Raw target/Host/header multiplicity fidelity cannot be inferred from `RawUrl` or mock flags |
 | **G1E-03 — First byte** | Credible way to observe/limit pre-handler **first byte**, slow headers and kernel queue wait, including hard stop if unavailable | `GetContextAsync` is too late to start a total ingress clock |
 | **G1E-04 — Pre-auth capacity** | Reviewed strategy to bound open connections, pre-auth headers and HTTP.sys backlog without unapproved OS-wide changes | Offline 32-slot ledger begins only after handler delivery |
-| **G1E-05 — Actual abort** | Identified request-scoped vs whole-listener abort operation and safe failure/stop handling | `CancellationToken`, 408 or response close do not prove read termination |
-| **G1E-06 — Cleanup** | Evidence plan for read-task completion, transport quiescence, buffer ownership/quarantine, late callbacks and bounded shutdown | Synthetic booleans are not actual Windows evidence |
-| **G1E-07 — Numbers** | Independently ratified *experiment-only* numerical/resource limits | Phase 2G values remain `proposed_not_ratified`; `g1_approval=false` |
+| **G1E-05 — Actual abort** | Identified request-scoped vs whole-listener abort operation and independent operator stop outside the saturated listener | `CancellationToken`, 408 or response close do not prove read termination |
+| **G1E-06 — Cleanup** | Evidence plan for read-task completion, transport quiescence, buffer ownership/quarantine, late callbacks and bounded shutdown | No reviewed measurement method; actual cleanup evidence belongs to G1 |
+| **G1E-07 — Numbers** | Independently ratified *experiment-only* byte, time (including response-write), pre-auth connection and resource limits | Phase 2G values remain `proposed_not_ratified`; `g1_approval=false` |
 | **G1E-08 — Safe probes** | Reviewed synthetic raw-wire fixtures, validity/denial expectations, finite traffic rate, separated pipelining and malformed framing | No approved executable fixtures or capture/response-trace protocol |
 | **G1E-09 — Approval** | **Separate explicit** user/operator approval for program, disposable port, traffic cap, safe stop and rollback | This Draft PR is not permission to select a port or send packets |
 | **G1E-10 — Privacy** | Scrubbed evidence format, strict no-personal-data policy and defined handler/protected-effect counters | No reviewed Windows capture procedure; never record secrets/P1 diaries |
@@ -58,7 +58,17 @@ If required original-wire attributes are impossible to observe/guarantee through
 
 A separate future approval must name the test binary/build, a **new disposable loopback port** not used by Sunny, valid test fixture IDs, rate/concurrency/body caps, the decision-maker and observed shutdown requirements. Deny by default if the executable requests elevated access, URLACL/firewall/system-wide changes, unknown listeners or unbounded stress. Abort on any unexpected protected candidate, private response, uncertain raw provenance, unbounded pending read, resource/cleanup overrun or unsafe teardown. Keep unknowns blocked; don't label them passed because the process exited or the client saw a timeout.
 
+The approval must inventory every disposable endpoint and bound process. ENV-02 uses a **second explicitly approved disposable endpoint** or an **offline mismatch fixture**; it never permits service discovery or probing another port. Stop must remain available outside the listener and its recovery slots (for example, a separately approved operator-controlled test-process termination method), with a named owner and finite escalation deadline. Stop traffic first, latch halt, invalidate every collateral candidate on listener-wide abort, quarantine uncertain buffers and record unresolved work. A stuck shutdown must escalate through that approved independent stop path; process exit alone does not prove per-request cleanup or a passing case. Manual rollback and independent review are required before any new explicit restart approval. Four reserved recovery slots neither bound pre-auth kernel occupancy nor grant recovery authentication.
+
 The test fixture must not reach the existing mod's port or any running service, change Stardew saves, use provider API credentials, expose P1 conversation/diary data, install a DLL or edit machine configuration. An isolated process cannot certify the actual game. Current `main`, Luna Controller and installed Sunny must remain unchanged.
+
+## Independent Issue #46 audit findings (G0 only)
+
+- **High — false static consistency:** the original checker accepted changes to unchecked Phase 2G deadlines/response/capacity values, and count-preserving Phase 2F case identity/stage/evidence substitutions. The checker now pins the complete semantic JSON source snapshots. These hashes detect drift, not authenticity, signatures, Windows proof or numeric approval.
+- **Medium — incomplete gate linkage and forged fields:** aggregate coverage allowed removal/reassignment of individual gate links; unknown gate/readiness approval fields and missing nullable approval records were ignored. Exact field inventories, baseline identity and per-gate G1 link sets now fail closed. Adverse tests cover every numeric candidate and each mapped link, duplicate links, source evidence injection and count-preserving stage/priority swaps. Descriptive prose still requires human review; structural success cannot ratify a plan.
+- **Medium — circular wording and stop safety:** gate reasons for provenance/abort/cleanup previously cited missing Windows proof as entry gaps. They now require reviewed feasibility/measurement methods, reserving empirical proof for G1. Endpoint inventory, second-port/offline mismatch isolation, independent emergency stop, bounded response-write time and manual restart approval are explicit entry design requirements; none has been supplied or approved.
+
+The unchanged [legacy AgentHttp](../../mod/StardewMCP/Agent/AgentHttp.cs) normalizes `Url.AbsolutePath`, creates per-context `Task.Run` work and uses `ReadToEndAsync`; its `/api/control`, `/api/state` and debug routes are not hardened by this review. G2 still requires all-route authorization, P1 **human** consent, real P2 **AI** principal/lease/epoch and admission/retirement/unknown-effect handling, privacy and separate Luna 95s/1200s compatibility acceptance. No partial production authentication or merge to `main` follows from G1.
 
 ## What this review recommends next — while staying offline
 

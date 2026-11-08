@@ -41,7 +41,7 @@ def test_real_state_remains_no_go_without_windows_or_operator_approval():
     assert result["g1_cases_not_run"] == 37
     assert result["g2_cases_not_run"] == 13
     assert result["source_cases"] == 50
-    assert result["g1_source_cases_linked"] >= 20
+    assert result["g1_source_cases_linked"] == 22
     assert result["numeric_profile_ratified"] is False
     assert result["windows_transport_tested"] is False
     assert result["permission_to_open_listener"] is False
@@ -177,3 +177,96 @@ def test_source_paths_exist_and_no_live_execution_is_enabled():
         assert (ROOT / source).is_file()
     assert READINESS["approved_to_open_listener"] is False
     assert PROFILE["g1_approval"] is False
+
+
+@pytest.mark.parametrize("key", sorted(PROFILE["numeric_candidates"]))
+def test_every_candidate_is_pinned_without_ratifying_it(key):
+    p = copy.deepcopy(PROFILE)
+    p["numeric_candidates"][key] += 1
+    with pytest.raises(ReadinessError):
+        audit(p=p)
+
+
+def test_balanced_recovery_slot_shift_is_not_silently_accepted():
+    p = copy.deepcopy(PROFILE)
+    p["numeric_candidates"]["max_inflight_general_including_undrained"] = 31
+    p["numeric_candidates"]["reserved_recovery_inflight"] = 1
+    with pytest.raises(ReadinessError):
+        audit(p=p)
+
+
+@pytest.mark.parametrize("gate_index,case_id", [
+    (i, cid) for i, g in enumerate(READINESS["gates"]) for cid in g["g1_case_ids"]
+])
+def test_each_gate_link_is_required_even_when_global_coverage_survives(gate_index, case_id):
+    r = copy.deepcopy(READINESS)
+    r["gates"][gate_index]["g1_case_ids"].remove(case_id)
+    with pytest.raises(ReadinessError):
+        audit(r=r)
+
+
+@pytest.mark.parametrize("mutation", [
+    "duplicate_link", "reassign_link", "unknown_approval", "gate_proof",
+    "missing_approval", "missing_ratification", "wrong_baseline", "bool_schema",
+    "malformed_gate", "unhashable_gate_id", "unhashable_link",
+])
+def test_readiness_schema_and_per_gate_mapping_fail_closed(mutation):
+    r = copy.deepcopy(READINESS)
+    if mutation == "duplicate_link":
+        r["gates"][0]["g1_case_ids"].append("ENV-01")
+    elif mutation == "reassign_link":
+        r["gates"][0]["g1_case_ids"][0] = "RAW-02"
+    elif mutation == "unknown_approval":
+        r["g1_approval"] = True
+    elif mutation == "gate_proof":
+        r["gates"][0]["windows_evidence"] = {"passed": True}
+    elif mutation == "missing_approval":
+        del r["operator_approval_record"]
+    elif mutation == "missing_ratification":
+        del r["numeric_ratification_record"]
+    elif mutation == "wrong_baseline":
+        r["baseline_commit"] = "main"
+    elif mutation == "bool_schema":
+        r["schema_version"] = True
+    elif mutation == "malformed_gate":
+        r["gates"][0] = None
+    elif mutation == "unhashable_gate_id":
+        r["gates"][0]["id"] = []
+    else:
+        r["gates"][0]["g1_case_ids"][0] = []
+    with pytest.raises(ReadinessError):
+        audit(r=r)
+
+
+@pytest.mark.parametrize("mutation", [
+    "swap_stages", "swap_priorities", "rename_case", "fake_case_evidence",
+    "fake_g2_proof", "malformed_case", "unhashable_case_id",
+])
+def test_count_preserving_catalog_forgery_is_rejected(mutation):
+    c = copy.deepcopy(CATALOG)
+    if mutation == "swap_stages":
+        a = next(x for x in c["cases"] if x["stage"] == "future_isolated_windows_only")
+        b = next(x for x in c["cases"] if x["stage"] == "future_runtime_acceptance_only")
+        a["stage"], b["stage"] = b["stage"], a["stage"]
+    elif mutation == "swap_priorities":
+        a = next(x for x in c["cases"] if x["priority"] == "blocker")
+        b = next(x for x in c["cases"] if x["priority"] != "blocker")
+        a["priority"], b["priority"] = b["priority"], a["priority"]
+    elif mutation == "rename_case":
+        c["cases"][-1]["id"] = "FORGED-01"
+    elif mutation == "fake_case_evidence":
+        c["cases"][0]["evidence"] = ["Windows passed"]
+    elif mutation == "fake_g2_proof":
+        c["g2_runtime_tested"] = True
+    elif mutation == "malformed_case":
+        c["cases"][0] = None
+    else:
+        c["cases"][0]["id"] = []
+    with pytest.raises(ReadinessError):
+        audit(c=c)
+
+
+def test_semantic_source_pins_ignore_json_object_order():
+    c = dict(reversed(list(CATALOG.items())))
+    p = dict(reversed(list(PROFILE.items())))
+    assert audit(c=c, p=p)["decision"] == "NO_GO_G1_START"

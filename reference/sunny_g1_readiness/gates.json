@@ -28,8 +28,8 @@
       "category": "isolated_testbed",
       "entry_status": "open",
       "entry_blocker": true,
-      "required_reviewed_artifact": "reviewed design for disposable loopback server/client and teardown that cannot target installed Sunny",
-      "reason_open": "isolated build, selected unused port and teardown proof are not approved",
+      "required_reviewed_artifact": "reviewed disposable loopback server/client and manual rollback design, explicit endpoint/process inventory including a second disposable port only if approved, otherwise offline mismatch fixture",
+      "reason_open": "isolated build identity, approved endpoint inventory and teardown method have not been reviewed; observed teardown belongs to G1",
       "g1_case_ids": [
         "ENV-01",
         "ENV-02",
@@ -44,7 +44,7 @@
       "entry_status": "open",
       "entry_blocker": true,
       "required_reviewed_artifact": "source-backed observation plan for original request-target, Host, duplicate headers, peer and kernel-vs-handler behavior",
-      "reason_open": "no Windows-proven capture fidelity; test must label unobservable values",
+      "reason_open": "no reviewed source-backed feasibility and fallback plan for measuring raw-field fidelity; Windows proof belongs to G1",
       "g1_case_ids": [
         "RAW-01",
         "HOST-02",
@@ -89,8 +89,8 @@
       "category": "abort_primitive",
       "entry_status": "open",
       "entry_blocker": true,
-      "required_reviewed_artifact": "reviewed transport-owned request-vs-listener abort and no-claim-if-read-pending rule",
-      "reason_open": "specific Windows abort primitive and collateral scope are unproven",
+      "required_reviewed_artifact": "reviewed request-vs-listener abort method, bounded collateral shutdown and independent operator stop outside the saturated listener; no claim while reads remain pending",
+      "reason_open": "abort operation, scope and independent bounded stop method have not been reviewed; effectiveness is measured during G1",
       "g1_case_ids": [
         "TIME-02",
         "TIME-03",
@@ -104,8 +104,8 @@
       "category": "cleanup_ownership",
       "entry_status": "open",
       "entry_blocker": true,
-      "required_reviewed_artifact": "reviewed plan to observe read completion, buffers, late callbacks, process teardown and bounded cleanup",
-      "reason_open": "no real buffer/task ownership or bounded teardown evidence exists",
+      "required_reviewed_artifact": "reviewed observation plan for read completion, buffer quarantine, late callbacks and bounded teardown; latched halt, manual rollback and no automatic restart",
+      "reason_open": "no reviewed ownership and teardown measurement method; actual task/buffer completion evidence belongs to G1",
       "g1_case_ids": [
         "TIME-02",
         "TIME-04",
@@ -120,7 +120,7 @@
       "category": "quantitative_limits",
       "entry_status": "open",
       "entry_blocker": true,
-      "required_reviewed_artifact": "independent peer approval of total/header/body/cleanup/response/concurrency/backlog numbers before any G1 bind",
+      "required_reviewed_artifact": "independent experiment-only approval of finite total/header/body/cleanup/response-write time, byte sizes, pre-auth connections, concurrency and backlog bounds before bind",
       "reason_open": "Phase 2G numeric candidates are not ratified",
       "g1_case_ids": [
         "FRM-06",
@@ -152,7 +152,7 @@
       "category": "operator_consent",
       "entry_status": "open",
       "entry_blocker": true,
-      "required_reviewed_artifact": "explicit new user/operator approval of test executable, isolated port, bounded probes, machine impact, stop and rollback",
+      "required_reviewed_artifact": "explicit new user/operator approval of exact build, disposable endpoint/process inventory, fixtures, finite traffic and duration caps, independent stop owner and manual rollback",
       "reason_open": "this G0 PR is not permission to open an endpoint or change Windows",
       "g1_case_ids": [
         "ENV-01",
