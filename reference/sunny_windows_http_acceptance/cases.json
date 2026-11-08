@@ -1,0 +1,875 @@
+{
+  "schema_version": 1,
+  "plan": "sunny-windows-http-transport-phase2f",
+  "baseline_commit": "31da033372b2a8586cd39ec0855550b23b41f7e0",
+  "execution_status": "not_run",
+  "real_transport_tested": false,
+  "requires_separate_operator_approval": true,
+  "prohibited_targets": [
+    "running Sunny listener",
+    "Stardew Valley",
+    "installed SMAPI mod",
+    "user saves",
+    "real provider API keys",
+    "PR main"
+  ],
+  "global_acceptance": "G0: offline plan validation only. G1: all isolated-Windows transport cases with reviewed Windows evidence and time-bounded abort/cleanup; G2: all runtime/security/privacy/compatibility cases with separate reviewed implementation and real-game acceptance. Never count a G0/G1 result as G2 proof.",
+  "cases": [
+    {
+      "id": "ENV-01",
+      "category": "environment",
+      "scenario": "Disposable loopback-only listener on a unique unused port; no existing Sunny listener or game process",
+      "priority": "blocker",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future Windows evidence of disposable process isolation, intended listener binding and complete teardown without accessing installed Sunny.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "approved disposable endpoint inventory and bound process identity; no existing-service probes"
+      ],
+      "outcome_class": "isolation_and_teardown"
+    },
+    {
+      "id": "ENV-02",
+      "category": "environment",
+      "scenario": "Wrong port or instance tested only against a second explicitly approved disposable endpoint or offline mismatch fixture; no discovery or existing service probes",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "approved disposable endpoint inventory and bound process identity; no existing-service probes"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "ENV-03",
+      "category": "environment",
+      "scenario": "Listener teardown restores temporary resources without port residue, pending work or system-wide changes",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future Windows evidence of disposable process isolation, intended listener binding and complete teardown without accessing installed Sunny.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "approved disposable endpoint inventory and bound process identity; no existing-service probes"
+      ],
+      "outcome_class": "isolation_and_teardown"
+    },
+    {
+      "id": "RAW-01",
+      "category": "target",
+      "scenario": "Simple exact POST /mcp/p2 request target compared against parsed Url and RawUrl",
+      "priority": "blocker",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future capture of sent synthetic wire bytes versus Windows exposed observations, with no invented raw provenance or protected side effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "sent request-line octets versus RawUrl/Url transformations and unobservable fields"
+      ],
+      "outcome_class": "measure_platform_behavior"
+    },
+    {
+      "id": "RAW-02",
+      "category": "target",
+      "scenario": "Encoded slash/backslash and double-encoded path characters cannot alias privileged routes",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "sent request-line octets versus RawUrl/Url transformations and unobservable fields"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "RAW-03",
+      "category": "target",
+      "scenario": "Dot segments, double slashes, trailing slash and mixed-case routes are refused unless explicitly specified",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "sent request-line octets versus RawUrl/Url transformations and unobservable fields"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "RAW-04",
+      "category": "target",
+      "scenario": "Absolute-form request target and ambiguous authority do not bypass bound-instance checks",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "sent request-line octets versus RawUrl/Url transformations and unobservable fields"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "RAW-05",
+      "category": "target",
+      "scenario": "Duplicate question marks, percent-encoded query and fragment-like bytes remain unambiguous and denied",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "sent request-line octets versus RawUrl/Url transformations and unobservable fields"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "RAW-06",
+      "category": "target",
+      "scenario": "Host/P1 aliases /mcp and /mcp/p1, plus debug host fallback, do not acquire P2 or P1 control",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "sent request-line octets versus RawUrl/Url transformations and unobservable fields"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "HOST-01",
+      "category": "authority",
+      "scenario": "Exactly one Host matching configured 127.0.0.1:test-port or localhost:test-port; record raw and parsed values",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future valid synthetic input may become an isolated candidate after reviewed checks; never a game action or proof of real authorization.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "original Host line multiplicity versus exposed values; trusted peer/local endpoint and configured instance"
+      ],
+      "outcome_class": "authorized_synthetic_candidate_only"
+    },
+    {
+      "id": "HOST-02",
+      "category": "authority",
+      "scenario": "Duplicate Host including case-varied headers cannot be interpreted as a single trusted Host",
+      "priority": "blocker",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "original Host line multiplicity versus exposed values; trusted peer/local endpoint and configured instance"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "HOST-03",
+      "category": "authority",
+      "scenario": "Mismatched Host port, unknown hostname, suffix injection or non-listener instance rejected",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "original Host line multiplicity versus exposed values; trusted peer/local endpoint and configured instance"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "HOST-04",
+      "category": "authority",
+      "scenario": "Forged peer/Forwarded identity rejected; genuine loopback transport peer measured separately, never denied merely for being loopback",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "original Host line multiplicity versus exposed values; trusted peer/local endpoint and configured instance"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "HOST-05",
+      "category": "authority",
+      "scenario": "IPv6 ::1 and alternate loopback Host spellings remain denied unless approved by separately evidenced policy",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "original Host line multiplicity versus exposed values; trusted peer/local endpoint and configured instance"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "HDR-01",
+      "category": "headers",
+      "scenario": "Origin null, empty, same-origin and foreign-origin native bearer requests rejected before authorization",
+      "priority": "blocker",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "original header-line order/case/multiplicity versus exposed values; interim responses and CORS headers"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "HDR-02",
+      "category": "headers",
+      "scenario": "Repeated/case-variant Origin, Authorization, MCP session and Host are not silently coalesced into trusted input",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "original header-line order/case/multiplicity versus exposed values; interim responses and CORS headers"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "HDR-03",
+      "category": "headers",
+      "scenario": "Obsolete folded lines, whitespace before colon, control chars and malformed request-line/HTTP versions rejected before route selection",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "original header-line order/case/multiplicity versus exposed values; interim responses and CORS headers"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "HDR-04",
+      "category": "headers",
+      "scenario": "Forwarded, X-Forwarded-Host, X-Forwarded-For, Proxy-Authorization spoofing never controls transport identity",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "original header-line order/case/multiplicity versus exposed values; interim responses and CORS headers"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "HDR-05",
+      "category": "headers",
+      "scenario": "Cookie, browser form, cross-site preflight, Expect: 100-continue and Connection tokens cannot bypass native policy; record interim responses",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "original header-line order/case/multiplicity versus exposed values; interim responses and CORS headers"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "FRM-01",
+      "category": "framing",
+      "scenario": "Missing Content-Length for POST denied; no unbounded read or implicit chunked fallback",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "FRM-02",
+      "category": "framing",
+      "scenario": "Duplicate Content-Length equal or conflicting and mixed case denied before body parsing",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "FRM-03",
+      "category": "framing",
+      "scenario": "Content-Length plus Transfer-Encoding denied; verify HTTP.sys rejection/normalization at wire boundary",
+      "priority": "blocker",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "FRM-04",
+      "category": "framing",
+      "scenario": "Chunked Transfer-Encoding denied in this pilot even with syntactically correct chunks",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "FRM-05",
+      "category": "framing",
+      "scenario": "Negative, signed, nondecimal, overlong, overflow, and comma-separated Content-Length denied",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "FRM-06",
+      "category": "framing",
+      "scenario": "Declared body 16385+ bytes rejected before allocation/read; document OS vs application effect",
+      "priority": "blocker",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "FRM-07",
+      "category": "framing",
+      "scenario": "Exactly 16384-byte valid synthetic JSON is candidate-only; test 16383 and 16385 bytes separately; non-JSON/invalid UTF-8 denied",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future valid synthetic input may become an isolated candidate after reviewed checks; never a game action or proof of real authorization.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
+      ],
+      "outcome_class": "authorized_synthetic_candidate_only"
+    },
+    {
+      "id": "FRM-08",
+      "category": "framing",
+      "scenario": "Short body and early FIN do not create a request candidate or leave workers pending",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "FRM-09",
+      "category": "framing",
+      "scenario": "Valid pipelined requests remain separate; malformed trailing bytes or CL/TE ambiguity denied without cross-request authorization",
+      "priority": "blocker",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future proof valid pipelined synthetic requests are independently framed and authorized; malformed trailing input is denied, never appended to the first body or granted its principal.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
+      ],
+      "outcome_class": "separate_requests_isolated"
+    },
+    {
+      "id": "FRM-10",
+      "category": "framing",
+      "scenario": "GET/DELETE with declared or transmitted body cannot bypass rejection or fake retirement status",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future trusted HTTP.sys pre-handler rejection or adapter denial before credential, private serialization, contact, queue or game effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
+      ],
+      "outcome_class": "deny_before_effects"
+    },
+    {
+      "id": "FRM-11",
+      "category": "framing",
+      "scenario": "Keep-alive two sequential requests remain separately bounded/authenticated; no first-request principal inheritance",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future proof each framed synthetic request is separately bounded and authorized, with no principal or body inherited across requests.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
+      ],
+      "outcome_class": "separate_requests_isolated"
+    },
+    {
+      "id": "FRM-12",
+      "category": "framing",
+      "scenario": "Actual HttpListener InputStream read boundary and one-extra-byte probe behavior measured without adopting probe",
+      "priority": "blocker",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future capture of sent synthetic wire bytes versus Windows exposed observations, with no invented raw provenance or protected side effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "per-connection ordered request/response IDs and transmitted body lengths versus framed InputStream bytes"
+      ],
+      "outcome_class": "measure_platform_behavior"
+    },
+    {
+      "id": "TIME-01",
+      "category": "liveness",
+      "scenario": "Slow headers before GetContextAsync and slow-drip body under 16KiB share a total monotonic ingress deadline independent of fragments",
+      "priority": "blocker",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future proof a monotonic total deadline, transport-owned abort, observed completion and safe cleanup with no late protected effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "monotonic first-byte/header/body/deadline/abort/completion timestamps and pre-handler observability",
+        "outstanding reads/tasks, buffer ownership/quarantine, connection/backlog counts and bounded teardown"
+      ],
+      "outcome_class": "bounded_abort_and_cleanup"
+    },
+    {
+      "id": "TIME-02",
+      "category": "liveness",
+      "scenario": "ReadAsync that ignores cancellation requires transport-owned abort and drained/observed completion",
+      "priority": "blocker",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future proof a monotonic total deadline, transport-owned abort, observed completion and safe cleanup with no late protected effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "monotonic first-byte/header/body/deadline/abort/completion timestamps and pre-handler observability",
+        "outstanding reads/tasks, buffer ownership/quarantine, connection/backlog counts and bounded teardown"
+      ],
+      "outcome_class": "bounded_abort_and_cleanup"
+    },
+    {
+      "id": "TIME-03",
+      "category": "liveness",
+      "scenario": "Stalled EOF/extra-byte read does not hold a worker indefinitely; do not use unproven EOF probe",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future proof a monotonic total deadline, transport-owned abort, observed completion and safe cleanup with no late protected effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "monotonic first-byte/header/body/deadline/abort/completion timestamps and pre-handler observability",
+        "outstanding reads/tasks, buffer ownership/quarantine, connection/backlog counts and bounded teardown"
+      ],
+      "outcome_class": "bounded_abort_and_cleanup"
+    },
+    {
+      "id": "TIME-04",
+      "category": "liveness",
+      "scenario": "Client disconnect during header or body does not leak task, buffer, socket or authenticated authority",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future proof a monotonic total deadline, transport-owned abort, observed completion and safe cleanup with no late protected effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "monotonic first-byte/header/body/deadline/abort/completion timestamps and pre-handler observability",
+        "outstanding reads/tasks, buffer ownership/quarantine, connection/backlog counts and bounded teardown"
+      ],
+      "outcome_class": "bounded_abort_and_cleanup"
+    },
+    {
+      "id": "TIME-05",
+      "category": "liveness",
+      "scenario": "Bounded concurrent slow headers/bodies and HTTP.sys backlog cannot exhaust isolated request tasks; game-tick acceptance remains G2",
+      "priority": "blocker",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future proof a monotonic total deadline, transport-owned abort, observed completion and safe cleanup with no late protected effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "monotonic first-byte/header/body/deadline/abort/completion timestamps and pre-handler observability",
+        "outstanding reads/tasks, buffer ownership/quarantine, connection/backlog counts and bounded teardown"
+      ],
+      "outcome_class": "bounded_abort_and_cleanup"
+    },
+    {
+      "id": "TIME-06",
+      "category": "liveness",
+      "scenario": "After deadline cancellation, late completion cannot return candidate or mutate response/game state",
+      "priority": "required",
+      "stage": "future_isolated_windows_only",
+      "status": "not_run",
+      "expected": "Future proof a monotonic total deadline, transport-owned abort, observed completion and safe cleanup with no late protected effects.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "monotonic first-byte/header/body/deadline/abort/completion timestamps and pre-handler observability",
+        "outstanding reads/tasks, buffer ownership/quarantine, connection/backlog counts and bounded teardown"
+      ],
+      "outcome_class": "bounded_abort_and_cleanup"
+    },
+    {
+      "id": "AUTH-01",
+      "category": "authorization",
+      "scenario": "No bearer, wrong bearer, wrong instance and revoked bearer denied without legacy API fallback",
+      "priority": "required",
+      "stage": "future_runtime_acceptance_only",
+      "status": "not_run",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "separate G2 principal/grant/owner/session/save-epoch and admission/retirement evidence; no real credentials in artifacts"
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
+    },
+    {
+      "id": "AUTH-02",
+      "category": "authorization",
+      "scenario": "P2 C/O and operator/watchdog/replay/viewer grants remain disjoint for raw state, control and P1 data",
+      "priority": "required",
+      "stage": "future_runtime_acceptance_only",
+      "status": "not_run",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "separate G2 principal/grant/owner/session/save-epoch and admission/retirement evidence; no real credentials in artifacts"
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
+    },
+    {
+      "id": "AUTH-03",
+      "category": "authorization",
+      "scenario": "Credential/revision changed between parse and queue commit requires atomic server-side recheck",
+      "priority": "blocker",
+      "stage": "future_runtime_acceptance_only",
+      "status": "not_run",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "separate G2 principal/grant/owner/session/save-epoch and admission/retirement evidence; no real credentials in artifacts"
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
+    },
+    {
+      "id": "AUTH-04",
+      "category": "authorization",
+      "scenario": "Unverified DELETE cannot return proved retirement or clear unknown-outcome fence",
+      "priority": "blocker",
+      "stage": "future_runtime_acceptance_only",
+      "status": "not_run",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "separate G2 principal/grant/owner/session/save-epoch and admission/retirement evidence; no real credentials in artifacts"
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
+    },
+    {
+      "id": "AUTH-05",
+      "category": "authorization",
+      "scenario": "Malformed JSON, duplicated JSON names and unsafe tool/seat schema cannot queue actions",
+      "priority": "required",
+      "stage": "future_runtime_acceptance_only",
+      "status": "not_run",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "separate G2 principal/grant/owner/session/save-epoch and admission/retirement evidence; no real credentials in artifacts"
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
+    },
+    {
+      "id": "AUTH-06",
+      "category": "authorization",
+      "scenario": "Denied traffic never changes MarkContact, SessionBreaks, reply budget, freeze, Stats, logs or mutation queues",
+      "priority": "blocker",
+      "stage": "future_runtime_acceptance_only",
+      "status": "not_run",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "separate G2 principal/grant/owner/session/save-epoch and admission/retirement evidence; no real credentials in artifacts"
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
+    },
+    {
+      "id": "PRIV-01",
+      "category": "privacy",
+      "scenario": "Browser and OBS/viewer must be default-denied; no P1/diary/raw data serialization in failure path",
+      "priority": "blocker",
+      "stage": "future_runtime_acceptance_only",
+      "status": "not_run",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "separate G2 consent revision at serialization and field-level disclosure audit using sanitized artifacts"
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
+    },
+    {
+      "id": "PRIV-02",
+      "category": "privacy",
+      "scenario": "P1 consent revoked before protected safety projection serialization prevents disclosure",
+      "priority": "required",
+      "stage": "future_runtime_acceptance_only",
+      "status": "not_run",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "separate G2 consent revision at serialization and field-level disclosure audit using sanitized artifacts"
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
+    },
+    {
+      "id": "COMP-01",
+      "category": "compatibility",
+      "scenario": "Legacy Luna ?breaks=1 query: explicit new contract/migration gate, not assumed supported",
+      "priority": "required",
+      "stage": "future_runtime_acceptance_only",
+      "status": "not_run",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "separate G2 actual Sunny/Luna version and runtime behavior trace; isolated synthetic results insufficient"
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
+    },
+    {
+      "id": "COMP-02",
+      "category": "compatibility",
+      "scenario": "Legacy Luna ?reply_within=1200 query: no accidental accept or shared-seat timeout override",
+      "priority": "required",
+      "stage": "future_runtime_acceptance_only",
+      "status": "not_run",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "separate G2 actual Sunny/Luna version and runtime behavior trace; isolated synthetic results insufficient"
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
+    },
+    {
+      "id": "COMP-03",
+      "category": "compatibility",
+      "scenario": "P12 1200-second bedtime execution remains distinct from short ingress deadline and cancellation",
+      "priority": "blocker",
+      "stage": "future_runtime_acceptance_only",
+      "status": "not_run",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "separate G2 actual Sunny/Luna version and runtime behavior trace; isolated synthetic results insufficient"
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
+    },
+    {
+      "id": "COMP-04",
+      "category": "compatibility",
+      "scenario": "Authenticated owner-presence preserves first thinking freeze; discovery or unauthorized requests do not rearm it",
+      "priority": "blocker",
+      "stage": "future_runtime_acceptance_only",
+      "status": "not_run",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "separate G2 actual Sunny/Luna version and runtime behavior trace; isolated synthetic results insufficient"
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
+    },
+    {
+      "id": "COMP-05",
+      "category": "compatibility",
+      "scenario": "P1 remains human and upstream non-P2 AI seats are not accidentally taken over",
+      "priority": "required",
+      "stage": "future_runtime_acceptance_only",
+      "status": "not_run",
+      "expected": "Future separately reviewed runtime, privacy or client-compatibility evidence; the isolated Windows testbed cannot prove this requirement.",
+      "evidence": [
+        "synthetic bytes or script fixture hash",
+        "HTTP.sys or adapter observation",
+        "sanitized response and handler-contact result",
+        "protected effects count and request cleanup outcome",
+        "separate G2 actual Sunny/Luna version and runtime behavior trace; isolated synthetic results insufficient"
+      ],
+      "outcome_class": "reviewed_runtime_evidence"
+    }
+  ]
+}
