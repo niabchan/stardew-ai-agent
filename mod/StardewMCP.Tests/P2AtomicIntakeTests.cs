@@ -126,6 +126,10 @@ public sealed class P2AtomicIntakeTests
     [InlineData("bad-json")]
     [InlineData("missing-bearer")]
     [InlineData("wrong-instance-port")]
+    [InlineData("fallback")]
+    [InlineData("duplicate-host")]
+    [InlineData("wrong-token")]
+    [InlineData("malformed-json")]
     public void Denied_preflight_never_reaches_coordinator_queue(string caseName)
     {
         var (f, lease) = Open();
@@ -133,6 +137,13 @@ public sealed class P2AtomicIntakeTests
         var headers = req.Headers.ToList();
         switch (caseName)
         {
+            case "fallback": req = req with { Path = "/mcp" }; break;
+            case "duplicate-host":
+                headers.Add(new("host", req.Host));
+                req = req with { Headers = headers };
+                break;
+            case "wrong-token": req = Request(Say, lease, token: "synthetic-wrong-token"); break;
+            case "malformed-json": req = req with { Body = Encoding.UTF8.GetBytes("{") }; break;
             case "origin":
                 headers.Add(new("Origin", "https://evil.invalid"));
                 req = req with { Headers = headers };
@@ -153,7 +164,10 @@ public sealed class P2AtomicIntakeTests
                 req = req with { Port = 18770 };
                 break;
         }
-        var response = f.Admit(req, trustedAttemptId: "bad-attempt");
+        bool reachedCommit = false;
+        var response = f.Admit(req, trustedAttemptId: "bad-attempt",
+            betweenPhases: () => reachedCommit = true);
+        Assert.False(reachedCommit);
         Assert.False(response.Accepted);
         Assert.Equal(IntakeDisposition.Denied, response.Disposition);
         Assert.Equal(0, f.PendingActions + f.PendingObservations + f.EffectSteps);
@@ -280,8 +294,13 @@ public sealed class P2AtomicIntakeTests
         Assert.Equal(newLease, fresh.Owner);
     }
 
-    [Fact]
-    public async Task Invalidation_racing_with_enqueues_has_no_post_invalidation_accepted_effect()
+    [Theory]
+    [InlineData("revoke")]
+    [InlineData("reload")]
+    [InlineData("title")]
+    [InlineData("role")]
+    [InlineData("rebind")]
+    public async Task Invalidation_racing_with_enqueues_has_no_post_invalidation_accepted_effect(string change)
     {
         for (int iteration = 0; iteration < 16; iteration++)
         {
@@ -292,7 +311,14 @@ public sealed class P2AtomicIntakeTests
                 Task.Run(() =>
                 {
                     start.SignalAndWait();
-                    f.Revoke(Token);
+                    switch (change)
+                    {
+                        case "reload": f.HostLoaded("raced-load"); break;
+                        case "title": f.ReturnedToTitle(); break;
+                        case "role": f.SetRoles(true, true, false); break;
+                        case "rebind": f.Provision(Token, "rival", CoordinatorGrant.Control); break;
+                        default: f.Revoke(Token); break;
+                    }
                 }),
                 Task.Run(() =>
                 {
@@ -320,5 +346,135 @@ public sealed class P2AtomicIntakeTests
         Assert.Equal(400, f.Admit(bad).Status);
         Assert.Equal(2, f.PendingObservations);
         Assert.Equal(0, f.EffectSteps);
+    }
+
+    [Theory]
+    [InlineData("identity")]
+    [InlineData("same-identity")]
+    [InlineData("grants-ABA")]
+    [InlineData("roles-ABA")]
+    [InlineData("reload")]
+    public void Initialize_snapshot_cannot_cross_authority_generation(string change)
+    {
+        var f = Prepare();
+        var reply = f.Admit(Request(Init), betweenPhases: () =>
+        {
+            switch (change)
+            {
+                case "identity": f.Provision(Token, "rival", CoordinatorGrant.Control); break;
+                case "same-identity": f.Provision(Token, "luna", CoordinatorGrant.Control | CoordinatorGrant.Observe); break;
+                case "grants-ABA":
+                    f.ChangeGrants(Token, CoordinatorGrant.Control);
+                    f.ChangeGrants(Token, CoordinatorGrant.Control | CoordinatorGrant.Observe);
+                    break;
+                case "roles-ABA":
+                    f.SetRoles(true, true, false);
+                    f.SetRoles(true, true, true);
+                    break;
+                case "reload":
+                    f.HostLoaded("reload");
+                    f.SetRoles(true, true, true);
+                    f.Provision(Token, "luna", CoordinatorGrant.Control | CoordinatorGrant.Observe);
+                    break;
+            }
+        });
+        Assert.False(reply.Accepted);
+        Assert.Null(f.Owner);
+        Assert.Equal(0, f.PendingActions + f.PendingObservations + f.EffectSteps);
+        Assert.Equal(IntakeDisposition.Acquired, f.Admit(Request(Init)).Disposition);
+    }
+
+    [Fact]
+    public void Credential_rebinding_fences_old_principal_work_and_preserves_unknown_barrier()
+    {
+        var (f, lease) = Open();
+        f.Admit(Request(Say, lease), "running");
+        f.Start(CoordinatorLane.Action);
+        Assert.True(f.Step("running", lease));
+        f.Admit(Request(Say, lease), "queued");
+        f.Provision(Token, "rival", CoordinatorGrant.Control | CoordinatorGrant.Observe);
+        Assert.Null(f.Owner);
+        Assert.Equal(0, f.PendingActions);
+        Assert.False(f.Step("running", lease));
+        Assert.False(f.Finish("running", lease));
+        Assert.False(f.Admit(Request(Init)).Accepted);
+        Assert.True(f.Quiesce("running", outcomeKnown: false));
+        var next = Assert.IsType<CoordinatorLease>(f.Admit(Request(Init)).Lease);
+        Assert.Equal(409, f.Admit(Request(Say, next), "new").Status);
+        Assert.Equal(1, f.UnresolvedCount);
+    }
+
+    [Fact]
+    public void Principal_aliases_cannot_restore_revoked_observation_claims()
+    {
+        var (f, lease) = Open();
+        f.Provision("synthetic-alias", "luna", CoordinatorGrant.Control | CoordinatorGrant.Observe);
+        f.Admit(Request(Status, lease), "running-read");
+        f.Start(CoordinatorLane.Observation);
+        f.Admit(Request(Status, lease), "pending-read");
+        f.Admit(Request(Say, lease), "pending-action");
+        f.ChangeGrants(Token, CoordinatorGrant.Control);
+        Assert.Equal(lease, f.Owner);
+        Assert.Equal(0, f.PendingObservations);
+        Assert.Equal(1, f.PendingActions);
+        Assert.False(f.Step("running-read", lease));
+        Assert.False(f.Finish("running-read", lease));
+        Assert.Equal(403, f.Admit(Request(Status, lease, token: "synthetic-alias"), "alias-read").Status);
+        f.ChangeGrants("synthetic-alias", CoordinatorGrant.Control | CoordinatorGrant.Observe);
+        Assert.False(f.Step("running-read", lease)); // restoring O cannot revive fenced work
+        f.Revoke(Token);
+        Assert.Equal(401, f.Admit(Request(Init, token: "synthetic-alias")).Status);
+        Assert.Null(f.Owner);
+        Assert.Equal(0, f.PendingActions);
+    }
+
+    [Fact]
+    public void Same_principal_lost_initialize_reply_has_no_recovery_takeover()
+    {
+        var f = Prepare();
+        var replies = new ConcurrentBag<IntakeReply>();
+        Parallel.For(0, 64, _ => replies.Add(f.Admit(Request(Init))));
+        Assert.Single(replies.Where(r => r.Disposition == IntakeDisposition.Acquired));
+        Assert.Equal(63, replies.Count(r => r.Status == 409));
+        Assert.Equal(409, f.Admit(Request(Init), now: 59).Status);
+        Assert.Equal(IntakeDisposition.Acquired, f.Admit(Request(Init), now: 60).Disposition);
+    }
+
+    [Fact]
+    public void Active_discovery_never_renews_but_running_action_pins_lease()
+    {
+        var (f, lease) = Open();
+        f.Admit(Request(Say, lease), "bedtime");
+        f.Start(CoordinatorLane.Action);
+        Assert.True(f.Step("bedtime", lease, now: 1200));
+        Assert.Equal(IntakeDisposition.Discovery, f.Admit(Request(Ping, lease), now: 1200).Disposition);
+        Assert.True(f.Finish("bedtime", lease, now: 1200));
+        Assert.Equal(IntakeDisposition.Discovery, f.Admit(Request(Ping, lease), now: 1379).Disposition);
+        Assert.False(f.Admit(Request(Ping, lease), now: 1380).Accepted);
+        Assert.Null(f.Owner);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Reload_purges_both_queues_and_keeps_claim_history_and_unknown_effects(bool roleOnly)
+    {
+        var (f, lease) = Open();
+        f.Admit(Request(Say, lease), "started");
+        f.Start(CoordinatorLane.Action);
+        f.Step("started", lease);
+        f.Admit(Request(Say, lease), "queued-action");
+        f.Admit(Request(Status, lease), "queued-read");
+        if (roleOnly) { f.SetRoles(true, true, false); f.SetRoles(true, true, true); }
+        else { f.HostLoaded("next-world"); f.SetRoles(true, true, true); f.Provision(Token, "luna", CoordinatorGrant.Control | CoordinatorGrant.Observe); }
+        Assert.Equal(0, f.PendingActions + f.PendingObservations);
+        Assert.False(f.Step("started", lease));
+        Assert.True(f.Quiesce("started", outcomeKnown: true));
+        var next = Assert.IsType<CoordinatorLease>(f.Admit(Request(Init)).Lease);
+        Assert.Equal(409, f.Admit(Request(Say, next), "fresh").Status);
+        Assert.True(f.ReconcileFromOperator("started"));
+        Assert.Equal(409, f.Admit(Request(Say, next), "queued-action").Status);
+        Assert.Equal(409, f.Admit(Request(Status, next), "queued-read").Status);
+        Assert.Equal(IntakeDisposition.Queued, f.Admit(Request(Say, next), "fresh").Disposition);
     }
 }

@@ -78,8 +78,12 @@ internal sealed class FakeP2AtomicIntake : ISunnyP2PolicyAuthority
         lock (_gate)
         {
             if (_coordinator.Epoch is null) throw new InvalidOperationException("Host epoch required");
+            // Replacing a credential retires its former authority, including work
+            // already admitted with it. Never leave an orphan principal authorized.
+            if (_credentials.TryGetValue(rawToken, out var prior))
+                RevokePrincipalUnderLock(prior.Principal);
             _credentials[rawToken] = new(principal, grants);
-            _coordinator.SetGrants(principal, grants);
+            SetPrincipalGrantsUnderLock(principal, grants);
         }
     }
 
@@ -88,8 +92,7 @@ internal sealed class FakeP2AtomicIntake : ISunnyP2PolicyAuthority
         lock (_gate)
         {
             if (!_credentials.TryGetValue(rawToken, out var record)) return;
-            _credentials[rawToken] = record with { Grants = grants };
-            _coordinator.SetGrants(record.Principal, grants);
+            SetPrincipalGrantsUnderLock(record.Principal, grants);
         }
     }
 
@@ -98,8 +101,26 @@ internal sealed class FakeP2AtomicIntake : ISunnyP2PolicyAuthority
         lock (_gate)
         {
             if (!_credentials.Remove(rawToken, out var record)) return;
-            _coordinator.SetGrants(record.Principal, CoordinatorGrant.None);
+            RevokePrincipalUnderLock(record.Principal);
         }
+    }
+
+    // Grants are principal-scoped in the coordinator: aliases must never retain
+    // stale C/O claims. Each replacement object is a new synthetic generation.
+    private void SetPrincipalGrantsUnderLock(string principal, CoordinatorGrant grants)
+    {
+        foreach (var token in _credentials.Where(x => x.Value.Principal == principal)
+                     .Select(x => x.Key).ToArray())
+            _credentials[token] = new(principal, grants);
+        _coordinator.SetGrants(principal, grants);
+    }
+
+    private void RevokePrincipalUnderLock(string principal)
+    {
+        foreach (var token in _credentials.Where(x => x.Value.Principal == principal)
+                     .Select(x => x.Key).ToArray())
+            _credentials.Remove(token);
+        _coordinator.SetGrants(principal, CoordinatorGrant.None);
     }
 
     SunnyP2Principal? ISunnyP2PolicyAuthority.ResolveGameCredential(string rawBearer)
@@ -168,15 +189,20 @@ internal sealed class FakeP2AtomicIntake : ISunnyP2PolicyAuthority
             var snapshot = SunnyP2Preflight.Evaluate(request, this);
             if (!snapshot.Allowed) return new(snapshot.Status, IntakeDisposition.Denied);
 
+            var authorization = Header(request, "Authorization")!;
+            var token = authorization.Substring(7); // strict preflight already validated it
+            var credential = _credentials[token];
+            var epoch = _coordinator.Epoch;
+            var roles = _coordinator.RoleGeneration;
             betweenPhases?.Invoke();
 
             // Re-resolve the credential under the same fixture lock: snapshot
             // claims or a formerly valid bearer cannot authorize a new operation.
-            var authorization = Header(request, "Authorization");
-            var token = authorization is not null && authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-                ? authorization.Substring(7) : null;
-            if (token is null || !_credentials.TryGetValue(token, out var current))
+            if (!_credentials.TryGetValue(token, out var current))
                 return new(401, IntakeDisposition.Denied);
+            if (!ReferenceEquals(credential, current) || epoch != _coordinator.Epoch
+                || roles != _coordinator.RoleGeneration)
+                return new(409, IntakeDisposition.Denied);
             if ((current.Grants & CoordinatorGrant.Control) == 0)
                 return new(403, IntakeDisposition.Denied);
 

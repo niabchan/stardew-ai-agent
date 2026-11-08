@@ -182,7 +182,7 @@ internal sealed class FakeP2Coordinator
         && lease.Generation == _roleGeneration
         && HasGrant(lease.Principal, CoordinatorGrant.Control);
 
-    // Read-only admission revalidation of a known session at the synthetic time.
+    // Non-renewing admission revalidation; advances fake time and may retire expiry.
     // Discovery never renews the lease, but expiry must still invalidate it.
     internal bool ValidateLease(CoordinatorLease lease, long now = 0)
     {
