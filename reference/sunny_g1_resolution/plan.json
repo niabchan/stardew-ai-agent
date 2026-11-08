@@ -1,0 +1,435 @@
+{
+  "schema_version": 1,
+  "name": "sunny-g1-blocker-resolution-phase2j",
+  "phase": "2J",
+  "base_commit": "e0710b4d87f14ae411b7d4067896ba5ca3648b3c",
+  "authority": "G0 offline planning ONLY",
+  "decision": "NO_GO_G1_START",
+  "permission_to_bind_port": false,
+  "disposable_test_approved": false,
+  "windows_g1_tested": false,
+  "g2_implemented": false,
+  "limits_ratified": false,
+  "selected_transport": null,
+  "operator_approval_reference": null,
+  "source_readiness": "reference/sunny_g1_readiness/gates.json",
+  "source_cases": "reference/sunny_windows_http_acceptance/cases.json",
+  "source_limits": "reference/sunny_http_resource_limits/proposed_limits.json",
+  "source_experiment": "reference/sunny_g1_experiment/experiment_plan.json",
+  "expected_counts": {
+    "entry_open": 11,
+    "phase2f_total": 50,
+    "g1_not_run": 37,
+    "g2_not_run": 13,
+    "priority_blockers": 17
+  },
+  "resolution_principles": [
+    "Close G1 entry gates only with independently reviewed design/approval evidence, not future G1 measured results",
+    "Designing or reviewing an artifact alone must not flip its gate status or authorize network traffic",
+    "Cannot use synthetic time/provenance flags, digest checks or successful CI as actual Windows transport evidence",
+    "Unbounded pre-handler occupancy or unsafe abort is NO-GO; examine a different isolated transport design if necessary",
+    "Independent manual stop and buffer quarantine required before any future experiment",
+    "Consent for this G0 plan never grants permission for G1 execution, runtime modification, installed game access or main merge"
+  ],
+  "packets": [
+    {
+      "id": "P1_TRANSPORT_FEASIBILITY",
+      "sequence": 1,
+      "objective": "Choose a credible pre-handler timing/cap and raw-wire observation approach, or record a blocking transport choice",
+      "gate_ids": [
+        "G1E-03",
+        "G1E-04",
+        "G1E-02"
+      ],
+      "status": "not_started",
+      "can_progress_offline": true,
+      "decision": "method_only_no_windows_proof"
+    },
+    {
+      "id": "P2_STOP_AND_ISOLATE",
+      "sequence": 2,
+      "objective": "Specify abort, completion/ownership quarantine and a safe isolated testbed independent emergency stop",
+      "gate_ids": [
+        "G1E-05",
+        "G1E-06",
+        "G1E-01"
+      ],
+      "status": "not_started",
+      "can_progress_offline": true,
+      "decision": "design_review_no_listener"
+    },
+    {
+      "id": "P3_FINITE_EXPERIMENT_REVIEW",
+      "sequence": 3,
+      "objective": "Ratify experiment-only limits and review redaction, fixture source, 37-case evidence/verdict charter",
+      "gate_ids": [
+        "G1E-10",
+        "G1E-07",
+        "G1E-08",
+        "G1E-11"
+      ],
+      "status": "not_started",
+      "can_progress_offline": true,
+      "decision": "independent_review_before_operator_request"
+    },
+    {
+      "id": "P4_EXPLICIT_OPERATOR_DECISION",
+      "sequence": 4,
+      "objective": "Seek a new scope-specific user/operator authorization only after every other entry gate is independently resolved",
+      "gate_ids": [
+        "G1E-09"
+      ],
+      "status": "not_started",
+      "can_progress_offline": false,
+      "decision": "external_explicit_approval_only"
+    }
+  ],
+  "entries": [
+    {
+      "id": "G1E-03",
+      "rank": 1,
+      "packet": "P1_TRANSPORT_FEASIBILITY",
+      "mode": "platform_method_selection",
+      "depends_on": [],
+      "status": "open",
+      "g0_work_state": "not_started",
+      "entry_prerequisite": true,
+      "source_case_ids": [
+        "TIME-01",
+        "TIME-04",
+        "TIME-05"
+      ],
+      "source_required_artifact": "reviewed strategy to observe or enforce first-byte/connection timing before GetContextAsync and account for HTTP.sys queueing",
+      "deliverable": "Source-reviewed pre-handler timing/queue instrumentation feasibility memo with a safe fallback if first-byte origin cannot be evidenced",
+      "entry_closure_evidence": "Reviewed feasibility of obtaining an authoritative first-byte or connection anchor OR an enforceable equivalent before handler; unknown platform behavior explicitly reserved for G1 measurement",
+      "explicit_fallback": "NO-GO for HttpListener route if no safe independent method; compare alternate isolated transport designs offline",
+      "review_owner_role": "independent_windows_transport_reviewer",
+      "approval_reference": null,
+      "evidence_reference": null,
+      "gate_approved": false,
+      "platform_measurement_claimed": false,
+      "notes": "A completed G0 artifact is not G1 entry approval; future measured G1 results belong in a separately approved record."
+    },
+    {
+      "id": "G1E-04",
+      "rank": 2,
+      "packet": "P1_TRANSPORT_FEASIBILITY",
+      "mode": "platform_method_selection",
+      "depends_on": [],
+      "status": "open",
+      "g0_work_state": "not_started",
+      "entry_prerequisite": true,
+      "source_case_ids": [
+        "HDR-03",
+        "TIME-01",
+        "TIME-05"
+      ],
+      "source_required_artifact": "explicitly bounded headers, pending connections and HTTP.sys queue without unapproved machine-wide configuration",
+      "deliverable": "Pre-auth socket, header, kernel-queue and pending read saturation-control feasibility matrix without OS-wide changes",
+      "entry_closure_evidence": "Source-reviewed method to bound pre-handler occupancy and fail safely on overload, independent of post-handler ticket counting; actual effectiveness remains a G1 measurement",
+      "explicit_fallback": "NO-GO if chosen API cannot bound pre-handler work without unauthorized OS modifications",
+      "review_owner_role": "independent_windows_transport_reviewer",
+      "approval_reference": null,
+      "evidence_reference": null,
+      "gate_approved": false,
+      "platform_measurement_claimed": false,
+      "notes": "A completed G0 artifact is not G1 entry approval; future measured G1 results belong in a separately approved record."
+    },
+    {
+      "id": "G1E-02",
+      "rank": 3,
+      "packet": "P1_TRANSPORT_FEASIBILITY",
+      "mode": "platform_method_selection",
+      "depends_on": [],
+      "status": "open",
+      "g0_work_state": "not_started",
+      "entry_prerequisite": true,
+      "source_case_ids": [
+        "RAW-01",
+        "HOST-02",
+        "HDR-02",
+        "FRM-12"
+      ],
+      "source_required_artifact": "source-backed observation plan for original request-target, Host, duplicate headers, peer and kernel-vs-handler behavior",
+      "deliverable": "Three-source raw target/Host/duplicate-header/peer observation and kernel-vs-handler denial feasibility matrix",
+      "entry_closure_evidence": "Reviewed per-field observation method and unobservable/BLOCK fallback; do not require already-measured Windows results for G1 entry",
+      "explicit_fallback": "NO-GO for the proposed experiment if any mandatory original-wire observation lacks a feasible method; review an alternate isolated transport offline, never waive required evidence",
+      "review_owner_role": "independent_windows_transport_reviewer",
+      "approval_reference": null,
+      "evidence_reference": null,
+      "gate_approved": false,
+      "platform_measurement_claimed": false,
+      "notes": "A completed G0 artifact is not G1 entry approval; future measured G1 results belong in a separately approved record."
+    },
+    {
+      "id": "G1E-05",
+      "rank": 4,
+      "packet": "P2_STOP_AND_ISOLATE",
+      "mode": "offline_source_design",
+      "depends_on": [],
+      "status": "open",
+      "g0_work_state": "not_started",
+      "entry_prerequisite": true,
+      "source_case_ids": [
+        "TIME-02",
+        "TIME-03",
+        "TIME-06"
+      ],
+      "source_required_artifact": "reviewed request-vs-listener abort method, bounded collateral shutdown and independent operator stop outside the saturated listener; no claim while reads remain pending",
+      "deliverable": "Request-scoped versus listener-wide abort and independent operator stop source/interface proposal with finite deadlines and collateral invalidation",
+      "entry_closure_evidence": "Independently reviewed stop/abort method, finite escalation and ownership plan not requiring a responsive listener, with unproven behavior explicitly labeled future G1",
+      "explicit_fallback": "NO-GO if the proposed test cannot safely stop a hung request or saturated listener",
+      "review_owner_role": "independent_safety_reviewer",
+      "approval_reference": null,
+      "evidence_reference": null,
+      "gate_approved": false,
+      "platform_measurement_claimed": false,
+      "notes": "A completed G0 artifact is not G1 entry approval; future measured G1 results belong in a separately approved record."
+    },
+    {
+      "id": "G1E-06",
+      "rank": 5,
+      "packet": "P2_STOP_AND_ISOLATE",
+      "mode": "offline_source_design",
+      "depends_on": [
+        "G1E-05"
+      ],
+      "status": "open",
+      "g0_work_state": "not_started",
+      "entry_prerequisite": true,
+      "source_case_ids": [
+        "TIME-02",
+        "TIME-04",
+        "TIME-06",
+        "ENV-03"
+      ],
+      "source_required_artifact": "reviewed observation plan for read completion, buffer quarantine, late callbacks and bounded teardown; latched halt, manual rollback and no automatic restart",
+      "deliverable": "Per-request read completion, buffer ownership, late callback quarantine and deterministic teardown evidence schema",
+      "entry_closure_evidence": "Reviewed lifecycle/teardown method preserving held resources until actual completion and manual rollback after uncertain stop",
+      "explicit_fallback": "Quarantine uncertain state and block restart; never count process exit or HTTP 408 as completion",
+      "review_owner_role": "independent_safety_reviewer",
+      "approval_reference": null,
+      "evidence_reference": null,
+      "gate_approved": false,
+      "platform_measurement_claimed": false,
+      "notes": "A completed G0 artifact is not G1 entry approval; future measured G1 results belong in a separately approved record."
+    },
+    {
+      "id": "G1E-01",
+      "rank": 6,
+      "packet": "P2_STOP_AND_ISOLATE",
+      "mode": "offline_source_design",
+      "depends_on": [
+        "G1E-03",
+        "G1E-04",
+        "G1E-02",
+        "G1E-05",
+        "G1E-06"
+      ],
+      "status": "open",
+      "g0_work_state": "not_started",
+      "entry_prerequisite": true,
+      "source_case_ids": [
+        "ENV-01",
+        "ENV-02",
+        "ENV-03"
+      ],
+      "source_required_artifact": "reviewed disposable loopback server/client and manual rollback design, explicit endpoint/process inventory including a second disposable port only if approved, otherwise offline mismatch fixture",
+      "deliverable": "Minimal disposable-only test executable source/design and explicit process/endpoint inventory with independent stop and rollback",
+      "entry_closure_evidence": "Reviewed, bounded, loopback-only and non-invasive executable/test source design, not a run, with a specific isolation/teardown method and no existing service probes",
+      "explicit_fallback": "NO-GO if process separation or teardown cannot be justified without running on installed Sunny",
+      "review_owner_role": "independent_isolation_reviewer",
+      "approval_reference": null,
+      "evidence_reference": null,
+      "gate_approved": false,
+      "platform_measurement_claimed": false,
+      "notes": "A completed G0 artifact is not G1 entry approval; future measured G1 results belong in a separately approved record."
+    },
+    {
+      "id": "G1E-10",
+      "rank": 7,
+      "packet": "P3_FINITE_EXPERIMENT_REVIEW",
+      "mode": "offline_source_design",
+      "depends_on": [
+        "G1E-02"
+      ],
+      "status": "open",
+      "g0_work_state": "not_started",
+      "entry_prerequisite": true,
+      "source_case_ids": [
+        "HOST-04",
+        "HDR-01",
+        "HDR-05",
+        "ENV-01",
+        "ENV-03"
+      ],
+      "source_required_artifact": "reviewed evidence scrub policy, no P1/user diary/game/token material, no automatic OS edits, no side-effects",
+      "deliverable": "Redaction allowlist and sanitized evidence writer schema with retained unknown provenance and zero private-field exposure",
+      "entry_closure_evidence": "Independently reviewed minimal evidence fields and negative privacy leak cases; no actual user content/logs collected",
+      "explicit_fallback": "Stop evidence collection if unredacted tokens or P1/game data would enter artifacts",
+      "review_owner_role": "independent_privacy_reviewer",
+      "approval_reference": null,
+      "evidence_reference": null,
+      "gate_approved": false,
+      "platform_measurement_claimed": false,
+      "notes": "A completed G0 artifact is not G1 entry approval; future measured G1 results belong in a separately approved record."
+    },
+    {
+      "id": "G1E-07",
+      "rank": 8,
+      "packet": "P3_FINITE_EXPERIMENT_REVIEW",
+      "mode": "numeric_signoff_required",
+      "depends_on": [
+        "G1E-03",
+        "G1E-04",
+        "G1E-05",
+        "G1E-06"
+      ],
+      "status": "open",
+      "g0_work_state": "not_started",
+      "entry_prerequisite": true,
+      "source_case_ids": [
+        "FRM-06",
+        "FRM-07",
+        "TIME-01",
+        "TIME-05"
+      ],
+      "source_required_artifact": "independent experiment-only approval of finite total/header/body/cleanup/response-write time, byte sizes, pre-auth connections, concurrency and backlog bounds before bind",
+      "deliverable": "Reviewed experiment-only time/bytes/connection/queue/response/stop budget decision with rationale and rollback impact",
+      "entry_closure_evidence": "Independent reviewer ratifies or revises every applicable numerical limit for the disposable G1 run, without asserting Windows enforcement is proven",
+      "explicit_fallback": "Keep G1 NO-GO; proposed 8/2/5/2 seconds and capacity numbers are not automatic defaults",
+      "review_owner_role": "independent_limits_reviewer",
+      "approval_reference": null,
+      "evidence_reference": null,
+      "gate_approved": false,
+      "platform_measurement_claimed": false,
+      "notes": "A completed G0 artifact is not G1 entry approval; future measured G1 results belong in a separately approved record."
+    },
+    {
+      "id": "G1E-08",
+      "rank": 9,
+      "packet": "P3_FINITE_EXPERIMENT_REVIEW",
+      "mode": "fixture_source_review",
+      "depends_on": [
+        "G1E-01",
+        "G1E-02",
+        "G1E-07",
+        "G1E-10"
+      ],
+      "status": "open",
+      "g0_work_state": "not_started",
+      "entry_prerequisite": true,
+      "source_case_ids": [
+        "FRM-03",
+        "FRM-07",
+        "FRM-09",
+        "FRM-11"
+      ],
+      "source_required_artifact": "vetted raw-byte fixture catalog that distinguishes permitted good requests, malformed inputs and safe response behavior",
+      "deliverable": "Reviewed bounded synthetic sendable fixture source, variant-to-case matrix, finite rates, proposed endpoint parameters conditional on later G1E-09 consent and non-private response rules",
+      "entry_closure_evidence": "Independent review of source and exact 37-case probe/variant manifest, no test traffic, boundary variants derived from G1E-07 ratified experiment limits (16383/16384/16385 only if 16KiB is ratified), pipelining separation and no existing-service probes",
+      "explicit_fallback": "Do not run ambiguous, unbounded or endpoint-discovering fixtures",
+      "review_owner_role": "independent_fixture_reviewer",
+      "approval_reference": null,
+      "evidence_reference": null,
+      "gate_approved": false,
+      "platform_measurement_claimed": false,
+      "notes": "A completed G0 artifact is not G1 entry approval; future measured G1 results belong in a separately approved record."
+    },
+    {
+      "id": "G1E-11",
+      "rank": 10,
+      "packet": "P3_FINITE_EXPERIMENT_REVIEW",
+      "mode": "offline_source_design",
+      "depends_on": [
+        "G1E-02",
+        "G1E-05",
+        "G1E-06",
+        "G1E-08",
+        "G1E-10"
+      ],
+      "status": "open",
+      "g0_work_state": "not_started",
+      "entry_prerequisite": true,
+      "source_case_ids": [
+        "RAW-01",
+        "FRM-12",
+        "TIME-02",
+        "TIME-05"
+      ],
+      "source_required_artifact": "reviewed per-case GO/FAIL/BLOCK thresholds for 37 G1 entries, kernel-vs-handler denial, unknown/fail, and rollback",
+      "deliverable": "Per-case observation/verdict and escalation charter, including BLOCK on unknown, kernel-vs-handler provenance and independent outcome review",
+      "entry_closure_evidence": "Reviewer accepts proposed per-case outcome thresholds, attribution, evidence and stop criteria for all 37 G1 cases; measured outcomes are not required for entry",
+      "explicit_fallback": "Any unobservable critical field remains BLOCK and requires review/redesign; never convert missing proof to passing status",
+      "review_owner_role": "independent_acceptance_reviewer",
+      "approval_reference": null,
+      "evidence_reference": null,
+      "gate_approved": false,
+      "platform_measurement_claimed": false,
+      "notes": "A completed G0 artifact is not G1 entry approval; future measured G1 results belong in a separately approved record."
+    },
+    {
+      "id": "G1E-09",
+      "rank": 11,
+      "packet": "P4_EXPLICIT_OPERATOR_DECISION",
+      "mode": "explicit_user_operator_approval",
+      "depends_on": [
+        "G1E-01",
+        "G1E-02",
+        "G1E-03",
+        "G1E-04",
+        "G1E-05",
+        "G1E-06",
+        "G1E-07",
+        "G1E-08",
+        "G1E-10",
+        "G1E-11"
+      ],
+      "status": "open",
+      "g0_work_state": "not_started",
+      "entry_prerequisite": true,
+      "source_case_ids": [
+        "ENV-01",
+        "ENV-02",
+        "ENV-03"
+      ],
+      "source_required_artifact": "explicit new user/operator approval of exact build, disposable endpoint/process inventory, fixtures, finite traffic and duration caps, independent stop owner and manual rollback",
+      "deliverable": "Separate, explicit user/operator decision for named build/port/fixtures/rates/numerical limits/owner/stop/rollback after independent reviews",
+      "entry_closure_evidence": "Explicit per-experiment authorization recorded with exact target and scope; no approval inferred from general permission to continue G0",
+      "explicit_fallback": "Remain NO-GO; never open a listener, reserve a Windows port or send HTTP probes",
+      "review_owner_role": "user_operator",
+      "approval_reference": null,
+      "evidence_reference": null,
+      "gate_approved": false,
+      "platform_measurement_claimed": false,
+      "notes": "A completed G0 artifact is not G1 entry approval; future measured G1 results belong in a separately approved record."
+    }
+  ],
+  "g1_exit_requirements": "After separately authorized G1: independently measured outcomes of all 37 isolated Windows transport cases; none are prerequisites for G1 entry.",
+  "g2_exit_requirements": "Separate 13 runtime/privacy/Luna cases and all-route security/lease/epoch/unknown-effect work; not discharged by G1.",
+  "prohibited_actions": [
+    "open any port/listener",
+    "probe an existing service",
+    "start Windows HTTP.sys traffic",
+    "change URLACL/firewall",
+    "modify installed Sunny, Luna, SMAPI, Stardew saves",
+    "touch main branch",
+    "claim ratified limits or Windows acceptance"
+  ],
+  "safety_review_scheduling": {
+    "start_with": "P1_TRANSPORT_FEASIBILITY",
+    "parallel_gate_ids": [
+      "G1E-05",
+      "G1E-06"
+    ],
+    "transport_choice_finalization_requires": [
+      "G1E-02",
+      "G1E-03",
+      "G1E-04",
+      "G1E-05",
+      "G1E-06"
+    ],
+    "unknown_required_safety_property": "BLOCK_NO_GO",
+    "review_iteration": "P1 and P2 may revise proposals together offline; no mutual gate-closure dependency and no listener"
+  }
+}
