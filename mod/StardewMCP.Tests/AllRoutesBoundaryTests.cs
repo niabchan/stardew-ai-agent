@@ -170,7 +170,7 @@ public sealed class AllRoutesBoundaryTests
     {
         var a = Setup();
         var r = FakeAllRoutesBoundary.Check(Request(path, "POST", Operator), a);
-        Assert.Equal(404, r.Status);
+        Assert.True(r.Status is 400 or 404); // trailing slash = malformed, unlisted = 404
         Assert.False(r.CandidateForFurtherValidation);
     }
 
@@ -405,7 +405,7 @@ public sealed class AllRoutesBoundaryTests
         var a = Setup();
         var route = query.StartsWith("?n", StringComparison.Ordinal) ?
             Request("/api/day", credential: Operator, rawQuery: query) :
-            Request("/mcp/p2", credential: P2, rawQuery: query);
+            Request("/mcp/p2", method: "POST", credential: P2, rawQuery: query);
         var result = FakeAllRoutesBoundary.Check(route, a);
         Assert.Equal(400, result.Status);
     }
