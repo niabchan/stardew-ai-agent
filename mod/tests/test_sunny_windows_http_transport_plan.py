@@ -83,7 +83,7 @@ def test_doc_preserves_the_three_distinct_noninterchangeable_gates() -> None:
     assert "37" in doc and "13" in doc and "50" in doc
     assert "not_run" in doc
     assert "separate explicit user approval" in doc
-    assert "not a working transport adapter" in doc.lower()
+    assert "**not** a working transport adapter" in doc.lower()
     assert "16 KiB" in doc
     assert "1200" in doc
     assert "Evidence.All" in doc
@@ -121,6 +121,5 @@ def test_no_fake_timestamp_or_observed_windows_evidence_sneaks_into_plan() -> No
     doc = DOC_FILE.read_text(encoding="utf-8")
     assert "NOT EXECUTED" in doc
     assert "No sockets" in doc
-    assert "G1 and G2" not in doc.split("Current state:")[-1] or True
     assert not any(c["status"] in {"pass", "passed", "complete"} for c in MANIFEST["cases"])
     assert "TBD" in doc
