@@ -52,6 +52,7 @@ internal sealed record FakeRoutePrincipal(string PrincipalId, string InstanceId,
 internal interface IFakeRouteAuthority
 {
     string IntendedInstanceId { get; }
+    int BoundPort { get; }
     FakeRoutePrincipal? ResolveGameBearer(string token);
     bool CurrentP2Owner(FakeRoutePrincipal principal, string session, string epoch);
     bool P1Consent { get; }
@@ -155,7 +156,8 @@ internal static class FakeAllRoutesBoundary
         if (request is null || authority is null || request.Headers is null || request.Body is null)
             return FakeRouteDecision.Deny(400);
 
-        if (request.ConfiguredPort is < 1 or > 65535 || request.RawPath is null ||
+        if (request.ConfiguredPort is < 1 or > 65535 || request.ConfiguredPort != authority.BoundPort ||
+            request.RawPath is null ||
             request.RawQuery is null || request.Host is null || request.PeerAddress is null)
             return FakeRouteDecision.Deny(400);
 
@@ -191,7 +193,8 @@ internal static class FakeAllRoutesBoundary
         if (!route.Methods.Split(' ').Contains(request.Method, StringComparer.Ordinal))
             return FakeRouteDecision.Deny(405);
 
-        if (!ValidQuery(request.RawQuery, route.Query))
+        if (!ValidQuery(request.RawQuery, route.Query) ||
+            (route.Id == "raw-briefing" && request.RawQuery != "?seat=p2"))
             return FakeRouteDecision.Deny(400);
 
         if (request.Body.Length > MaxBodyBytes) return FakeRouteDecision.Deny(413);
