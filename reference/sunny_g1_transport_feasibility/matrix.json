@@ -1,0 +1,389 @@
+{
+  "schema_version": 1,
+  "phase": "2K",
+  "name": "sunny-g1-transport-feasibility-g0",
+  "baseline": "a2c23e272a3da3ed3d6b6c613aecfdf8d723efa5",
+  "decision": "NO_GO_G1_START",
+  "transport_choice": "none_selected",
+  "operator_approval": false,
+  "g1_executed": false,
+  "g2_accepted": false,
+  "review_status": "independent_g0_source_review_complete_no_g1_approval",
+  "source_review_only": true,
+  "source_retrieved_date": "2026-11-09",
+  "numeric_limits_ratified": false,
+  "transport_ids": [
+    "HttpListener",
+    "ASPNET-HttpSys",
+    "Kestrel",
+    "TcpListener-custom-HTTP"
+  ],
+  "mandatory_gate_ids": [
+    "G1E-03",
+    "G1E-04",
+    "G1E-02",
+    "G1E-05",
+    "G1E-06"
+  ],
+  "sources": [
+    {
+      "id": "MS-GETCONTEXT",
+      "title": "HttpListener.GetContextAsync",
+      "url": "https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistener.getcontextasync?view=net-10.0",
+      "claim": "Completes when an incoming request has been received; not documented as a first-byte or partial-header event.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/dotnet-api-docs/2dc3bcf74e1167d90f5c409a387e950f4f4b719a/xml/System.Net/HttpListener.xml"
+    },
+    {
+      "id": "MS-RAWURL",
+      "title": "HttpListenerRequest.RawUrl",
+      "url": "https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.rawurl?view=net-10.0",
+      "claim": "URL part after domain; includes query; does not document original Host/header wire multiplicity or pre-handler evidence.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/dotnet-api-docs/2dc3bcf74e1167d90f5c409a387e950f4f4b719a/xml/System.Net/HttpListenerRequest.xml"
+    },
+    {
+      "id": "MS-LISTENER-ABORT",
+      "title": "HttpListener.Abort",
+      "url": "https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistener.abort?view=net-10.0",
+      "claim": "Shuts down listener immediately, discarding queued requests; not per-request task/buffer completion proof.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/dotnet-api-docs/2dc3bcf74e1167d90f5c409a387e950f4f4b719a/xml/System.Net/HttpListener.xml"
+    },
+    {
+      "id": "MS-RESPONSE-ABORT",
+      "title": "HttpListenerResponse.Abort",
+      "url": "https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerresponse.abort?view=net-10.0",
+      "claim": "Closes response/context and client connection; does not independently prove pending app ReadAsync completion.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/dotnet-api-docs/2dc3bcf74e1167d90f5c409a387e950f4f4b719a/xml/System.Net/HttpListenerResponse.xml"
+    },
+    {
+      "id": "MS-HTTPSYS-SERVER",
+      "title": "ASP.NET Core HTTP.sys server options",
+      "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/httpsys?view=aspnetcore-10.0",
+      "claim": "Has MaxConnections, RequestQueueLimit and TimeoutManager; availability/enforceability under isolated non-elevated setup unverified.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Servers/HttpSys/src/HttpSysOptions.cs"
+    },
+    {
+      "id": "MS-HTTPSYS-HEADER",
+      "title": "HTTP.sys TimeoutManager.HeaderWait",
+      "url": "https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.server.httpsys.timeoutmanager.headerwait",
+      "claim": "HeaderWait only enforced after first request on connection routed to application; first-request slow-header protection not established.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Servers/HttpSys/src/TimeoutManager.cs"
+    },
+    {
+      "id": "MS-HTTPSYS-TIME",
+      "title": "HTTP.sys TimeoutManager",
+      "url": "https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.server.httpsys.timeoutmanager?view=aspnetcore-10.0",
+      "claim": "EntityBody timer resets upon more data indications, so not a monotonic whole-ingress deadline; RequestQueue limit separate.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Servers/HttpSys/src/TimeoutManager.cs"
+    },
+    {
+      "id": "MS-KESTREL-LIMITS",
+      "title": "Kestrel server options",
+      "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/options?view=aspnetcore-10.0",
+      "claim": "RequestHeadersTimeout, MaxConcurrentConnections, body size and rate limits documented; not a verified total first-byte deadline.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/AspNetCore.Docs/1a347f480357e679f40c87738f4d4fe13c458ce8/aspnetcore/fundamentals/servers/kestrel/options.md"
+    },
+    {
+      "id": "MS-KESTREL-SECURITY",
+      "title": "Kestrel limits and security considerations",
+      "url": "https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel/security-considerations",
+      "claim": "Header total/count and request-line limits documented; settings not automatically equal raw-wire fidelity.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/AspNetCore.Docs/1a347f480357e679f40c87738f4d4fe13c458ce8/aspnetcore/fundamentals/servers/kestrel/security-considerations.md"
+    },
+    {
+      "id": "MS-RAW-TARGET",
+      "title": "ASP.NET Core IHttpRequestFeature",
+      "url": "https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.features.ihttprequestfeature?view=aspnetcore-10.0",
+      "claim": "RawTarget is the request target as sent, without URL decoding; Headers aggregates by name with values not split or merged across lines. Neither promises complete original header bytes or parser-rejected request evidence.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Http/Http.Features/src/IHttpRequestFeature.cs"
+    },
+    {
+      "id": "MS-CONNECTION",
+      "title": "ASP.NET Core IHttpConnectionFeature",
+      "url": "https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.features.ihttpconnectionfeature?view=aspnetcore-10.0",
+      "claim": "Local/remote IP/port and ConnectionId exposed; server provenance still must be verified.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Http/Http.Features/src/IHttpConnectionFeature.cs"
+    },
+    {
+      "id": "MS-CONTEXT-ABORT",
+      "title": "ASP.NET Core HttpContext.Abort",
+      "url": "https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.httpcontext.abort",
+      "claim": "Aborts connection underlying request; does not guarantee observed completion of an uncooperative application task.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Http/Http.Abstractions/src/HttpContext.cs"
+    },
+    {
+      "id": "MS-TCP-STOP",
+      "title": "TcpListener.Start/Stop",
+      "url": "https://learn.microsoft.com/dotnet/api/system.net.sockets.tcplistener.start",
+      "claim": "Stopping listener does not close accepted connections; custom parser/connection/buffer ownership risk remains.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/dotnet-api-docs/2dc3bcf74e1167d90f5c409a387e950f4f4b719a/xml/System.Net.Sockets/TcpListener.xml"
+    }
+  ],
+  "rows": [
+    {
+      "transport": "HttpListener",
+      "gate_id": "G1E-03",
+      "assessment": "not_established",
+      "evidence": "GetContextAsync yields a received context, not proven first-byte/initial-header timestamp or HTTP.sys queue clock.",
+      "source_ids": [
+        "MS-GETCONTEXT"
+      ],
+      "blocking_condition": "BLOCK for whole-ingress pre-handler guarantee; require independently bounded method",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "HttpListener",
+      "gate_id": "G1E-04",
+      "assessment": "not_established",
+      "evidence": "Existing AgentHttp has post-accept Task.Run but no documented per-listener early kernel/header/queue admission cap.",
+      "source_ids": [
+        "MS-GETCONTEXT"
+      ],
+      "blocking_condition": "BLOCK until preauth OS control method safely reviewed",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "HttpListener",
+      "gate_id": "G1E-02",
+      "assessment": "documented_partial",
+      "evidence": "RawUrl is URL path plus query; original Host duplicate syntax and kernel refusals not documented as original wire.",
+      "source_ids": [
+        "MS-RAWURL"
+      ],
+      "blocking_condition": "Missing mandatory server provenance BLOCK; never infer from client fixture",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "HttpListener",
+      "gate_id": "G1E-05",
+      "assessment": "documented_partial",
+      "evidence": "Listener.Abort is listener-wide; Response.Abort closes connection/context, but specific read cancellation effectiveness unknown.",
+      "source_ids": [
+        "MS-LISTENER-ABORT",
+        "MS-RESPONSE-ABORT"
+      ],
+      "blocking_condition": "Use independent stop design; no per-request abort success claim",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "HttpListener",
+      "gate_id": "G1E-06",
+      "assessment": "not_established",
+      "evidence": "API close/dispose does not prove app ReadAsync task completed, buffers safely released or all callbacks ceased.",
+      "source_ids": [
+        "MS-LISTENER-ABORT",
+        "MS-RESPONSE-ABORT"
+      ],
+      "blocking_condition": "Retain capacity/quarantine and require observed completion",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "ASPNET-HttpSys",
+      "gate_id": "G1E-03",
+      "assessment": "documented_partial",
+      "evidence": "HeaderWait exists but documented as enforced only after first request has been routed; EntityBody timer resets with data; no immutable first-byte ingress bound proven.",
+      "source_ids": [
+        "MS-HTTPSYS-HEADER",
+        "MS-HTTPSYS-TIME"
+      ],
+      "blocking_condition": "BLOCK first-request/total monotonic guarantees until feasible equivalent reviewed",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "ASPNET-HttpSys",
+      "gate_id": "G1E-04",
+      "assessment": "documented_partial",
+      "evidence": "MaxConnections and RequestQueueLimit exist; HeaderWait and RequestQueue timeouts exist; isolated applicability, first-header occupancy and machine-wide effects not verified.",
+      "source_ids": [
+        "MS-HTTPSYS-SERVER",
+        "MS-HTTPSYS-TIME"
+      ],
+      "blocking_condition": "Require non-elevated, test-only settings design and default-deny if global edits",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "ASPNET-HttpSys",
+      "gate_id": "G1E-02",
+      "assessment": "documented_partial",
+      "evidence": "IHttpRequestFeature.RawTarget documents target as sent without URL decoding; Headers preserves value arrays by name, not original header-name casing, whitespace or rejected CL/TE request bytes.",
+      "source_ids": [
+        "MS-RAW-TARGET"
+      ],
+      "blocking_condition": "Test source-vs-HTTP.sys-vs-app separately in future authorized G1; if cannot preserve required properties BLOCK",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "ASPNET-HttpSys",
+      "gate_id": "G1E-05",
+      "assessment": "documented_partial",
+      "evidence": "HttpContext.Abort aborts connection; effect on hung app read, listener queue and collateral is not documented as proof of completion.",
+      "source_ids": [
+        "MS-CONTEXT-ABORT"
+      ],
+      "blocking_condition": "Independent operator stop and bounded task ownership still required",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "ASPNET-HttpSys",
+      "gate_id": "G1E-06",
+      "assessment": "not_established",
+      "evidence": "Completion/quiescence/buffer ownership not proven through context abort/response close alone.",
+      "source_ids": [
+        "MS-CONTEXT-ABORT"
+      ],
+      "blocking_condition": "Explicit completion ledger and no premature capacity release",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "Kestrel",
+      "gate_id": "G1E-03",
+      "assessment": "documented_partial",
+      "evidence": "RequestHeadersTimeout is server-side header receive budget, but exact first-byte clock, queue/wait and combined body total 8s are not established.",
+      "source_ids": [
+        "MS-KESTREL-LIMITS"
+      ],
+      "blocking_condition": "Review a composable server+application whole-ingress contract; no auto-approval",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "Kestrel",
+      "gate_id": "G1E-04",
+      "assessment": "documented_partial",
+      "evidence": "MaxConcurrentConnections, MaxRequestHeadersTotalSize, count and line size, request-body rate are explicit; defaults can be unlimited/too large.",
+      "source_ids": [
+        "MS-KESTREL-LIMITS",
+        "MS-KESTREL-SECURITY"
+      ],
+      "blocking_condition": "Design finite bounded preauth occupancy and saturation safety; needs G1 measurement",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "Kestrel",
+      "gate_id": "G1E-02",
+      "assessment": "documented_partial",
+      "evidence": "IHttpRequestFeature.RawTarget documents target as sent without URL decoding; Headers preserves value arrays by name, not original header-name casing, whitespace or rejected CL/TE request bytes.",
+      "source_ids": [
+        "MS-RAW-TARGET",
+        "MS-CONNECTION"
+      ],
+      "blocking_condition": "Check each required field source; unobservable must BLOCK, not counterfeit raw evidence",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "Kestrel",
+      "gate_id": "G1E-05",
+      "assessment": "documented_partial",
+      "evidence": "HttpContext.Abort aborts underlying connection; this does not certify ReadAsync task/drained buffers or stop-path independence.",
+      "source_ids": [
+        "MS-CONTEXT-ABORT"
+      ],
+      "blocking_condition": "Design request/connection abort and independent external stop with collateral accounting",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "Kestrel",
+      "gate_id": "G1E-06",
+      "assessment": "not_established",
+      "evidence": "Server abort API gives no observed app task completion/buffer ownership guarantee in docs.",
+      "source_ids": [
+        "MS-CONTEXT-ABORT"
+      ],
+      "blocking_condition": "Require explicit quiescence and cleanup proof in later separately approved G1",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "TcpListener-custom-HTTP",
+      "gate_id": "G1E-03",
+      "assessment": "custom_design_burden",
+      "evidence": "Application could record first accepted byte before parsing, but precise network arrival/kernel backlog clock remains a separate question.",
+      "source_ids": [
+        "MS-TCP-STOP"
+      ],
+      "blocking_condition": "Custom monotonic parser clock and connection cap must be source-reviewed; no current implementation",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "TcpListener-custom-HTTP",
+      "gate_id": "G1E-04",
+      "assessment": "custom_design_burden",
+      "evidence": "Raw sockets offer ownership of accept loop but need custom pre-auth quotas, header deadlines, backlog and admission safety.",
+      "source_ids": [
+        "MS-TCP-STOP"
+      ],
+      "blocking_condition": "No implicit safe listener; custom controls require independent review",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "TcpListener-custom-HTTP",
+      "gate_id": "G1E-02",
+      "assessment": "custom_design_burden",
+      "evidence": "Application could inspect received bytes before HTTP parsing, unlike post-parser features, but must safely implement strict HTTP/1.1 framing and reject ambiguities.",
+      "source_ids": [
+        "MS-TCP-STOP"
+      ],
+      "blocking_condition": "High parser/smuggling risk: do not propose as production shortcut; offline-only alternative to study",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "TcpListener-custom-HTTP",
+      "gate_id": "G1E-05",
+      "assessment": "custom_design_burden",
+      "evidence": "TcpListener.Stop does not close accepted connections; per-connection socket and externally owned stop needed.",
+      "source_ids": [
+        "MS-TCP-STOP"
+      ],
+      "blocking_condition": "Review all accepted-connection ownership, abort and collateral",
+      "windows_observed": false,
+      "approved": false
+    },
+    {
+      "transport": "TcpListener-custom-HTTP",
+      "gate_id": "G1E-06",
+      "assessment": "not_established",
+      "evidence": "Custom parser task lifetime, socket read completion and buffer cleanup absent until separately reviewed implementation.",
+      "source_ids": [
+        "MS-TCP-STOP"
+      ],
+      "blocking_condition": "Quarantine and abort observed before release; no unreviewed raw parser deployment",
+      "windows_observed": false,
+      "approved": false
+    }
+  ],
+  "assessment_values": [
+    "not_established",
+    "documented_partial",
+    "custom_design_burden"
+  ],
+  "rules": [
+    "All five G1E-02..06 required properties need independently reviewed method, before G1E-01 design can close; any unknown mandatory safety property BLOCKS transport selection",
+    "HeaderWait enforced after first routed request does not establish first-request slow-header protection",
+    "HTTP.sys EntityBody idle timer resets upon data and cannot substitute for a nonresetting monotonic total ingress deadline",
+    "Client-written raw bytes do not prove server/HTTP.sys reception; API request-target/header features do not imply preserved original wire Host syntax",
+    "HttpContext.Abort/HttpListenerResponse.Abort/HttpListener.Abort and socket Stop are lifecycle requests, not proof of pending application task completion",
+    "Only source-backed feasibility documented here; real Windows measurements, numeric approval and user/operator permission remain future work",
+    "Custom TcpListener parser is a high-risk alternative requiring full independent parsing/framing review; never a production recommendation from this document"
+  ],
+  "entry_blockers_still_open": 11,
+  "g1_case_count_not_run": 37,
+  "g2_case_count_not_run": 13,
+  "code_changes_forbidden": true,
+  "live_experiments_forbidden": true,
+  "no_automatic_go": true
+}

@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "phase": "2K",
+  "name": "sunny-g1-independent-stop-cleanup-g0-sketch",
+  "status": "offline_source_interface_only",
+  "decision": "NO_GO_G1_START",
+  "external_stop_implemented": false,
+  "stop_operator_approved": false,
+  "windows_abort_tested": false,
+  "cleanup_verified": false,
+  "selected_abort_method": null,
+  "selected_process": null,
+  "selected_port": null,
+  "stop_owner": null,
+  "stop_build_sha": null,
+  "source_contract": "reference/sunny_g1_resolution/plan.json",
+  "gates": [
+    "G1E-05",
+    "G1E-06"
+  ],
+  "separation_policy": "External operator stop must not depend on listener, recovery lane, request dispatch, game tick, evidence writer or any pending HTTP lock.",
+  "states": [
+    {
+      "id": "RUNNING",
+      "allowed_next": [
+        "STOP_LATCHED"
+      ],
+      "resource_release": false
+    },
+    {
+      "id": "STOP_LATCHED",
+      "allowed_next": [
+        "TRAFFIC_STOPPED",
+        "INDEPENDENT_ESCALATION"
+      ],
+      "resource_release": false
+    },
+    {
+      "id": "TRAFFIC_STOPPED",
+      "allowed_next": [
+        "ABORT_REQUESTED",
+        "INDEPENDENT_ESCALATION"
+      ],
+      "resource_release": false
+    },
+    {
+      "id": "ABORT_REQUESTED",
+      "allowed_next": [
+        "DRAIN_OBSERVING",
+        "INDEPENDENT_ESCALATION"
+      ],
+      "resource_release": false
+    },
+    {
+      "id": "DRAIN_OBSERVING",
+      "allowed_next": [
+        "QUIESCENT_EVIDENCED",
+        "INDEPENDENT_ESCALATION"
+      ],
+      "resource_release": false
+    },
+    {
+      "id": "INDEPENDENT_ESCALATION",
+      "allowed_next": [
+        "QUIESCENT_EVIDENCED",
+        "UNRESOLVED_QUARANTINED"
+      ],
+      "resource_release": false
+    },
+    {
+      "id": "QUIESCENT_EVIDENCED",
+      "allowed_next": [
+        "MANUAL_ROLLBACK_REVIEW"
+      ],
+      "resource_release": false
+    },
+    {
+      "id": "UNRESOLVED_QUARANTINED",
+      "allowed_next": [
+        "MANUAL_ROLLBACK_REVIEW"
+      ],
+      "resource_release": false
+    },
+    {
+      "id": "MANUAL_ROLLBACK_REVIEW",
+      "allowed_next": [
+        "CLOSED_NO_RESTART"
+      ],
+      "resource_release": false
+    },
+    {
+      "id": "CLOSED_NO_RESTART",
+      "allowed_next": [],
+      "resource_release": false
+    }
+  ],
+  "reviewed_future_parameters": [
+    {
+      "name": "owner_alias",
+      "status": "unassigned",
+      "required_before_G1": true
+    },
+    {
+      "name": "external_control_path",
+      "status": "undecided",
+      "required_before_G1": true
+    },
+    {
+      "name": "control_path_failure_fallback",
+      "status": "undecided",
+      "required_before_G1": true
+    },
+    {
+      "name": "listener_abort_scope",
+      "status": "undecided",
+      "required_before_G1": true
+    },
+    {
+      "name": "scoped_abort_read_completion_method",
+      "status": "undecided",
+      "required_before_G1": true
+    },
+    {
+      "name": "synthetic_request_id_and_collateral_ledger",
+      "status": "not_implemented",
+      "required_before_G1": true
+    },
+    {
+      "name": "deadline_abort_ms",
+      "status": "unratified",
+      "required_before_G1": true
+    },
+    {
+      "name": "deadline_external_escalation_ms",
+      "status": "unratified",
+      "required_before_G1": true
+    },
+    {
+      "name": "deadline_complete_rollback_ms",
+      "status": "unratified",
+      "required_before_G1": true
+    },
+    {
+      "name": "buffer_owner_and_task_quiescence_evidence",
+      "status": "not_implemented",
+      "required_before_G1": true
+    },
+    {
+      "name": "process_and_port_inventory",
+      "status": "unapproved",
+      "required_before_G1": true
+    },
+    {
+      "name": "separate_user_restart_consent",
+      "status": "not_granted",
+      "required_before_G1": true
+    }
+  ],
+  "mechanism_notes": [
+    {
+      "transport": "HttpListener",
+      "abort_apis": [
+        "HttpListenerResponse.Abort (connection/context close)",
+        "HttpListener.Abort (whole listener)"
+      ],
+      "source_ids": [
+        "MS-RESPONSE-ABORT",
+        "MS-LISTENER-ABORT"
+      ],
+      "caveat": "Neither documented method proves outstanding application ReadAsync and buffer ownership; testbed process externally controlled only after review."
+    },
+    {
+      "transport": "ASPNET-HttpSys",
+      "abort_apis": [
+        "HttpContext.Abort (connection)"
+      ],
+      "source_ids": [
+        "MS-CONTEXT-ABORT"
+      ],
+      "caveat": "Actual pending body task quiescence and collateral safety remain unmeasured."
+    },
+    {
+      "transport": "Kestrel",
+      "abort_apis": [
+        "HttpContext.Abort (connection)"
+      ],
+      "source_ids": [
+        "MS-CONTEXT-ABORT"
+      ],
+      "caveat": "Server abort does not establish task/buffer cleanup; cannot depend on saturated request pipeline."
+    },
+    {
+      "transport": "TcpListener-custom-HTTP",
+      "abort_apis": [
+        "TcpListener.Stop (accept loop only)"
+      ],
+      "source_ids": [
+        "MS-TCP-STOP"
+      ],
+      "caveat": "Already accepted sockets need separate owner-driven shutdown; custom parser increases risk."
+    }
+  ],
+  "required_independent_stop_order": [
+    "External operator-owned stop, separate from listener execution/request queue/recovery lane, first latches NO_ADMISSION",
+    "Stop any future synthetic sends before attempting request cleanup; preserve request/connection attribution",
+    "Fence every pending and collateral candidate, including completed-body requests not yet committed",
+    "Request documented connection-scoped or listener-wide abort, record actual scope and collateral impacts",
+    "Observe application read tasks and response-write completion separately from HTTP client 408, token cancellation or process exit",
+    "Keep unresolved slots/buffers quarantined; no automatic reuse or claim of clean per-request retirement",
+    "Escalate to independently owned external process termination ONLY if later explicitly approved; it is stop-not-cleanup proof",
+    "Record shutdown/OS configuration/endpoint teardown and unresolved work; manual rollback and new explicit per-run restart approval"
+  ],
+  "no_automatic_restart": true,
+  "safety_unknown_behavior": "BLOCK_NO_GO",
+  "g0_notes": "This is a static contract sketch, no real stop method, service, process, socket, event timing, observer, test runner or numeric ratification. G1 measurement and operator approval are separate.",
+  "escalation_contract": {
+    "deadline_clock": "Independent monotonic observer; absolute deadlines fixed at stop latch, never reset by data, progress, abort retries or evidence-writer availability.",
+    "bounded_control": "Each stop/control operation must have a separately observed deadline and an independent fallback; no unbounded wait on the saturated listener or writer.",
+    "on_deadline": "Take INDEPENDENT_ESCALATION once; if approved external control cannot establish quiescence by the final deadline, end UNRESOLVED_QUARANTINED with halt latched and manual rollback required.",
+    "evidence_failure": "A blocked or failed evidence writer must not block stop; missing evidence prevents QUIESCENT_EVIDENCED and preserves quarantine.",
+    "quiescence_guard": "QUIESCENT_EVIDENCED requires an enumerated ledger of all admitted and collateral operations: every read/write task terminal and observed, callbacks/producers ceased, and each buffer/lease owner accounted for. Abort return, cancellation, 408 and process exit alone are insufficient.",
+    "ownership_guard": "No pooled buffer return, slot reuse or clean retirement until the final possible task/callback access is excluded; unresolved owners stay quarantined even after process termination.",
+    "restart_guard": "No transition to RUNNING; new explicit per-run approval is required outside this sketch. No deadlines or termination permission are ratified here."
+  }
+}
