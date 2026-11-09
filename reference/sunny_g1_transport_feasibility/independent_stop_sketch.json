@@ -212,5 +212,14 @@
   ],
   "no_automatic_restart": true,
   "safety_unknown_behavior": "BLOCK_NO_GO",
-  "g0_notes": "This is a static contract sketch, no real stop method, service, process, socket, event timing, observer, test runner or numeric ratification. G1 measurement and operator approval are separate."
+  "g0_notes": "This is a static contract sketch, no real stop method, service, process, socket, event timing, observer, test runner or numeric ratification. G1 measurement and operator approval are separate.",
+  "escalation_contract": {
+    "deadline_clock": "Independent monotonic observer; absolute deadlines fixed at stop latch, never reset by data, progress, abort retries or evidence-writer availability.",
+    "bounded_control": "Each stop/control operation must have a separately observed deadline and an independent fallback; no unbounded wait on the saturated listener or writer.",
+    "on_deadline": "Take INDEPENDENT_ESCALATION once; if approved external control cannot establish quiescence by the final deadline, end UNRESOLVED_QUARANTINED with halt latched and manual rollback required.",
+    "evidence_failure": "A blocked or failed evidence writer must not block stop; missing evidence prevents QUIESCENT_EVIDENCED and preserves quarantine.",
+    "quiescence_guard": "QUIESCENT_EVIDENCED requires an enumerated ledger of all admitted and collateral operations: every read/write task terminal and observed, callbacks/producers ceased, and each buffer/lease owner accounted for. Abort return, cancellation, 408 and process exit alone are insufficient.",
+    "ownership_guard": "No pooled buffer return, slot reuse or clean retirement until the final possible task/callback access is excluded; unresolved owners stay quarantined even after process termination.",
+    "restart_guard": "No transition to RUNNING; new explicit per-run approval is required outside this sketch. No deadlines or termination permission are ratified here."
+  }
 }

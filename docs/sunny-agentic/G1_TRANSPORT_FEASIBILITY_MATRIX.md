@@ -11,7 +11,7 @@ The [feasibility matrix](../../reference/sunny_g1_transport_feasibility/matrix.j
 3. **ASP.NET Core Kestrel** documents \`RequestHeadersTimeout\`, \`MaxConcurrentConnections\`, body-size and minimum body-rate limits ([Kestrel options](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/options?view=aspnetcore-10.0)), plus header count/aggregate-size and request-line limits ([Kestrel limits](https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel/security-considerations)). These constitute a **promising pre-handler design-control candidate**, **not** an approved transport. Its features expose \`IHttpRequestFeature.RawTarget\` and a \`Headers\` value collection ([ASP.NET Core request feature](https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.features.ihttprequestfeature?view=aspnetcore-10.0)); neither fact is by itself proof of *original byte-for-byte Host spelling, duplicate header syntax, CL/TE refusal attribution or HTTP.sys reception*. Kestrel is not HTTP.sys; choosing it would change the future **G1 experiment's** instrumentation and scope, requiring a new reviewed variant, not silently treating G1 HTTP.sys cases as measured. The [IHttpConnectionFeature](https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.features.ihttpconnectionfeature?view=aspnetcore-10.0) exposes local/remote endpoint and a diagnostic connection identifier; a proxy or unverified middleware still requires independent provenance checks.
 4. **Raw \`TcpListener\` / self-written HTTP parsing** could theoretically expose bytes *to the app before the HTTP parser*, but making a strict HTTP/1.1 parser and framing rules would introduce additional request smuggling, slow-header and ownership risks. [Microsoft notes](https://learn.microsoft.com/dotnet/api/system.net.sockets.tcplistener.start) that stopping \`TcpListener\` **does not close accepted connections**. This is a high-effort **comparison only**, *not* a recommendation to replace the installed Sunny transport with a custom parser.
 
-In particular, \`RawTarget\` from an ASP.NET Core request feature is an **API-level interpreted field**, not automatically the first bytes delivered to a TCP endpoint; HTTP.sys and Kestrel have distinct parsing layers. A client-side trace can prove what the client attempted/wrote, not what the server's kernel/user-mode parser received. Each future observation needs provenance and may be \`unobservable\`. Unknown mandatory security properties stay **BLOCK/NO-GO**, not silent exceptions.
+In particular, \`RawTarget\` from an ASP.NET Core request feature is documented as the **request target as sent, without URL decoding**, exposed through a mutable feature, not automatically the first bytes delivered to a TCP endpoint; HTTP.sys and Kestrel have distinct parsing layers. A client-side trace can prove what the client attempted/wrote, not what the server's kernel/user-mode parser received. Each future observation needs provenance and may be \`unobservable\`. Unknown mandatory security properties stay **BLOCK/NO-GO**, not silent exceptions.
 
 ## Matrix: five mandatory properties, no winner declared
 
@@ -44,3 +44,56 @@ This PR's Python tests are **offline schema/negative mutation checks only**, not
 **Recommended next decision after independent review:** determine whether Kestrel's documented bounded header/connection controls justify a **separately specified disposable G1 variant**, while evaluating original Host/CL-TE fidelity and an operator-owned external stop on paper. Alternatively keep HTTP.sys if the required pre-handler and raw evidence can be supported by an independently reviewed method. Do **not** select a transport or start G1 based on this PR.
 
 All 11 G1 start gates remain open, the full 50-case acceptance plan is \`not_run\`, numerical values remain **unratified**, and the user's previous consent to G0 work is not approval to run any network test. **G1: NO-GO. G2 real Sunny/Luna: separately pending.**
+
+## Independent Issue #52 review (G0 only)
+
+All 20 transport/property combinations were reviewed. **No complete mandatory
+method exists in this reference; no transport is selected.** HttpListener still
+lacks a documented pre-context clock/admission method here. HTTP.sys HeaderWait
+still does not establish first-request protection; EntityBody resets on data.
+Kestrel limits are design inputs, not an entire pre-handler resource bound or a
+non-resetting total ingress deadline. A custom parser remains a framing/smuggling
+risk and requires ownership of every accepted connection separately from Stop.
+Any mandatory provenance, occupancy, clock or cleanup property without a feasible
+reviewed method disqualifies that candidate; an API gap cannot be waived by a
+successful client fixture or a timeout response.
+
+Material review corrections, ordered by severity within this inert reference:
+
+- **Medium:** permissive regression checks accepted coordinated replacement of
+  claims/source bindings, allowlisted but unrelated URLs, unknown nested fields,
+  and intermediate stop edges bypassing observation or cycling through escalation.
+  Independent canonical SHA-256 snapshots now pin the reviewed JSON content,
+  including exact sources, fallbacks, graph and guards. Adversarial tests cover
+  nested extra fields, coordinated forgery, skipped observation and cycles.
+  These are drift guards, not a proof of source truth or protection against someone
+  also editing the test pins; changing a pin requires renewed source review.
+- **Medium:** the stop sketch mentioned finite escalation without explicit
+  absolute-clock, blocked-control/evidence-writer failure and quiescence guards.
+  It now requires non-resetting independently observed deadlines, a finite
+  unresolved-quarantine outcome, and an enumerated read/write/callback and
+  buffer/lease ledger before quiescence. Connection/listener abort collateral
+  must be fenced, including complete bodies awaiting commit. This is a future
+  design obligation, with no implemented stop path or approved numeric deadline.
+- **Low:** describing RawTarget simply as interpreted understated its contract.
+  The request feature documents the target as sent without URL decoding; Headers
+  aggregates by name and does not split/merge values across header lines. Neither
+  guarantees original header-name casing, whitespace or parser-rejected CL/TE
+  bytes. The matrix now states this distinction explicitly.
+
+The Learn URLs above could not be fetched during this review because the cloud
+network policy denied that host. Each matrix source now includes a
+`reviewed_source_url` for the independently fetched Microsoft GitHub backing
+source: ASP.NET Core **v10.0.0** API comments, and pinned commits of
+`dotnet/dotnet-api-docs` and `dotnet/AspNetCore.Docs`. Documentation snapshots are
+not evidence for the installed game's .NET/Windows version; API availability,
+protocol scope, non-elevated isolation and actual behavior still need separate
+review. No Windows acceptance result was generated.
+
+The smallest useful next step is an **offline field-by-field provenance and
+resource-ownership design** for one prospective disposable variant: name each
+observation source, pre-handler bound, immutable clock, abort scope and task/buffer
+owner, marking unavailable mandatory evidence BLOCK. No listener is needed for
+that step. This reference is suitable only as **inert G0 material for Draft PR
+#22**; it grants no G1/G2 authority, P1 consent or native Sunny/Luna acceptance.
+All 11 gates stay open and all 50 cases stay not_run (37 G1, 13 G2).

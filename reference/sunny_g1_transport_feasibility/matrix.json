@@ -8,7 +8,7 @@
   "operator_approval": false,
   "g1_executed": false,
   "g2_accepted": false,
-  "review_status": "initial_source_analysis_pending_independent_review",
+  "review_status": "independent_g0_source_review_complete_no_g1_approval",
   "source_review_only": true,
   "source_retrieved_date": "2026-11-09",
   "numeric_limits_ratified": false,
@@ -30,79 +30,92 @@
       "id": "MS-GETCONTEXT",
       "title": "HttpListener.GetContextAsync",
       "url": "https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistener.getcontextasync?view=net-10.0",
-      "claim": "Completes when an incoming request has been received; not documented as a first-byte or partial-header event."
+      "claim": "Completes when an incoming request has been received; not documented as a first-byte or partial-header event.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/dotnet-api-docs/2dc3bcf74e1167d90f5c409a387e950f4f4b719a/xml/System.Net/HttpListener.xml"
     },
     {
       "id": "MS-RAWURL",
       "title": "HttpListenerRequest.RawUrl",
       "url": "https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.rawurl?view=net-10.0",
-      "claim": "URL part after domain; includes query; does not document original Host/header wire multiplicity or pre-handler evidence."
+      "claim": "URL part after domain; includes query; does not document original Host/header wire multiplicity or pre-handler evidence.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/dotnet-api-docs/2dc3bcf74e1167d90f5c409a387e950f4f4b719a/xml/System.Net/HttpListenerRequest.xml"
     },
     {
       "id": "MS-LISTENER-ABORT",
       "title": "HttpListener.Abort",
       "url": "https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistener.abort?view=net-10.0",
-      "claim": "Shuts down listener immediately, discarding queued requests; not per-request task/buffer completion proof."
+      "claim": "Shuts down listener immediately, discarding queued requests; not per-request task/buffer completion proof.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/dotnet-api-docs/2dc3bcf74e1167d90f5c409a387e950f4f4b719a/xml/System.Net/HttpListener.xml"
     },
     {
       "id": "MS-RESPONSE-ABORT",
       "title": "HttpListenerResponse.Abort",
       "url": "https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerresponse.abort?view=net-10.0",
-      "claim": "Closes response/context and client connection; does not independently prove pending app ReadAsync completion."
+      "claim": "Closes response/context and client connection; does not independently prove pending app ReadAsync completion.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/dotnet-api-docs/2dc3bcf74e1167d90f5c409a387e950f4f4b719a/xml/System.Net/HttpListenerResponse.xml"
     },
     {
       "id": "MS-HTTPSYS-SERVER",
       "title": "ASP.NET Core HTTP.sys server options",
       "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/httpsys?view=aspnetcore-10.0",
-      "claim": "Has MaxConnections, RequestQueueLimit and TimeoutManager; availability/enforceability under isolated non-elevated setup unverified."
+      "claim": "Has MaxConnections, RequestQueueLimit and TimeoutManager; availability/enforceability under isolated non-elevated setup unverified.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Servers/HttpSys/src/HttpSysOptions.cs"
     },
     {
       "id": "MS-HTTPSYS-HEADER",
       "title": "HTTP.sys TimeoutManager.HeaderWait",
       "url": "https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.server.httpsys.timeoutmanager.headerwait",
-      "claim": "HeaderWait only enforced after first request on connection routed to application; first-request slow-header protection not established."
+      "claim": "HeaderWait only enforced after first request on connection routed to application; first-request slow-header protection not established.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Servers/HttpSys/src/TimeoutManager.cs"
     },
     {
       "id": "MS-HTTPSYS-TIME",
       "title": "HTTP.sys TimeoutManager",
       "url": "https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.server.httpsys.timeoutmanager?view=aspnetcore-10.0",
-      "claim": "EntityBody timer resets upon more data indications, so not a monotonic whole-ingress deadline; RequestQueue limit separate."
+      "claim": "EntityBody timer resets upon more data indications, so not a monotonic whole-ingress deadline; RequestQueue limit separate.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Servers/HttpSys/src/TimeoutManager.cs"
     },
     {
       "id": "MS-KESTREL-LIMITS",
       "title": "Kestrel server options",
       "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/options?view=aspnetcore-10.0",
-      "claim": "RequestHeadersTimeout, MaxConcurrentConnections, body size and rate limits documented; not a verified total first-byte deadline."
+      "claim": "RequestHeadersTimeout, MaxConcurrentConnections, body size and rate limits documented; not a verified total first-byte deadline.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/AspNetCore.Docs/1a347f480357e679f40c87738f4d4fe13c458ce8/aspnetcore/fundamentals/servers/kestrel/options.md"
     },
     {
       "id": "MS-KESTREL-SECURITY",
       "title": "Kestrel limits and security considerations",
       "url": "https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel/security-considerations",
-      "claim": "Header total/count and request-line limits documented; settings not automatically equal raw-wire fidelity."
+      "claim": "Header total/count and request-line limits documented; settings not automatically equal raw-wire fidelity.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/AspNetCore.Docs/1a347f480357e679f40c87738f4d4fe13c458ce8/aspnetcore/fundamentals/servers/kestrel/security-considerations.md"
     },
     {
       "id": "MS-RAW-TARGET",
       "title": "ASP.NET Core IHttpRequestFeature",
       "url": "https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.features.ihttprequestfeature?view=aspnetcore-10.0",
-      "claim": "RawTarget and header value arrays exposed as features; not a guarantee of byte-for-byte raw Host/duplicate line syntax after parsing."
+      "claim": "RawTarget is the request target as sent, without URL decoding; Headers aggregates by name with values not split or merged across lines. Neither promises complete original header bytes or parser-rejected request evidence.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Http/Http.Features/src/IHttpRequestFeature.cs"
     },
     {
       "id": "MS-CONNECTION",
       "title": "ASP.NET Core IHttpConnectionFeature",
       "url": "https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.features.ihttpconnectionfeature?view=aspnetcore-10.0",
-      "claim": "Local/remote IP/port and ConnectionId exposed; server provenance still must be verified."
+      "claim": "Local/remote IP/port and ConnectionId exposed; server provenance still must be verified.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Http/Http.Features/src/IHttpConnectionFeature.cs"
     },
     {
       "id": "MS-CONTEXT-ABORT",
       "title": "ASP.NET Core HttpContext.Abort",
       "url": "https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.httpcontext.abort",
-      "claim": "Aborts connection underlying request; does not guarantee observed completion of an uncooperative application task."
+      "claim": "Aborts connection underlying request; does not guarantee observed completion of an uncooperative application task.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Http/Http.Abstractions/src/HttpContext.cs"
     },
     {
       "id": "MS-TCP-STOP",
       "title": "TcpListener.Start/Stop",
       "url": "https://learn.microsoft.com/dotnet/api/system.net.sockets.tcplistener.start",
-      "claim": "Stopping listener does not close accepted connections; custom parser/connection/buffer ownership risk remains."
+      "claim": "Stopping listener does not close accepted connections; custom parser/connection/buffer ownership risk remains.",
+      "reviewed_source_url": "https://raw.githubusercontent.com/dotnet/dotnet-api-docs/2dc3bcf74e1167d90f5c409a387e950f4f4b719a/xml/System.Net.Sockets/TcpListener.xml"
     }
   ],
   "rows": [
@@ -198,7 +211,7 @@
       "transport": "ASPNET-HttpSys",
       "gate_id": "G1E-02",
       "assessment": "documented_partial",
-      "evidence": "IHttpRequestFeature.RawTarget/Headers exposes parsed API values, not necessarily original wire Host duplication, CL/TE or kernel refusal evidence.",
+      "evidence": "IHttpRequestFeature.RawTarget documents target as sent without URL decoding; Headers preserves value arrays by name, not original header-name casing, whitespace or rejected CL/TE request bytes.",
       "source_ids": [
         "MS-RAW-TARGET"
       ],
@@ -259,7 +272,7 @@
       "transport": "Kestrel",
       "gate_id": "G1E-02",
       "assessment": "documented_partial",
-      "evidence": "IHttpRequestFeature.RawTarget and Headers value arrays available; parsed properties still not full original wire/Host spelling or kernel-level rejection trace.",
+      "evidence": "IHttpRequestFeature.RawTarget documents target as sent without URL decoding; Headers preserves value arrays by name, not original header-name casing, whitespace or rejected CL/TE request bytes.",
       "source_ids": [
         "MS-RAW-TARGET",
         "MS-CONNECTION"

@@ -6,6 +6,7 @@ installed Sunny, API keys or game. Passing cannot select a transport.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -38,7 +39,23 @@ ABORT_STATES = (
 )
 
 
+# Reviewed G0 artifact snapshots. These pins cover nested keys, exact source URLs,
+# claims, row/source bindings, fallback text, and the complete stop graph/guards.
+# They detect fixture-only drift (including coordinated edits), not truth or a
+# malicious edit to this test. Changes require a new human/source review; never
+# regenerate these constants automatically from MATRIX/STOP at test runtime.
+REVIEWED_MATRIX_SHA256 = "85d89efb5b51348cef587b47ab4980b08092760375ad7cc0a6f39500877b5ef0"
+REVIEWED_STOP_SHA256 = "d991f485ffe615e08514c3099c56fc23adcce394150a93a8505c0a46e13a57c5"
+
+
+def check_reviewed_snapshot(value: dict, expected: str) -> None:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"),
+                         ensure_ascii=False).encode("utf-8")
+    assert hashlib.sha256(encoded).hexdigest() == expected
+
+
 def check_matrix(m: dict) -> None:
+    check_reviewed_snapshot(m, REVIEWED_MATRIX_SHA256)
     assert m["schema_version"] == 1
     assert m["phase"] == "2K"
     assert m["name"] == "sunny-g1-transport-feasibility-g0"
@@ -50,7 +67,7 @@ def check_matrix(m: dict) -> None:
     assert m["g2_accepted"] is False
     assert m["numeric_limits_ratified"] is False
     assert m["source_review_only"] is True
-    assert m["review_status"] == "initial_source_analysis_pending_independent_review"
+    assert m["review_status"] == "independent_g0_source_review_complete_no_g1_approval"
     assert m["mandatory_gate_ids"] == ["G1E-03", "G1E-04", "G1E-02", "G1E-05", "G1E-06"]
     assert m["transport_ids"] == ["HttpListener", "ASPNET-HttpSys", "Kestrel", "TcpListener-custom-HTTP"]
     assert m["assessment_values"] == ["not_established", "documented_partial", "custom_design_burden"]
@@ -100,6 +117,7 @@ def check_matrix(m: dict) -> None:
 
 
 def check_stop(s: dict) -> None:
+    check_reviewed_snapshot(s, REVIEWED_STOP_SHA256)
     assert s["schema_version"] == 1
     assert s["phase"] == "2K"
     assert s["name"] == "sunny-g1-independent-stop-cleanup-g0-sketch"
@@ -291,3 +309,61 @@ def test_readme_clearly_separates_public_api_claims_from_unrun_windows_acceptanc
         assert term in doc, term
     for source in MATRIX["sources"]:
         assert source["url"].lower() in doc, source["id"]
+
+
+def object_paths(value, path=()):
+    """Exercise unknown fields at every object depth, including list members."""
+    if isinstance(value, dict):
+        yield path
+        for key, child in value.items():
+            yield from object_paths(child, path + (key,))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from object_paths(child, path + (index,))
+
+
+@pytest.mark.parametrize("original,checker", [(MATRIX, check_matrix), (STOP, check_stop)])
+def test_unknown_fields_rejected_at_every_object_depth(original, checker):
+    for path in object_paths(original):
+        forged = copy.deepcopy(original)
+        node = forged
+        for key in path:
+            node = node[key]
+        node["approved_override"] = True
+        with pytest.raises(AssertionError):
+            checker(forged)
+
+
+def test_coordinated_claim_and_source_forgery_is_rejected():
+    forged = copy.deepcopy(MATRIX)
+    for source in forged["sources"]:
+        source["url"] = "https://learn.microsoft.com/en-us/unrelated-but-allowlisted"
+        source["claim"] = "All mandatory properties are documented and safe. " * 3
+    for row in forged["rows"]:
+        row["assessment"] = "documented_partial"
+        row["evidence"] = "The API guarantees original wire evidence and complete cleanup. " * 3
+        row["blocking_condition"] = "No mandatory API gap remains; all requirements satisfied."
+        row["source_ids"] = ["MS-GETCONTEXT"]
+    with pytest.raises(AssertionError):
+        check_matrix(forged)
+
+
+@pytest.mark.parametrize("origin", ["STOP_LATCHED", "TRAFFIC_STOPPED", "ABORT_REQUESTED",
+                                    "DRAIN_OBSERVING", "INDEPENDENT_ESCALATION"])
+@pytest.mark.parametrize("target", ["QUIESCENT_EVIDENCED", "CLOSED_NO_RESTART",
+                                    "STOP_LATCHED"])
+def test_stop_rejects_skipped_observation_and_escalation_cycles(origin, target):
+    forged = copy.deepcopy(STOP)
+    state = next(x for x in forged["states"] if x["id"] == origin)
+    # Replacing edges also catches removal of the unresolved-quarantine fallback.
+    state["allowed_next"] = [target]
+    with pytest.raises(AssertionError):
+        check_stop(forged)
+
+
+@pytest.mark.parametrize("guard", sorted(STOP["escalation_contract"]))
+def test_stop_requires_each_completion_and_finite_escalation_guard(guard):
+    forged = copy.deepcopy(STOP)
+    forged["escalation_contract"][guard] = "Assume cleanup after Abort returns."
+    with pytest.raises(AssertionError):
+        check_stop(forged)
