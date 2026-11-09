@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "phase": "2L",
+  "name": "sunny-kestrel-independent-stop-ownership-g0",
+  "authority": "G0_OFFLINE_DESIGN_ONLY",
+  "decision": "NO_GO_G1_START",
+  "selected_abort_primitive": null,
+  "operator_identity": null,
+  "selected_port": null,
+  "selected_executable": null,
+  "independent_stop_implemented": false,
+  "read_completion_proven": false,
+  "buffer_ownership_proven": false,
+  "numeric_deadline_ratified": false,
+  "g1_authorized": false,
+  "no_automatic_restart": true,
+  "candidate": "Kestrel",
+  "stop_channel": "external_operator_owned_only_not_selected",
+  "stop_policy": {
+    "latch": "Irreversible per-run NO_NEW_ADMISSION and invalidation of every active or committed-body-but-not-final candidate before cleanup.",
+    "clock": "Monotonic absolute deadlines fixed when halt latches, not reset by retry, body progress, writer state or Abort.",
+    "external": "Control available even with all Kestrel/listener/recovery and evidence-writer workers saturated; no HTTP API dependency. Stop, abort and finite escalation must never wait for fixture-sender acknowledgement, task completion, rollback or evidence-writer locks.",
+    "cleanup": "Observe transport read/write tasks, callbacks, collateral connection contexts and pooled buffer last access; no release until completed.",
+    "unresolved": "If stop deadline missed or provenance missing, finish UNRESOLVED_QUARANTINED, not QUIESCENT_EVIDENCED. Rollback or CLOSED_NO_RESTART must preserve the unresolved outcome and quarantine ledger; neither permits capacity/buffer reuse or upgrades the result to quiescent.",
+    "escalation": "Finite external process-level stop may be considered only under future explicit approval; process exit is a stop, not proof of per-request cleanup. An independent watchdog must trigger at the immutable deadline from every nonterminal state, including stalled sender shutdown, abort invocation and observation; missing acknowledgements remain quarantined.",
+    "restart": "Manual rollback plus new explicit operator approval before every fresh run; no in-place re-arm."
+  },
+  "owned_resources": [
+    {
+      "id": "OWN-01",
+      "role": "external_operator",
+      "assigned_identity": null,
+      "review_owner_role": "independent_stop_reviewer",
+      "required_obligation": "Stop must be available outside Kestrel, HTTP request pipeline, worker pool and evidence writer; no selected executable/port, operator yet.",
+      "required_terminal_evidence": "Separate explicit operator identity, external stop control availability and observed invocation/exit with final deadline.",
+      "on_unresolved": "BLOCK and quarantine; no restart",
+      "implemented": false,
+      "approved": false
+    },
+    {
+      "id": "OWN-02",
+      "role": "fixture_sender",
+      "assigned_identity": null,
+      "review_owner_role": "independent_test_reviewer",
+      "required_obligation": "Stop future synthetic writes on halt; never target installed Sunny or any existing service. Sender stop is best-effort concurrent with abort/escalation, never a prerequisite; unacknowledged writes stay unknown.",
+      "required_terminal_evidence": "Per-connection written bytes, pending writes, stopped traffic and approved endpoint inventory.",
+      "on_unresolved": "BLOCK; halt and quarantine unknown synthetic sends",
+      "implemented": false,
+      "approved": false
+    },
+    {
+      "id": "OWN-03",
+      "role": "transport_process",
+      "assigned_identity": null,
+      "review_owner_role": "independent_transport_reviewer",
+      "required_obligation": "Own listener lifetime, accepted connection list, shutdown and external termination collateral distinct from connection abort.",
+      "required_terminal_evidence": "Bound process and accepted-connection inventory, actual terminal event, bound endpoints unbound and no global OS mutation.",
+      "on_unresolved": "BLOCK; process exit alone not per-request cleanup",
+      "implemented": false,
+      "approved": false
+    },
+    {
+      "id": "OWN-04",
+      "role": "request_read_task",
+      "assigned_identity": null,
+      "review_owner_role": "independent_cleanup_reviewer",
+      "required_obligation": "Track body ReadAsync owner and every terminal/canceled-but-pending continuation with epoch/alias.",
+      "required_terminal_evidence": "Task completion observed for each pending and collateral request; cancellation signal alone insufficient.",
+      "on_unresolved": "BLOCK; retain pending capacity and quarantine buffers",
+      "implemented": false,
+      "approved": false
+    },
+    {
+      "id": "OWN-05",
+      "role": "response_write_task",
+      "assigned_identity": null,
+      "review_owner_role": "independent_cleanup_reviewer",
+      "required_obligation": "Track response output, headers including 100-continue and late callbacks after disconnect/abort.",
+      "required_terminal_evidence": "Write task terminal with correlated request ID, buffer last-access evidence and no private output.",
+      "on_unresolved": "BLOCK; no safe cleanup claim",
+      "implemented": false,
+      "approved": false
+    },
+    {
+      "id": "OWN-06",
+      "role": "pooled_buffers_and_leases",
+      "assigned_identity": null,
+      "review_owner_role": "independent_cleanup_reviewer",
+      "required_obligation": "Every pooled buffer, reference and lease has a last-access owner before any safe release.",
+      "required_terminal_evidence": "Verified final access excluded, owner quiescent, safe release or recorded unresolved quarantine.",
+      "on_unresolved": "BLOCK; do not return to pool/reuse capacity",
+      "implemented": false,
+      "approved": false
+    },
+    {
+      "id": "OWN-07",
+      "role": "evidence_observer",
+      "assigned_identity": null,
+      "review_owner_role": "independent_evidence_reviewer",
+      "required_obligation": "Observer/evidence writer may fail or block and must not be required to invoke emergency stop.",
+      "required_terminal_evidence": "Independent observation source, loss-of-evidence marker and fallback trace without private data.",
+      "on_unresolved": "BLOCK for incomplete evidence; stop still works",
+      "implemented": false,
+      "approved": false
+    },
+    {
+      "id": "OWN-08",
+      "role": "manual_rollback_and_restart",
+      "assigned_identity": null,
+      "review_owner_role": "user_operator",
+      "required_obligation": "Exact disposable executable, endpoint inventory, OS changes and leftover tasks reconciled before any later run. Closure preserves every unresolved owner and quarantine; no release based on process exit or rollback alone.",
+      "required_terminal_evidence": "Reviewed rollback record, remaining quarantine, independent explicit new run consent; never auto restart.",
+      "on_unresolved": "BLOCK further G1 start",
+      "implemented": false,
+      "approved": false
+    }
+  ],
+  "proposed_state_flow": [
+    "RUNNING_UNAPPROVED_MODEL",
+    "STOP_LATCHED",
+    "TRAFFIC_STOPPED",
+    "ABORT_REQUESTED",
+    "OBSERVE_READ_WRITE_AND_COLLATERAL",
+    "QUIESCENT_EVIDENCED_OR_UNRESOLVED_QUARANTINED",
+    "MANUAL_ROLLBACK",
+    "CLOSED_NO_RESTART"
+  ],
+  "terminal_statuses": [
+    "QUIESCENT_EVIDENCED_OR_UNRESOLVED_QUARANTINED",
+    "CLOSED_NO_RESTART"
+  ],
+  "unselected_parameters": [
+    {
+      "id": "stop_owner_name",
+      "value": null,
+      "approval_required": true
+    },
+    {
+      "id": "external_control_channel",
+      "value": null,
+      "approval_required": true
+    },
+    {
+      "id": "abort_scope_and_collateral",
+      "value": null,
+      "approval_required": true
+    },
+    {
+      "id": "first_byte_clock_provenance",
+      "value": null,
+      "approval_required": true
+    },
+    {
+      "id": "abort_grace_limit_ms",
+      "value": null,
+      "approval_required": true
+    },
+    {
+      "id": "external_stop_deadline_ms",
+      "value": null,
+      "approval_required": true
+    },
+    {
+      "id": "total_teardown_deadline_ms",
+      "value": null,
+      "approval_required": true
+    },
+    {
+      "id": "buffer_owner_ledger_implementation",
+      "value": null,
+      "approval_required": true
+    },
+    {
+      "id": "test_process_binary_sha",
+      "value": null,
+      "approval_required": true
+    },
+    {
+      "id": "approved_disposable_endpoint",
+      "value": null,
+      "approval_required": true
+    }
+  ],
+  "no_real_observations": true,
+  "no_windows_listener": true,
+  "no_network_probe": true,
+  "g2_game_authorization_not_established": true,
+  "contract_warning": "Design only; flags and fields are not proof of real task quiescence, an actual abort API, Windows behavior, or operator authorization.",
+  "state_flow_interpretation": "Design milestones only, not a blocking sequential algorithm or executable transitions. From STOP_LATCHED, sender stop and transport abort proceed independently; external deadline escalation can bypass any stalled milestone. QUIESCENT_EVIDENCED and UNRESOLVED_QUARANTINED are distinct persistent outcomes, never interchangeable; CLOSED_NO_RESTART preserves that outcome and all quarantines."
+}

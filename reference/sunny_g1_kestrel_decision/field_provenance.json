@@ -1,0 +1,509 @@
+{
+  "schema_version": 1,
+  "phase": "2L",
+  "name": "sunny-kestrel-provisional-transport-decision-g0",
+  "parent_sha": "36d90ae0e814f94cb7266ff789f90a3ef3477bff",
+  "authority": "G0_OFFLINE_DESIGN_ONLY",
+  "decision": "NO_GO_G1_START",
+  "candidate": "Kestrel",
+  "candidate_state": "prospective_disposable_variant_only_not_selected",
+  "selected_transport": null,
+  "g1_variant_authorized": false,
+  "operator_approval": false,
+  "numeric_limits_ratified": false,
+  "live_windows_observations": false,
+  "g2_runtime_acceptance": false,
+  "source_version": "ASP.NET Core 10.x documentation; installed mod game-free tests net6.0; exact disposable test target/runtime unresolved",
+  "doc_sources": [
+    {
+      "id": "KESTREL-OPTIONS",
+      "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/options?view=aspnetcore-10.0",
+      "scope": "Documents RequestHeadersTimeout, MaxConcurrentConnections, MaxRequestBodySize and minimum body/response data rates; not an absolute ingress deadline."
+    },
+    {
+      "id": "KESTREL-ENDPOINTS",
+      "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/endpoints?view=aspnetcore-10.0",
+      "scope": "Documents explicit Listen(IPAddress.Loopback, port) versus localhost dual-stack and wildcard/host URL binding behavior; no port chosen here."
+    },
+    {
+      "id": "KESTREL-SECURITY",
+      "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/security-considerations?view=aspnetcore-10.0",
+      "scope": "Documents header size/count and request line limits; not original byte-for-byte header provenance."
+    },
+    {
+      "id": "RAW-FEATURE",
+      "url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Http/Http.Features/src/IHttpRequestFeature.cs",
+      "scope": "RawTarget is request target as sent without URL decoding; Headers aggregate by name, retaining distinct values across lines, not original header-name bytes."
+    },
+    {
+      "id": "CONNECTION-FEATURE",
+      "url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Http/Http.Features/src/IHttpConnectionFeature.cs",
+      "scope": "Exposes connection ID and local/remote address; original peer provenance requires the chosen direct-binding topology."
+    },
+    {
+      "id": "HTTP-CONTEXT",
+      "url": "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.0/src/Http/Http.Abstractions/src/HttpContext.cs",
+      "scope": "Abort aborts underlying connection; RequestAborted is cancellation notification, not proof arbitrary application work has terminated."
+    },
+    {
+      "id": "HTTP-CONTEXT-GUIDE",
+      "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/use-http-context?view=aspnetcore-10.0",
+      "scope": "Documents request abort notification and handling; bounded completion of all owned operations is still separate."
+    },
+    {
+      "id": "PREVIOUS-2K",
+      "url": "docs/sunny-agentic/G1_TRANSPORT_FEASIBILITY_MATRIX.md",
+      "scope": "Previously reviewed four-transport source feasibility and NO-GO matrix, not Windows evidence."
+    }
+  ],
+  "field_rows": [
+    {
+      "id": "FIELD-01",
+      "gate_id": "G1E-03",
+      "field": "headers_receiving_timeout",
+      "origin_layer": "server_before_handler",
+      "documented_interface_or_control": "Kestrel Limits.RequestHeadersTimeout bounds receive-header duration; not a combined body lifetime.",
+      "source_ids": [
+        "KESTREL-OPTIONS"
+      ],
+      "design_assessment": "documented_partial",
+      "entry_review_needed": "Confirm exact start/reference domain and handling of first request, keepalive and HTTP/1.1; pin target API version.",
+      "mandatory_unknown_fallback": "BLOCK if no enforceable total pre-handler resource bound",
+      "evidence_owner_role": "independent_transport_reviewer",
+      "phase2f_case_ids": [
+        "TIME-01",
+        "TIME-05"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-02",
+      "gate_id": "G1E-03",
+      "field": "first_byte_and_queue_timestamp",
+      "origin_layer": "kernel_or_transport_before_handler",
+      "documented_interface_or_control": "No documented immutable first-byte/connection-to-handler clock including wait for all queued requests.",
+      "source_ids": [
+        "KESTREL-OPTIONS",
+        "KESTREL-ENDPOINTS"
+      ],
+      "design_assessment": "not_established",
+      "entry_review_needed": "Review feasible equivalent external prehandler bound plus independent clock evidence; application middleware timestamp is late.",
+      "mandatory_unknown_fallback": "BLOCK if first-byte-to-ingress or enforceable equivalent cannot be shown",
+      "evidence_owner_role": "independent_transport_reviewer",
+      "phase2f_case_ids": [
+        "TIME-01",
+        "TIME-05"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-03",
+      "gate_id": "G1E-03",
+      "field": "whole_ingress_body_deadline",
+      "origin_layer": "transport_plus_application",
+      "documented_interface_or_control": "Minimum request-body data rate is not an 8s nonresetting first-byte-to-finished-ingress deadline.",
+      "source_ids": [
+        "KESTREL-OPTIONS"
+      ],
+      "design_assessment": "method_design_required",
+      "entry_review_needed": "Specify immutable clock anchor and transport-owned abort, account header+body and queue, verify body trickle cannot renew.",
+      "mandatory_unknown_fallback": "BLOCK if total-body timing can be reset or started at middleware",
+      "evidence_owner_role": "independent_transport_reviewer",
+      "phase2f_case_ids": [
+        "TIME-01",
+        "TIME-02"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-04",
+      "gate_id": "G1E-04",
+      "field": "connection_capacity_pre_auth",
+      "origin_layer": "transport_before_identity",
+      "documented_interface_or_control": "MaxConcurrentConnections limits open non-upgraded connections; upgraded connections leave that count and have a separate MaxConcurrentUpgradedConnections limit. Neither proves complete pre-auth occupancy.",
+      "source_ids": [
+        "KESTREL-OPTIONS"
+      ],
+      "design_assessment": "documented_partial",
+      "entry_review_needed": "Review protocol/version and prohibit upgrades or independently bound them; include OS backlog, per-IP/unauth occupancy and shutdown control outside HTTP. All finite limits remain unratified.",
+      "mandatory_unknown_fallback": "BLOCK if pre-auth occupancy unbounded",
+      "evidence_owner_role": "independent_resource_reviewer",
+      "phase2f_case_ids": [
+        "TIME-05",
+        "ENV-01"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-05",
+      "gate_id": "G1E-04",
+      "field": "header_request_line_caps",
+      "origin_layer": "transport_parser",
+      "documented_interface_or_control": "Server header total/count/request-line caps; application cannot inspect already rejected bytes.",
+      "source_ids": [
+        "KESTREL-SECURITY"
+      ],
+      "design_assessment": "documented_partial",
+      "entry_review_needed": "Propose finite headers, name/value and request line caps, include duplicate/conflicting header cases and kernel vs app rejection evidence.",
+      "mandatory_unknown_fallback": "BLOCK if harmful frames reach any protected candidate or cannot attribute rejection",
+      "evidence_owner_role": "independent_resource_reviewer",
+      "phase2f_case_ids": [
+        "HDR-03",
+        "FRM-05"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-06",
+      "gate_id": "G1E-04",
+      "field": "body_size_and_rate",
+      "origin_layer": "transport_body",
+      "documented_interface_or_control": "MaxRequestBodySize and minimum body rate are documented; neither by itself proves immutable whole ingress budget.",
+      "source_ids": [
+        "KESTREL-OPTIONS"
+      ],
+      "design_assessment": "documented_partial",
+      "entry_review_needed": "Review 16383/16384/16385-byte variants plus trickle/EOF and actual application-owned read task completion; do not ratify values by JSON.",
+      "mandatory_unknown_fallback": "BLOCK on oversized alloc, unbounded read or unverified stop",
+      "evidence_owner_role": "independent_resource_reviewer",
+      "phase2f_case_ids": [
+        "FRM-06",
+        "FRM-07",
+        "FRM-08"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-07",
+      "gate_id": "G1E-04",
+      "field": "connection_queue_backlog",
+      "origin_layer": "transport_accept_queue",
+      "documented_interface_or_control": "Connection limits alone do not establish all OS TCP/listen accept queue and waiting-request occupancy.",
+      "source_ids": [
+        "KESTREL-OPTIONS",
+        "KESTREL-ENDPOINTS"
+      ],
+      "design_assessment": "not_established",
+      "entry_review_needed": "Review OS/process accept-backlog, keepalive, HTTP/1.1 pipeline and middlewares; independent bounded overload strategy.",
+      "mandatory_unknown_fallback": "BLOCK if any pre-handler queue cannot be bounded safely",
+      "evidence_owner_role": "independent_resource_reviewer",
+      "phase2f_case_ids": [
+        "TIME-05",
+        "FRM-11"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-08",
+      "gate_id": "G1E-02",
+      "field": "raw_request_target",
+      "origin_layer": "listener_feature",
+      "documented_interface_or_control": "IHttpRequestFeature.RawTarget is target as sent, without URL decoding, but is a mutable feature after parsing.",
+      "source_ids": [
+        "RAW-FEATURE"
+      ],
+      "design_assessment": "documented_partial",
+      "entry_review_needed": "Verify feature source before untrusted middleware, parser refusal handling, path transformation and per-connection attribution.",
+      "mandatory_unknown_fallback": "BLOCK when actual original target or routing differentiation cannot be proven",
+      "evidence_owner_role": "independent_provenance_reviewer",
+      "phase2f_case_ids": [
+        "RAW-01",
+        "RAW-02",
+        "RAW-03",
+        "RAW-04"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-09",
+      "gate_id": "G1E-02",
+      "field": "host_header_values",
+      "origin_layer": "listener_feature",
+      "documented_interface_or_control": "IHttpRequestFeature.Headers groups by header name while retaining line values; original Host spelling, line whitespace/order and parser-discarded bytes not promised.",
+      "source_ids": [
+        "RAW-FEATURE"
+      ],
+      "design_assessment": "documented_partial",
+      "entry_review_needed": "Separate sent bytes, server parsed Host values, duplicate/contradictory Host denial and source of any kernel rejection.",
+      "mandatory_unknown_fallback": "BLOCK if security requires lost original Host-line bytes",
+      "evidence_owner_role": "independent_provenance_reviewer",
+      "phase2f_case_ids": [
+        "HOST-01",
+        "HOST-02",
+        "HOST-03"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-10",
+      "gate_id": "G1E-02",
+      "field": "duplicate_cl_te_and_header_rejection",
+      "origin_layer": "transport_parser_or_negative_observation",
+      "documented_interface_or_control": "Parsed values do not establish original rejected Content-Length/Transfer-Encoding or malformed header line bytes.",
+      "source_ids": [
+        "RAW-FEATURE",
+        "KESTREL-SECURITY"
+      ],
+      "design_assessment": "not_established",
+      "entry_review_needed": "Design explicit client-send vs server reject evidence, no handler-candidate, interim responses and unknown-layer attribution.",
+      "mandatory_unknown_fallback": "BLOCK when denial cannot be attributed at required security boundary",
+      "evidence_owner_role": "independent_provenance_reviewer",
+      "phase2f_case_ids": [
+        "FRM-02",
+        "FRM-03",
+        "HDR-02"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-11",
+      "gate_id": "G1E-02",
+      "field": "peer_endpoint_and_spoofed_forwarding",
+      "origin_layer": "connection_feature",
+      "documented_interface_or_control": "IHttpConnectionFeature exposes remote/local endpoint and ConnectionId; forwarded headers are client-supplied absent independently reviewed proxy topology.",
+      "source_ids": [
+        "CONNECTION-FEATURE"
+      ],
+      "design_assessment": "documented_partial",
+      "entry_review_needed": "Require direct approved loopback-only binding and provenance of connection ID, reject forwarded claimed peer or untrusted Host.",
+      "mandatory_unknown_fallback": "BLOCK if identity/trusted peer derived from client headers",
+      "evidence_owner_role": "independent_provenance_reviewer",
+      "phase2f_case_ids": [
+        "HOST-04",
+        "HOST-05",
+        "HDR-04"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-12",
+      "gate_id": "G1E-02",
+      "field": "http_version_expect_and_browser_forms",
+      "origin_layer": "client_and_transport_and_app",
+      "documented_interface_or_control": "HTTP/1.1 protocol, Expect:100-continue, OPTIONS preflight/cookies and response intermediates need per-layer evidence; no game/private routes.",
+      "source_ids": [
+        "RAW-FEATURE",
+        "KESTREL-ENDPOINTS"
+      ],
+      "design_assessment": "method_design_required",
+      "entry_review_needed": "Future test variant must distinguish accepted 100 response, rejected form/preflight and no Authorization/Cookie echo.",
+      "mandatory_unknown_fallback": "BLOCK on private response or unverifiable interim effects",
+      "evidence_owner_role": "independent_provenance_reviewer",
+      "phase2f_case_ids": [
+        "HDR-01",
+        "HDR-05"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-13",
+      "gate_id": "G1E-02",
+      "field": "keepalive_and_pipelining_request_identity",
+      "origin_layer": "per_connection_observation",
+      "documented_interface_or_control": "Connection ID does not itself distinguish every request in a pipelined/keep-alive sequence.",
+      "source_ids": [
+        "CONNECTION-FEATURE",
+        "RAW-FEATURE"
+      ],
+      "design_assessment": "method_design_required",
+      "entry_review_needed": "Keep synthetic request alias, sequence, trace clock domain and stage for each request; no owner inheritance.",
+      "mandatory_unknown_fallback": "BLOCK if one request contaminates the next",
+      "evidence_owner_role": "independent_provenance_reviewer",
+      "phase2f_case_ids": [
+        "FRM-09",
+        "FRM-11"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-14",
+      "gate_id": "G1E-05",
+      "field": "abort_scope_and_application_read",
+      "origin_layer": "connection_abort",
+      "documented_interface_or_control": "HttpContext.Abort aborts underlying connection and RequestAborted signals cancellation; neither documents quiescence of arbitrary user work.",
+      "source_ids": [
+        "HTTP-CONTEXT",
+        "HTTP-CONTEXT-GUIDE"
+      ],
+      "design_assessment": "documented_partial",
+      "entry_review_needed": "Identify transport-owned abort mechanism, handler read completion and collateral per connection; no Task.WhenAny/408 proof.",
+      "mandatory_unknown_fallback": "BLOCK if read remains alive or abort scope unknown",
+      "evidence_owner_role": "independent_stop_reviewer",
+      "phase2f_case_ids": [
+        "TIME-02",
+        "TIME-03"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-15",
+      "gate_id": "G1E-05",
+      "field": "external_independent_emergency_stop",
+      "origin_layer": "separate_operator_control",
+      "documented_interface_or_control": "No built-in Kestrel request middleware is independent of saturated listener/application queues.",
+      "source_ids": [
+        "HTTP-CONTEXT",
+        "PREVIOUS-2K"
+      ],
+      "design_assessment": "not_established",
+      "entry_review_needed": "Source-review a separately owned operator control and bounded kill fallback without invoking a live test or choosing a port.",
+      "mandatory_unknown_fallback": "BLOCK if control depends on listener, queue, writer or handler locks",
+      "evidence_owner_role": "independent_stop_reviewer",
+      "phase2f_case_ids": [
+        "ENV-03",
+        "TIME-05"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-16",
+      "gate_id": "G1E-06",
+      "field": "observed_task_quiescence",
+      "origin_layer": "application_owned_task_ledger",
+      "documented_interface_or_control": "RequestAborted and connection Abort are notifications, not a terminal audit of read/write/callback tasks.",
+      "source_ids": [
+        "HTTP-CONTEXT",
+        "HTTP-CONTEXT-GUIDE"
+      ],
+      "design_assessment": "not_established",
+      "entry_review_needed": "Specify independent, per-request task ledger: response writers, pending body reads, callbacks and collateral all terminal/observed.",
+      "mandatory_unknown_fallback": "BLOCK if any task is still unobserved or late callbacks could touch buffers",
+      "evidence_owner_role": "independent_cleanup_reviewer",
+      "phase2f_case_ids": [
+        "TIME-02",
+        "TIME-06"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-17",
+      "gate_id": "G1E-06",
+      "field": "buffer_and_lease_ownership",
+      "origin_layer": "application_owned_buffers",
+      "documented_interface_or_control": "No ASP.NET API cited guarantees reclamation of application-owned pooled buffers and no late access after abort.",
+      "source_ids": [
+        "HTTP-CONTEXT",
+        "PREVIOUS-2K"
+      ],
+      "design_assessment": "not_established",
+      "entry_review_needed": "Specify owner, buffer ID, last possible access, quarantine and terminal proof for all pending/collateral requests.",
+      "mandatory_unknown_fallback": "BLOCK; do not free/repurpose buffers or claim retirement",
+      "evidence_owner_role": "independent_cleanup_reviewer",
+      "phase2f_case_ids": [
+        "TIME-04",
+        "TIME-06"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    },
+    {
+      "id": "FIELD-18",
+      "gate_id": "G1E-06",
+      "field": "bounded_teardown_and_restart",
+      "origin_layer": "external_control_plus_observation",
+      "documented_interface_or_control": "App or process stop is not proof every request task/buffer safely completed.",
+      "source_ids": [
+        "HTTP-CONTEXT",
+        "PREVIOUS-2K"
+      ],
+      "design_assessment": "method_design_required",
+      "entry_review_needed": "Fixed independent monotonic deadlines; finite escalation; QUARANTINED if no proof; manual rollback and new explicit restart approval.",
+      "mandatory_unknown_fallback": "BLOCK if stop times out, evidence writer fails or collaterals unknown",
+      "evidence_owner_role": "independent_cleanup_reviewer",
+      "phase2f_case_ids": [
+        "ENV-03",
+        "TIME-06"
+      ],
+      "actual_windows_observation": false,
+      "validated_for_net6": false,
+      "approved": false,
+      "current_verdict": "BLOCK_PENDING_REVIEW"
+    }
+  ],
+  "open_entry_gate_ids": [
+    "G1E-01",
+    "G1E-02",
+    "G1E-03",
+    "G1E-04",
+    "G1E-05",
+    "G1E-06",
+    "G1E-07",
+    "G1E-08",
+    "G1E-09",
+    "G1E-10",
+    "G1E-11"
+  ],
+  "requirements": {
+    "provenance": "Client bytes attempted vs Kestrel parser outcome vs HttpContext/IHttpRequestFeature exposed values are distinct, request attributed. Any mandatory unobservable original wire stays BLOCK.",
+    "admission": "No request may become a real Sunny/game/P1 effect; G1 future disposable variant is isolated, synthetic-only and must be independently approved.",
+    "prehandler": "RequestHeadersTimeout, MaxConcurrentConnections and body-rate controls are partial; no trusted whole-ingress first-byte/queue deadline or complete preauth limits yet.",
+    "abort": "RequestAborted/HttpContext.Abort never imply terminal task/buffer proof. Retain capacity and quarantine until all owners observed complete.",
+    "version": "Do not assume Microsoft v10 API descriptions prove Windows/net6 behavior; decide runtime/build/protocol only after independent review.",
+    "g1_mapping": "Rework the 37 HTTP.sys-specific cases as a separately reviewed Kestrel variant, never rewrite their not_run status or claim equivalent measured HTTP.sys outcomes.",
+    "stop": "External operator-controlled finite stop, independent of Kestrel pipeline/evidence writer, with deadline, collateral invalidation, quarantine and manual restart.",
+    "decision_boundary": "No G1 entry gate closes automatically; a reviewed G0 method and independently ratified numbers plus separate explicit operator consent would be needed."
+  },
+  "known_blockers": [
+    "FIELD-02",
+    "FIELD-07",
+    "FIELD-10",
+    "FIELD-15",
+    "FIELD-16",
+    "FIELD-17"
+  ],
+  "next_design_review": "Independently review field-level feasibility, candidate version parity and external stop/buffer ownership; if no safe design for a mandatory property, BLOCK this candidate and keep alternative comparison open.",
+  "no_real_data": true,
+  "no_port_selected": true,
+  "no_listener_created": true,
+  "no_auto_go": true
+}
