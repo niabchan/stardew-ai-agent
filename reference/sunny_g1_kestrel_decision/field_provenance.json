@@ -129,12 +129,12 @@
       "gate_id": "G1E-04",
       "field": "connection_capacity_pre_auth",
       "origin_layer": "transport_before_identity",
-      "documented_interface_or_control": "MaxConcurrentConnections counts concurrent TCP connections; this is not per-authenticated-principal or game P2 queue capacity.",
+      "documented_interface_or_control": "MaxConcurrentConnections limits open non-upgraded connections; upgraded connections leave that count and have a separate MaxConcurrentUpgradedConnections limit. Neither proves complete pre-auth occupancy.",
       "source_ids": [
         "KESTREL-OPTIONS"
       ],
       "design_assessment": "documented_partial",
-      "entry_review_needed": "Propose finite connections, per-IP/unauth occupancy and reserved shutdown control independent from HTTP; rationale and isolated limits unratified.",
+      "entry_review_needed": "Review protocol/version and prohibit upgrades or independently bound them; include OS backlog, per-IP/unauth occupancy and shutdown control outside HTTP. All finite limits remain unratified.",
       "mandatory_unknown_fallback": "BLOCK if pre-auth occupancy unbounded",
       "evidence_owner_role": "independent_resource_reviewer",
       "phase2f_case_ids": [

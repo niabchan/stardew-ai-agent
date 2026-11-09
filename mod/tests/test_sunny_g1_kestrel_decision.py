@@ -8,19 +8,50 @@ from __future__ import annotations
 
 import copy
 import json
+import hashlib
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 REF = ROOT / "reference" / "sunny_g1_kestrel_decision"
-FIELD = json.loads((REF / "field_provenance.json").read_text(encoding="utf-8"))
-STOP = json.loads((REF / "stop_ownership.json").read_text(encoding="utf-8"))
-READINESS = json.loads((ROOT / "reference/sunny_g1_readiness/gates.json").read_text(encoding="utf-8"))
-CASES = json.loads((ROOT / "reference/sunny_windows_http_acceptance/cases.json").read_text(encoding="utf-8"))
-LIMITS = json.loads((ROOT / "reference/sunny_http_resource_limits/proposed_limits.json").read_text(encoding="utf-8"))
-BASE = json.loads((ROOT / "reference/sunny_g1_transport_feasibility/matrix.json").read_text(encoding="utf-8"))
+
+
+def reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def load_json(raw):
+    return json.loads(raw, object_pairs_hook=reject_duplicate_keys)
+
+
+def semantic_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+FIELD = load_json((REF / "field_provenance.json").read_text(encoding="utf-8"))
+STOP = load_json((REF / "stop_ownership.json").read_text(encoding="utf-8"))
+READINESS = load_json((ROOT / "reference/sunny_g1_readiness/gates.json").read_text(encoding="utf-8"))
+CASES = load_json((ROOT / "reference/sunny_windows_http_acceptance/cases.json").read_text(encoding="utf-8"))
+LIMITS = load_json((ROOT / "reference/sunny_http_resource_limits/proposed_limits.json").read_text(encoding="utf-8"))
+BASE = load_json((ROOT / "reference/sunny_g1_transport_feasibility/matrix.json").read_text(encoding="utf-8"))
 DOC = ROOT / "docs/sunny-agentic/G1_KESTREL_DECISION_DESIGN.md"
+
+# Reviewed semantic pins detect fixture drift, not authenticity or changes to this test.
+# Never derive expected pins from the loaded artifacts at test runtime.
+REVIEWED_SHA256 = {'FIELD': '3d9423814c0016b0f96ae4b06e32315e8f5521c1e9b2852b03c8aa46f2b2062b',
+ 'STOP': 'c818503f6c63580180eeeaaa11f5671586e9e5cdaf3db4ed05c2b5358db69884',
+ 'READINESS': '6a3b30fe50316a6d015b64673ece437849598ef69f08520a623255cb8db4beba',
+ 'CASES': 'ae192787a75bbc8ccec6e362720adfd540ebb88a1d7bda3b9b2f40d88dc24f82',
+ 'LIMITS': '61ac96429122658058c18e903f69d934fdaafafa9cd991e41d7d2b0f16da9605',
+ 'BASE': '85d89efb5b51348cef587b47ab4980b08092760375ad7cc0a6f39500877b5ef0'}
+
 
 FIELD_IDS = tuple(f"FIELD-{i:02d}" for i in range(1, 19))
 GATE_BY_FIELD = {
@@ -80,6 +111,7 @@ G1_CASES = {
 
 def validate_field_contract(m: dict) -> None:
     """Require the current, entirely unapproved G0 proposal (no GO path)."""
+    assert semantic_digest(m) == REVIEWED_SHA256["FIELD"]
     assert m["schema_version"] == 1
     assert m["phase"] == "2L"
     assert m["name"] == "sunny-kestrel-provisional-transport-decision-g0"
@@ -147,6 +179,7 @@ def validate_field_contract(m: dict) -> None:
 
 
 def validate_stop_contract(s: dict) -> None:
+    assert semantic_digest(s) == REVIEWED_SHA256["STOP"]
     assert s["schema_version"] == 1
     assert s["phase"] == "2L"
     assert s["name"] == "sunny-kestrel-independent-stop-ownership-g0"
@@ -379,3 +412,64 @@ def test_doc_is_consistent_with_unapproved_kestrel_candidate() -> None:
     ):
         assert phrase in doc, phrase
     assert "no requirement to choose kestrel" in doc
+
+
+def test_inherited_g0_artifacts_have_no_coordinated_status_or_case_drift():
+    for name, value in (("READINESS", READINESS), ("CASES", CASES),
+                        ("LIMITS", LIMITS), ("BASE", BASE)):
+        assert semantic_digest(value) == REVIEWED_SHA256[name]
+
+
+def nested_mutations(value):
+    """Mutate every leaf, inject every object, and drop/duplicate every list item."""
+    if isinstance(value, dict):
+        yield {**value, "forged_approval_or_ci": "passed"}
+        for key, child in value.items():
+            for changed in nested_mutations(child):
+                yield {**value, key: changed}
+    elif isinstance(value, list):
+        for i, child in enumerate(value):
+            yield value[:i] + value[i + 1:]
+            yield value[:i] + [child, child] + value[i + 1:]
+            for changed in nested_mutations(child):
+                yield value[:i] + [changed] + value[i + 1:]
+    else:
+        yield not value if isinstance(value, bool) else "forged_observed_and_approved"
+
+
+@pytest.mark.parametrize("name,validate", [
+    ("FIELD", validate_field_contract), ("STOP", validate_stop_contract),
+])
+def test_every_nested_claim_and_schema_mutation_is_rejected(name, validate):
+    for changed in nested_mutations(globals()[name]):
+        with pytest.raises((AssertionError, KeyError, TypeError, ValueError)):
+            validate(changed)
+
+
+@pytest.mark.parametrize("raw", [
+    '{"operator_approval":true,"operator_approval":false}',
+    '{"row":{"approved":true,"approved":false}}',
+    '{"rows":[{"implemented":true,"implemented":false}]}',
+])
+def test_duplicate_keys_are_rejected_before_validation(raw):
+    with pytest.raises(ValueError, match="duplicate JSON key"):
+        load_json(raw)
+
+
+@pytest.mark.parametrize("change", ["valid_wrong_case", "valid_wrong_source",
+                                      "unsafe_cleanup", "fake_ci"])
+def test_previously_accepted_plausible_forgeries_are_rejected(change):
+    m, s = copy.deepcopy(FIELD), copy.deepcopy(STOP)
+    if change == "valid_wrong_case":
+        m["field_rows"][0]["phase2f_case_ids"] = ["ENV-02"]
+    elif change == "valid_wrong_source":
+        m["field_rows"][0]["source_ids"] = ["RAW-FEATURE"]
+    elif change == "fake_ci":
+        m.update(ci_status="passed", operator_approved=True)
+    else:
+        s["stop_policy"]["cleanup"] = "Observe cancellation then immediately return all pooled buffers without task completion."
+    with pytest.raises(AssertionError):
+        if change == "unsafe_cleanup":
+            validate_stop_contract(s)
+        else:
+            validate_field_contract(m)

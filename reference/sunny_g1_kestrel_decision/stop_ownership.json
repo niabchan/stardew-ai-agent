@@ -19,10 +19,10 @@
   "stop_policy": {
     "latch": "Irreversible per-run NO_NEW_ADMISSION and invalidation of every active or committed-body-but-not-final candidate before cleanup.",
     "clock": "Monotonic absolute deadlines fixed when halt latches, not reset by retry, body progress, writer state or Abort.",
-    "external": "Control available even with all Kestrel/listener/recovery and evidence-writer workers saturated; no HTTP API dependency.",
+    "external": "Control available even with all Kestrel/listener/recovery and evidence-writer workers saturated; no HTTP API dependency. Stop, abort and finite escalation must never wait for fixture-sender acknowledgement, task completion, rollback or evidence-writer locks.",
     "cleanup": "Observe transport read/write tasks, callbacks, collateral connection contexts and pooled buffer last access; no release until completed.",
-    "unresolved": "If stop deadline missed or provenance missing, finish UNRESOLVED_QUARANTINED, not QUIESCENT_EVIDENCED.",
-    "escalation": "Finite external process-level stop may be considered only under future explicit approval; process exit is a stop, not proof of per-request cleanup.",
+    "unresolved": "If stop deadline missed or provenance missing, finish UNRESOLVED_QUARANTINED, not QUIESCENT_EVIDENCED. Rollback or CLOSED_NO_RESTART must preserve the unresolved outcome and quarantine ledger; neither permits capacity/buffer reuse or upgrades the result to quiescent.",
+    "escalation": "Finite external process-level stop may be considered only under future explicit approval; process exit is a stop, not proof of per-request cleanup. An independent watchdog must trigger at the immutable deadline from every nonterminal state, including stalled sender shutdown, abort invocation and observation; missing acknowledgements remain quarantined.",
     "restart": "Manual rollback plus new explicit operator approval before every fresh run; no in-place re-arm."
   },
   "owned_resources": [
@@ -42,7 +42,7 @@
       "role": "fixture_sender",
       "assigned_identity": null,
       "review_owner_role": "independent_test_reviewer",
-      "required_obligation": "Stop future synthetic writes on halt; never target installed Sunny or any existing service.",
+      "required_obligation": "Stop future synthetic writes on halt; never target installed Sunny or any existing service. Sender stop is best-effort concurrent with abort/escalation, never a prerequisite; unacknowledged writes stay unknown.",
       "required_terminal_evidence": "Per-connection written bytes, pending writes, stopped traffic and approved endpoint inventory.",
       "on_unresolved": "BLOCK; halt and quarantine unknown synthetic sends",
       "implemented": false,
@@ -108,7 +108,7 @@
       "role": "manual_rollback_and_restart",
       "assigned_identity": null,
       "review_owner_role": "user_operator",
-      "required_obligation": "Exact disposable executable, endpoint inventory, OS changes and leftover tasks reconciled before any later run.",
+      "required_obligation": "Exact disposable executable, endpoint inventory, OS changes and leftover tasks reconciled before any later run. Closure preserves every unresolved owner and quarantine; no release based on process exit or rollback alone.",
       "required_terminal_evidence": "Reviewed rollback record, remaining quarantine, independent explicit new run consent; never auto restart.",
       "on_unresolved": "BLOCK further G1 start",
       "implemented": false,
@@ -185,5 +185,6 @@
   "no_windows_listener": true,
   "no_network_probe": true,
   "g2_game_authorization_not_established": true,
-  "contract_warning": "Design only; flags and fields are not proof of real task quiescence, an actual abort API, Windows behavior, or operator authorization."
+  "contract_warning": "Design only; flags and fields are not proof of real task quiescence, an actual abort API, Windows behavior, or operator authorization.",
+  "state_flow_interpretation": "Design milestones only, not a blocking sequential algorithm or executable transitions. From STOP_LATCHED, sender stop and transport abort proceed independently; external deadline escalation can bypass any stalled milestone. QUIESCENT_EVIDENCED and UNRESOLVED_QUARANTINED are distinct persistent outcomes, never interchangeable; CLOSED_NO_RESTART preserves that outcome and all quarantines."
 }

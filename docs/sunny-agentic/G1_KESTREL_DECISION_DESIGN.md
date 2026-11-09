@@ -19,6 +19,8 @@ The parent is [Draft PR #22](https://github.com/niabchan/stardew-ai-agent/pull/2
 
 Kestrel has documented independent configuration controls: [\`RequestHeadersTimeout\`, \`MaxConcurrentConnections\`, \`MaxRequestBodySize\` and minimum data rates](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/options?view=aspnetcore-10.0). The [endpoint binding guide](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/endpoints?view=aspnetcore-10.0) distinguishes an explicit IPv4 loopback \`Listen(IPAddress.Loopback, ...)\` from \`localhost\` dual-stack and wildcard bindings. **None has been configured or run.** In particular, header timeout and data-rate controls do **not by themselves** prove a non-resetting total ingress deadline covering all pre-handler work.
 
+Connection-cap review must include upgrades: upgraded connections leave `MaxConcurrentConnections` and use the separate `MaxConcurrentUpgradedConnections` limit. A future HTTP/1.1-only variant must explicitly prohibit upgrades or independently bound them, and still account for OS backlog. No such policy is implemented.
+
 **API-version caution:** the linked public descriptions are primarily ASP.NET Core v10; the current game-free mod tests target .NET 6. A future isolated testbed may choose a specific supported version after separate review; do not infer interoperability, runtime support, user-machine requirements or behavior simply by copying examples. No package/build/port was selected here.
 
 ## Eighteen reviewed-*design* questions, not eighteen passed controls
@@ -53,6 +55,8 @@ ASP.NET Core [\`HttpContext.Abort\`](https://raw.githubusercontent.com/dotnet/as
 
 The [separate ownership and stop contract](../../reference/sunny_g1_kestrel_decision/stop_ownership.json) describes **eight resource/role groups** and requirements for a stop channel not dependent on Kestrel's HTTP request/recovery workers or the evidence writer. It requires a monotonic non-resetting stop deadline, collateral fencing (including completed body but uncommitted candidate), terminal read/write task observations, buffer/lease quarantine if ambiguous, and new manual approval before another test run.
 
+The JSON flow lists design milestones, not blocking sequential steps. After the stop latch, sender shutdown and transport abort proceed independently. An external watchdog must escalate at the immutable deadline from **every nonterminal state**, even if sender acknowledgement, abort invocation, task observation or the evidence writer stalls. Missing observations yield `UNRESOLVED_QUARANTINED`; manual rollback and `CLOSED_NO_RESTART` preserve that outcome and its ownership ledger, never authorize buffer/capacity reuse or convert it to quiescence.
+
 No stop operator, process, abort mechanism, execution time limit, externally operable control, or evidence recorder is implemented or approved by this PR. A state machine in JSON is **not** a runnable emergency stop.
 
 ### 4. Kestrel cannot inherit HTTP.sys acceptance by analogy
@@ -68,3 +72,5 @@ The next useful small **G0-only** review artifact should choose *one field-level
 Before G1 can start, **all 11 entry gates need appropriate independently reviewed design/approval evidence**, finite experiment-only limits, an approved source/build and disposable loopback setup, a safe independent stop and **new explicit operator consent for that exact run**. G1 exit would then require the reviewed actual results of the 37 *applicable* Windows transport cases; G2 must independently cover Sunny/Luna runtime, P1 consent and all-route authorization.
 
 **Status at close of this document: \`NO_GO_G1_START\`. This is an inert G0 candidate decision design, not a Kestrel selection, an executable program, a Windows result or a change to installed Sunny.**
+
+The offline guards pin the complete reviewed semantic manifests and inherited readiness/case/limit artifacts, reject duplicate JSON keys, and exercise nested claim, source/case binding, unknown-key and stop-policy mutations. Pins detect drift; they are not signatures, authentic CI evidence, operator consent or proof of Windows behavior. Coordinated edits to the tests themselves still require independent review.
