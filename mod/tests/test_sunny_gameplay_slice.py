@@ -174,10 +174,11 @@ def test_different_attempt_id_does_not_override_unresolved_fake_action():
 
 def test_reload_after_dispatch_yields_unknown_and_keeps_pending_marker():
     class ReloadAfterDispatch(FakeGame):
-        def observe(self):
-            if self.pending_attempt is not None:
-                self.epoch = "load-2"
-            return super().observe()
+        def dispatch(self, action, expected, attempt):
+            response = super().dispatch(action, expected, attempt)
+            if response == "ack":
+                self.epoch = "load-2"  # after the fake effect, before verification
+            return response
 
     world = ReloadAfterDispatch()
     loop = OfflineController(world, ScriptedChooser("MOVE_TO_CHAIR"))
@@ -202,8 +203,13 @@ def test_dispatch_exception_after_fake_effect_is_unknown_not_retried():
 
 def test_observation_failure_after_effect_is_unknown():
     class ReadFailsAfterDispatch(FakeGame):
+        def dispatch(self, action, expected, attempt):
+            response = super().dispatch(action, expected, attempt)
+            self.post_read_fails = True
+            return response
+
         def observe(self):
-            if self.pending_attempt is not None:
+            if getattr(self, "post_read_fails", False):
                 raise IOError("simulated post-action state read failure")
             return super().observe()
 
