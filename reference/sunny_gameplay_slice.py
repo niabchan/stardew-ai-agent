@@ -56,23 +56,38 @@ class FakeGame:
         self.attempt_serial += 1
         return f"offline-attempt-{self.attempt_serial}"
 
-    def dispatch(self, action, expected, attempt):
-        """Illustrative atomic snapshot gate and *pre-effect pending marker*."""
+    def prepare(self, action, expected, attempt):
+        """Toy 'journal before send': reserve unique intent before calling dispatch."""
         current = self.observe()
         if (current != expected or not current.ready or not current.p1_is_human
                 or not current.p2_is_ai or action != "MOVE_TO_CHAIR"
                 or action not in current.options or not attempt
                 or self.pending_attempt is not None or attempt in self.seen_attempts):
-            return "rejected"
-        # This marker exists before the fake effect. It survives controller object
-        # recreation using the SAME FakeGame object, but is NOT persisted to disk.
+            return False
         self.pending_attempt = attempt
         self.seen_attempts.add(attempt)
+        return True
+
+    def dispatch(self, action, expected, attempt):
+        """Apply fake effect ONLY if pre-reserved and snapshot still matches."""
+        current = self.observe()
+        if (self.pending_attempt != attempt or current != expected
+                or not current.ready or not current.p1_is_human
+                or not current.p2_is_ai or action != "MOVE_TO_CHAIR"
+                or action not in current.options):
+            return "rejected_before_effect"
         self.dispatched.append((attempt, action, "p2"))
         if self.delivery != "ack_no_effect":
             self.sunny_tile = self.chair_tile
             self.revision += 1
         return "lost_reply" if self.delivery == "lost_reply" else "ack"
+
+    def finish_rejected(self, attempt):
+        """Fake authoritative rejection *before effect*, not a timeout response."""
+        if self.pending_attempt != attempt:
+            return False
+        self.pending_attempt = None
+        return True
 
     def finish_observed_action(self, attempt):
         """Toy completion of ONE fake action after caller's verification."""
@@ -80,7 +95,6 @@ class FakeGame:
             return False
         self.pending_attempt = None
         return True
-
 
 class ScriptedChooser:
     """Injected choices only: NOT Luna inference, no provider calls."""
@@ -134,12 +148,22 @@ class OfflineController:
             return StepResult("STAY", choice)
         attempt = self.world.new_attempt()
         try:
-            dispatch = self.world.dispatch(choice, before, attempt)
+            admitted = self.world.prepare(choice, before, attempt)
         except Exception:
-            # A dispatch exception might occur AFTER the fake effect.
             self.halted = True
             return StepResult("UNKNOWN", choice, attempt)
-        if dispatch == "rejected":
+        if not admitted:
+            self.halted = True
+            return StepResult("BLOCKED_STALE_OR_DENIED", choice, attempt)
+        # Reserve first: if dispatch fails before or after the effect, a fresh
+        # controller referencing this SAME world sees pending and cannot retry.
+        try:
+            dispatch = self.world.dispatch(choice, before, attempt)
+        except Exception:
+            self.halted = True
+            return StepResult("UNKNOWN", choice, attempt)
+        if dispatch == "rejected_before_effect":
+            self.world.finish_rejected(attempt)  # unambiguously no fake effect
             self.halted = True
             return StepResult("BLOCKED_STALE_OR_DENIED", choice, attempt)
         if dispatch != "ack":
