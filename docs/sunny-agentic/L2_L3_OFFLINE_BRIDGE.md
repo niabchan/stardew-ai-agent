@@ -53,3 +53,19 @@ The local, **extracted** `scripts/sunny_freeplay.py` was inspected read-only by 
 
 **New game-free checks:** `python -m pytest -q mod/tests/test_sunny_p11_option_contract.py`. These test only the published, operator-reported v0.3.10 source grammar as copied into the static reference module. Exact source snippets are neither a complete executable script nor a proof of current binary/controller behavior.
 
+
+
+## Extracted v0.3.10 source: model reply and pre-dispatch check (operator lines 269–293, 390–422)
+
+A narrower read-only excerpt of the **extracted P11** script clarifies the boundary between model choice and game action:
+
+- \`choose_luna\` lines 269–275 use a 90-second HTTP request timeout and **do not automatically retry** a model HTTP error, lost response, or other uncertain model result. This is *model-call failure handling*, **not** evidence that a game tool has been invoked or that a possible game action is reconciled.
+- Lines 276–293 require a response object with \`status=="completed"\`, exactly one function-call item named \`choose_sunny_freeplay\`, JSON-encoded arguments containing exactly the two string fields \`option_id\` and \`text\`, and an \`option_id\` present in the **offered options**. Speech must be 1–150 characters, trimmed, and contain none of CR/LF/TAB/\`<>{}\`/backslash; non-speech actions require an empty \`text\`.
+- Lines 390–406 journal the model's selected activity, return from \`stay\` **without game dispatch**, or translate the chosen activity to a tool name and parameters. A failed model response is journalled as \`model_uncertain\`.
+- Lines 409–422 **re-read** game state before dispatch, check \`state_gate\` and whether P2's tile still matches the previous observation, cancel if the gate or position changed, and perform an additional wake-specific check. The excerpt **ends while entering the special step precondition check**: it does **not** establish all of the subsequent step/seat/owner/dispatch or post-effect handling.
+
+**New G0-only contract tests:** \`inspect_p11_model_reply\` was added to \`reference/sunny_p11_option_contract.py\` with synthetic Responses-style envelopes and deterministic tests in \`mod/tests/test_sunny_p11_option_contract.py\`. It validates the same function-call **shape**, then returns an **inert** \`P11Plan\` (never an executable command). Additional restrictive policy blocks \`@\` in P1-directed speech because GitHub Mod source indicates \`@name\` can interrupt the human recipient. **This extra rule is not claimed to exist in the extracted historical Controller.** Missing/rejected/uncertain model data does not trigger any game dispatch in this G0 reference code.
+
+**Remaining unknown:** exact \`mcp_call\` response parsing (P11 starts at line 296), the pre-dispatch step/stand checks beyond line 422, and how the historical controller independently confirms a post-action effect. A text match, JSON-RPC acknowledgement, \`isError=false\`, or \`structuredContent.ok=true\` is not enough for actual verified sitting/movement/TV/communication. **Neither the installed DLL SHA nor the GitHub source establishes the real run environment.**
+
+Do not merge/deploy or run Windows/Luna/SMAPI as a result of these passing toy checks; independent review Issue #59 and all G1/G2 entry gates remain open.
