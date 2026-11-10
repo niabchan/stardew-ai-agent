@@ -1,10 +1,10 @@
-"""G0-only tests: synthetic gameplay loop, never a real Sunny/Luna/HTTP test."""
+"""G0-only: inert fake-world L2 outcomes. Not real Luna/HTTP/game safety."""
 from dataclasses import fields
 
 from reference.sunny_gameplay_slice import FakeGame, OfflineController, ScriptedChooser
 
 
-def test_two_independent_choices_move_then_stay():
+def test_two_choices_move_then_stay_and_complete_fake_pending_attempt():
     world = FakeGame()
     choose = ScriptedChooser("MOVE_TO_CHAIR", "STAY")
     loop = OfflineController(world, choose)
@@ -16,6 +16,7 @@ def test_two_independent_choices_move_then_stay():
     assert choose.calls == 2
     assert world.sunny_tile == (7, 4)
     assert world.dispatched == [("offline-attempt-1", "MOVE_TO_CHAIR", "p2")]
+    assert world.pending_attempt is None
     assert not loop.halted
 
 
@@ -26,10 +27,26 @@ def test_lost_reply_is_unknown_even_if_effect_happened_and_never_retried():
     loop = OfflineController(world, choose)
 
     assert loop.step().verdict == "UNKNOWN"
-    assert world.sunny_tile == (7, 4)  # effect could have happened
+    assert world.sunny_tile == (7, 4)  # fake effect may have happened
+    assert world.pending_attempt == "offline-attempt-1"
     assert loop.step().verdict == "BLOCKED_UNRESOLVED"
     assert choose.calls == 1
     assert len(world.dispatched) == 1
+
+
+def test_controller_recreation_cannot_erase_shared_fake_pending_marker():
+    world = FakeGame()
+    world.delivery = "ack_no_effect"
+    first = OfflineController(world, ScriptedChooser("MOVE_TO_CHAIR"))
+    assert first.step().verdict == "UNKNOWN"
+    assert world.pending_attempt == "offline-attempt-1"
+
+    # New controller object, SAME in-memory fake world; no new choice or action.
+    new_chooser = ScriptedChooser("MOVE_TO_CHAIR")
+    second = OfflineController(world, new_chooser)
+    assert second.step().verdict == "BLOCKED_UNRESOLVED"
+    assert new_chooser.calls == 0
+    assert world.dispatched == [("offline-attempt-1", "MOVE_TO_CHAIR", "p2")]
 
 
 def test_ack_without_observed_change_is_not_success():
@@ -39,6 +56,7 @@ def test_ack_without_observed_change_is_not_success():
     assert loop.step().verdict == "UNKNOWN"
     assert loop.halted
     assert len(world.dispatched) == 1
+    assert world.pending_attempt is not None
 
 
 def test_stay_has_no_dispatch_or_forced_activity():
@@ -46,20 +64,19 @@ def test_stay_has_no_dispatch_or_forced_activity():
     loop = OfflineController(world, ScriptedChooser("STAY"))
     assert loop.step().verdict == "STAY"
     assert world.dispatched == []
+    assert world.pending_attempt is None
 
 
 def test_high_impact_action_not_offered_or_dispatched():
     world = FakeGame()
-    loop = OfflineController(world, ScriptedChooser("MARRY_NPC"))
-    assert loop.step().verdict == "BLOCKED_NOT_OFFERED"
+    assert OfflineController(world, ScriptedChooser("MARRY_NPC")).step().verdict == "BLOCKED_NOT_OFFERED"
     assert world.dispatched == []
 
 
 def test_fireplace_is_future_capability_not_smuggled_into_l2():
     world = FakeGame()
     assert "FIREPLACE_TOGGLE" not in world.observe().options
-    loop = OfflineController(world, ScriptedChooser("FIREPLACE_TOGGLE"))
-    assert loop.step().verdict == "BLOCKED_NOT_OFFERED"
+    assert OfflineController(world, ScriptedChooser("FIREPLACE_TOGGLE")).step().verdict == "BLOCKED_NOT_OFFERED"
     assert world.dispatched == []
 
 
@@ -92,13 +109,34 @@ def test_foreign_owner_cannot_start():
 def test_same_save_new_load_epoch_rejected_before_side_effect():
     class ReloadBeforeDispatch(FakeGame):
         def dispatch(self, action, expected, attempt):
-            self.epoch = "load-2"  # same save/day, new load epoch
+            self.epoch = "load-2"  # same save/day but new host load epoch
             return super().dispatch(action, expected, attempt)
 
     world = ReloadBeforeDispatch()
     loop = OfflineController(world, ScriptedChooser("MOVE_TO_CHAIR"))
     assert loop.step().verdict == "BLOCKED_STALE_OR_DENIED"
     assert loop.halted
+    assert world.dispatched == []
+    assert world.pending_attempt is None
+
+
+def test_epoch_change_between_choices_blocks_second_without_rebind():
+    world = FakeGame()
+    chooser = ScriptedChooser("MOVE_TO_CHAIR", "STAY")
+    loop = OfflineController(world, chooser)
+    assert loop.step().verdict == "VERIFIED_FAKE"
+    world.epoch = "load-2"  # same save/day reload, no explicit new approval
+    assert loop.step().verdict == "BLOCKED_STALE_EPOCH"
+    assert chooser.calls == 1
+    assert world.dispatched == [("offline-attempt-1", "MOVE_TO_CHAIR", "p2")]
+
+
+def test_new_controller_does_not_automatically_accept_stale_epoch():
+    world = FakeGame()
+    world.epoch = "load-2"
+    chooser = ScriptedChooser("MOVE_TO_CHAIR")
+    assert OfflineController(world, chooser, expected_epoch="load-1").step().verdict == "BLOCKED_STALE_EPOCH"
+    assert chooser.calls == 0
     assert world.dispatched == []
 
 
@@ -111,6 +149,7 @@ def test_changed_world_revision_rejected_before_side_effect():
     world = MutateBeforeDispatch()
     assert OfflineController(world, ScriptedChooser("MOVE_TO_CHAIR")).step().verdict == "BLOCKED_STALE_OR_DENIED"
     assert world.dispatched == []
+    assert world.pending_attempt is None
 
 
 def test_duplicate_attempt_rejected_without_second_effect():
@@ -119,6 +158,79 @@ def test_duplicate_attempt_rejected_without_second_effect():
     assert world.dispatch("MOVE_TO_CHAIR", before, "attempt-a") == "ack"
     assert world.dispatch("MOVE_TO_CHAIR", before, "attempt-a") == "rejected"
     assert len(world.dispatched) == 1
+    assert world.pending_attempt == "attempt-a"
+
+
+def test_different_attempt_id_does_not_override_unresolved_fake_action():
+    world = FakeGame()
+    before = world.observe()
+    world.delivery = "ack_no_effect"
+    assert world.dispatch("MOVE_TO_CHAIR", before, "attempt-a") == "ack"
+    assert world.dispatch("MOVE_TO_CHAIR", before, "attempt-b") == "rejected"
+    assert len(world.dispatched) == 1
+
+
+def test_reload_after_dispatch_yields_unknown_and_keeps_pending_marker():
+    class ReloadAfterDispatch(FakeGame):
+        def observe(self):
+            if self.pending_attempt is not None:
+                self.epoch = "load-2"
+            return super().observe()
+
+    world = ReloadAfterDispatch()
+    loop = OfflineController(world, ScriptedChooser("MOVE_TO_CHAIR"))
+    assert loop.step().verdict == "UNKNOWN"
+    assert world.pending_attempt == "offline-attempt-1"
+    assert OfflineController(world, ScriptedChooser("STAY")).step().verdict == "BLOCKED_UNRESOLVED"
+
+
+def test_dispatch_exception_after_fake_effect_is_unknown_not_retried():
+    class RaiseAfterMutation(FakeGame):
+        def dispatch(self, action, expected, attempt):
+            super().dispatch(action, expected, attempt)
+            raise RuntimeError("simulated reply failure")
+
+    world = RaiseAfterMutation()
+    assert OfflineController(world, ScriptedChooser("MOVE_TO_CHAIR")).step().verdict == "UNKNOWN"
+    assert world.sunny_tile == world.chair_tile
+    assert world.pending_attempt is not None
+    assert OfflineController(world, ScriptedChooser("MOVE_TO_CHAIR")).step().verdict == "BLOCKED_UNRESOLVED"
+    assert len(world.dispatched) == 1
+
+
+def test_observation_failure_after_effect_is_unknown():
+    class ReadFailsAfterDispatch(FakeGame):
+        def observe(self):
+            if self.pending_attempt is not None:
+                raise IOError("simulated post-action state read failure")
+            return super().observe()
+
+    world = ReadFailsAfterDispatch()
+    assert OfflineController(world, ScriptedChooser("MOVE_TO_CHAIR")).step().verdict == "UNKNOWN"
+    assert world.pending_attempt is not None
+    assert len(world.dispatched) == 1
+
+
+def test_chooser_exception_never_dispatches():
+    def bad_chooser(_):
+        raise RuntimeError("simulated model failure")
+
+    world = FakeGame()
+    assert OfflineController(world, bad_chooser).step().verdict == "BLOCKED_CHOICE_UNAVAILABLE"
+    assert world.pending_attempt is None
+    assert world.dispatched == []
+
+
+def test_initial_observation_exception_never_calls_chooser_or_dispatches():
+    class ObserveUnavailable(FakeGame):
+        def observe(self):
+            raise IOError("simulated source unavailable")
+
+    world = ObserveUnavailable()
+    chooser = ScriptedChooser("MOVE_TO_CHAIR")
+    assert OfflineController(world, chooser).step().verdict == "BLOCKED_OBSERVATION_UNAVAILABLE"
+    assert chooser.calls == 0
+    assert world.dispatched == []
 
 
 def test_observation_never_contains_raw_p1_diary_or_chat():
