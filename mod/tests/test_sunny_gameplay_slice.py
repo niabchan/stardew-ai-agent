@@ -155,8 +155,9 @@ def test_changed_world_revision_rejected_before_side_effect():
 def test_duplicate_attempt_rejected_without_second_effect():
     world = FakeGame()
     before = world.observe()
+    assert world.prepare("MOVE_TO_CHAIR", before, "attempt-a")
     assert world.dispatch("MOVE_TO_CHAIR", before, "attempt-a") == "ack"
-    assert world.dispatch("MOVE_TO_CHAIR", before, "attempt-a") == "rejected"
+    assert not world.prepare("MOVE_TO_CHAIR", before, "attempt-a")
     assert len(world.dispatched) == 1
     assert world.pending_attempt == "attempt-a"
 
@@ -165,8 +166,9 @@ def test_different_attempt_id_does_not_override_unresolved_fake_action():
     world = FakeGame()
     before = world.observe()
     world.delivery = "ack_no_effect"
+    assert world.prepare("MOVE_TO_CHAIR", before, "attempt-a")
     assert world.dispatch("MOVE_TO_CHAIR", before, "attempt-a") == "ack"
-    assert world.dispatch("MOVE_TO_CHAIR", before, "attempt-b") == "rejected"
+    assert not world.prepare("MOVE_TO_CHAIR", before, "attempt-b")
     assert len(world.dispatched) == 1
 
 
@@ -239,3 +241,26 @@ def test_observation_never_contains_raw_p1_diary_or_chat():
     assert "private_p1_diary" not in {f.name for f in fields(obs)}
     assert "NEVER EXPOSE" not in repr(obs)
     assert not any("feed" in f.name or "chat" in f.name for f in fields(obs))
+
+
+
+def test_prepare_marker_survives_exception_before_effect_for_new_controller():
+    class CrashBeforeMutation(FakeGame):
+        def dispatch(self, action, expected, attempt):
+            raise IOError("simulated failure before knowing if write was sent")
+
+    world = CrashBeforeMutation()
+    assert OfflineController(world, ScriptedChooser("MOVE_TO_CHAIR")).step().verdict == "UNKNOWN"
+    assert world.dispatched == []
+    assert world.pending_attempt == "offline-attempt-1"
+    chooser = ScriptedChooser("MOVE_TO_CHAIR")
+    assert OfflineController(world, chooser).step().verdict == "BLOCKED_UNRESOLVED"
+    assert chooser.calls == 0
+
+
+def test_unprepared_action_is_never_executed():
+    world = FakeGame()
+    before = world.observe()
+    assert world.dispatch("MOVE_TO_CHAIR", before, "not-prepared") == "rejected_before_effect"
+    assert world.dispatched == []
+    assert world.pending_attempt is None
