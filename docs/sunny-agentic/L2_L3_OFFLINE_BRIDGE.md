@@ -31,3 +31,25 @@ Eleven test cases cover integration of two independent decisions, STAY pause, un
 ## Real integration gates
 
 Read-only inspect **exact extracted v0.3.10 P11 chooser action schema** and corresponding safe Mod dispatcher. Do not infer executable action support from substring searches. No live P2 test or change to SteamLibrary is allowed yet: Issue #59's independent PR #58 review is open, G1 resource/auth/privacy/independent-stop preflight gates remain open, G1/G2 verification not run. `NO_GO_G1_START`, `NO_GO_LIVE_G2`; do not merge, deploy, call Luna or launch game as part of this PR.
+
+
+## Exact v0.3.10 P11 offer IDs (operator supplied source lines 219–268, 402–405)
+
+The local, **extracted** `scripts/sunny_freeplay.py` was inspected read-only by the operator (SHA-256 `F049A9502E073A487C473B962D8FD0A53968FD4C15E80B25F9547A23A5E6F156`). These are **source facts, not proof of runtime-loaded controller**:
+
+| Observed controller option | Source condition to offer | Real source target | Integration meaning |
+| --- | --- | --- | --- |
+| `F0 stay` | unconditional in `options_for` | **none**, no MCP dispatch | First-class no-action choice |
+| `F1 chair` | exactly one observed chair, one target tile | `interact(x,y,reason)` | **Seat-toggle interaction**, not the L2 toy's `MOVE_TO_CHAIR`; seated status requires independent verification |
+| `F2 tv_weather` / `F3 tv_fortune` | `objects['tvs']` is nonempty | `watch_tv(channel=weather/fortune, reason)` | Two separate channel intents |
+| `F4 speak` | `nearby_guy(state)` is true | `say(text)`, 1–150 characters | Proximity only; busy/consent **not** established. Do not automatically add `@Guy` |
+| `M1`–`M8 move` | up to eight `open_tiles(grid, origin, state)` | `walk_to(x,y,reason)` | **Clear Cabin tiles**, not arbitrary movement anywhere or a generic approach to P1 |
+
+`choose_luna` submits exactly the listed options plus a bounded context: farm day, game time/weather, Sunny's tile, nearby-Guy boolean, up to six temperament traits and six recent activities. It requests one strict function call with fields `option_id` and `text`, `parallel_tool_calls=False` and no fixed mandatory conversation or game-clock schedule (operator-supplied lines 237–266). This **shows a source design for model autonomy**, but actual model acceptance, correct reply parsing, operational permissions and tool outcomes are not yet proven. The functions behind `nearby_guy`, `open_tiles`, exact response parsing and the P10/P12 loop remain to be reviewed if integration requires them.
+
+`reference/sunny_p11_option_contract.py` provides **inert, static grammar checks** for these IDs and a `P11Plan` displaying which MCP-shaped tool call *would* be needed. Its `CONTRACT_ONLY` verdict **must never be treated as execution approval**; it does not use `Request`, a token, the real Luna client, actual `status/look`, the local Windows scripts or the Mod. It deliberately refuses unoffered IDs, forged ID/action pairings and arbitrary target coords from a chooser, and adds a conservative **proposal-only** speech restriction on `@` because the current Mod's `say` tool description says `@name` may interrupt the recipient. This latter restriction is **stricter than** the extracted P11's known 1–150 character validation, not a claim of current P11 runtime behavior. Only the already-existing `STAY` and toy `MOVE_TO_CHAIR` are dispatched by the isolated L2/L3 fake bridge; no P11 tool call is dispatched by this contract.
+
+**Critical distinction:** We have no evidence that P11's `chair` action is equivalent to L2 `MOVE_TO_CHAIR`. Nor does `F4` authorize searching for/approaching P1 when `nearby_guy` is false, and it has no explicit busy-state or cancellation during approach. The future social feature remains design-only in Issue #57.
+
+**New game-free checks:** `python -m pytest -q mod/tests/test_sunny_p11_option_contract.py`. These test only the published, operator-reported v0.3.10 source grammar as copied into the static reference module. Exact source snippets are neither a complete executable script nor a proof of current binary/controller behavior.
+
