@@ -6,6 +6,7 @@ send JSON-RPC, inspect P1 availability, or authorize a side effect.
 No entry point in the live Mod or local controller imports this module.
 """
 from dataclasses import dataclass
+import json
 from typing import Any
 
 
@@ -81,7 +82,9 @@ def plan_p11_choice(options, option_id, text=""):
     action = option["action"]
     if action != "speak" and text:
         return P11Plan("INVALID_NON_SPEECH_TEXT", option_id)
-    if action == "speak" and (not 1 <= len(text) <= 150 or "@" in text):
+    if action == "speak" and (not 1 <= len(text) <= 150 or "@" in text
+                              or text != text.strip()
+                              or any(c in text for c in "\\r\\n\\t<>{}\\\\")):
         # Extra conservative proposal-only restriction. Historical P11
         # checks 1..150 chars; the Mod's @name may interrupt human P1.
         return P11Plan("BLOCKED_SPEECH_POLICY", option_id)
@@ -104,3 +107,32 @@ def plan_p11_choice(options, option_id, text=""):
                        "observe TV-specific result; ACK alone is not enough")
     return P11Plan("CONTRACT_ONLY", option_id, "say", {"text": text},
                    "verify intended nearby P1 delivery without forced @name interrupt")
+
+
+def inspect_p11_model_reply(response, options):
+    """G0 contract check for the *shape* seen in extracted P11 lines 269-293.
+
+    Only an INERT P11Plan is returned. This function does not call a provider,
+    execute a tool, or decide whether the game was changed. It applies an
+    additional conservative no-@ speech rule absent from the old controller.
+    """
+    if not isinstance(response, dict) or response.get("status") != "completed":
+        return P11Plan("MODEL_INCOMPLETE_OR_UNAVAILABLE")
+    output = response.get("output")
+    if not isinstance(output, list):
+        return P11Plan("INVALID_MODEL_REPLY")
+    calls = [value for value in output if isinstance(value, dict) and value.get("type") == "function_call"]
+    if len(calls) != 1 or calls[0].get("name") != "choose_sunny_freeplay":
+        return P11Plan("INVALID_MODEL_REPLY")
+    arguments = calls[0].get("arguments")
+    if not isinstance(arguments, str):
+        return P11Plan("INVALID_MODEL_REPLY")
+    try:
+        fields = json.loads(arguments)
+    except (ValueError, TypeError):
+        return P11Plan("INVALID_MODEL_REPLY")
+    if not isinstance(fields, dict) or set(fields) != {"option_id", "text"}:
+        return P11Plan("INVALID_MODEL_REPLY")
+    if any(not isinstance(value, str) for value in fields.values()):
+        return P11Plan("INVALID_MODEL_REPLY")
+    return plan_p11_choice(options, fields["option_id"], fields["text"])
