@@ -84,7 +84,7 @@ def plan_p11_choice(options, option_id, text=""):
         return P11Plan("INVALID_NON_SPEECH_TEXT", option_id)
     if action == "speak" and (not 1 <= len(text) <= 150 or "@" in text
                               or text != text.strip()
-                              or any(c in text for c in "\\r\\n\\t<>{}\\\\")):
+                              or any(ord(c) in (9, 10, 13, 60, 62, 92, 123, 125) for c in text)):
         # Extra conservative proposal-only restriction. Historical P11
         # checks 1..150 chars; the Mod's @name may interrupt human P1.
         return P11Plan("BLOCKED_SPEECH_POLICY", option_id)
