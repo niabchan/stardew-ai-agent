@@ -2,7 +2,7 @@
 from dataclasses import replace
 
 from reference.sunny_p11_option_contract import plan_p11_choice
-from reference.sunny_p11_post_action import (FakeP2Snapshot, assess_after_action,
+from reference.sunny_p11_post_action import (FakeP2Snapshot, FakeEffectDecision, assess_after_action,
     interpret_run_once_report, fake_activity_memory, fake_recent_activity_context,
     FakeActivityMemory)
 from reference.sunny_p11_reply_contract import inspect_mcp_reply
@@ -266,7 +266,9 @@ def test_mismatched_evidence_never_claims_tv_succeeded():
     fake_effect = assess_after_action(plan("move"), reply(),
         FakeP2Snapshot(), replace(FakeP2Snapshot(), revision=2, p2_tile=(8, 9)))
     record = fake_activity_memory(plan("tv"), "success", "ok", fake_effect)
-    assert record.selected_activity_status == "tool_reported_not_game_verified"
+    assert record.selected_activity_status == "outcome_unresolved"
+    assert record.blocks_new_choice
+    assert fake_recent_activity_context([record]) is None
     assert not record.claim_real_completion
 
 
@@ -303,3 +305,96 @@ def test_intent_memory_record_fields_exclude_private_human_content():
     assert names == {"selected_intent", "selected_activity_status",
                      "prerequisite_status", "evidence_level",
                      "claim_real_completion", "blocks_new_choice"}
+
+
+
+def test_forged_memory_cannot_claim_real_game_completion():
+    forged = FakeActivityMemory("tv_weather", "completed", "not_applicable",
+                                "verified_real_game", claim_real_completion=True)
+    assert fake_recent_activity_context([forged]) is None
+
+
+def test_forged_untrusted_intent_text_never_leaks_to_context():
+    forged = FakeActivityMemory("private P1 chat: secret", "not_executed",
+                                "not_applicable", "pre_dispatch_controller_report")
+    assert fake_recent_activity_context([forged]) is None
+
+
+def test_forged_status_with_unblocked_unknown_does_not_bypass_taint():
+    forged = FakeActivityMemory("move", "outcome_unresolved", "unknown",
+                                "journal_uncertain", blocks_new_choice=False)
+    assert fake_recent_activity_context([forged]) is None
+
+
+def test_forged_boolean_flags_cannot_use_truthiness():
+    forged = FakeActivityMemory("move", "not_executed", "not_applicable",
+                                "pre_dispatch_controller_report",
+                                claim_real_completion=0, blocks_new_choice=0)
+    assert fake_recent_activity_context([forged]) is None
+
+
+def test_forged_raw_achievements_not_accepted_even_with_false_claim_flag():
+    forged = FakeActivityMemory("chair", "real_chair_sitting_confirmed",
+                                "not_applicable", "mcp_ack_only")
+    assert fake_recent_activity_context([forged]) is None
+
+
+def test_malformed_precondition_status_intent_pair_is_rejected():
+    forged = FakeActivityMemory("speak", "not_executed",
+                                "stand_acknowledged_not_independently_verified",
+                                "controller_report_only")
+    assert fake_recent_activity_context([forged]) is None
+
+
+def test_mismatched_stay_cannot_be_remembered_as_a_completed_tool():
+    stay = plan_p11_choice(options(), "F0", "")
+    contradictory = fake_activity_memory(stay, "success", "ok")
+    assert contradictory.blocks_new_choice
+    assert fake_recent_activity_context([contradictory]) is None
+
+
+def test_nonmatching_stand_only_and_deferred_unknown_fail_closed():
+    questionable = fake_activity_memory(plan("tv"), "deferred", "unknown")
+    assert questionable.blocks_new_choice
+    assert fake_recent_activity_context([questionable]) is None
+    assert fake_activity_memory(plan("tv"), "success", "stood_only").selected_activity_status == "not_executed"
+
+
+def test_effect_from_other_move_target_cannot_prove_this_move():
+    contradictory = FakeEffectDecision("FAKE_MOVE_OBSERVED", True, "M1", (9, 9))
+    rec = fake_activity_memory(plan("move"), "success", "ok", contradictory)
+    assert rec.selected_activity_status == "outcome_unresolved"
+    assert rec.blocks_new_choice
+
+
+def test_effect_from_other_option_id_cannot_prove_same_target():
+    contradictory = FakeEffectDecision("FAKE_MOVE_OBSERVED", True, "M2", (8, 9))
+    rec = fake_activity_memory(plan("move"), "success", "ok", contradictory)
+    assert rec.blocks_new_choice
+
+
+def test_effect_fails_closed_when_dispatch_was_unresolved():
+    unresolved = FakeEffectDecision("STOP_UNRESOLVED_MCP_RESULT", False)
+    rec = fake_activity_memory(plan("move"), "success", "ok", unresolved)
+    assert rec.selected_activity_status == "outcome_unresolved"
+    assert rec.evidence_level == "post_effect_unresolved"
+    assert fake_recent_activity_context([rec]) is None
+
+
+def test_unresolved_is_not_erased_by_six_recent_valid_items():
+    one = fake_activity_memory(plan("move"), "success", "ok",
+                               FakeEffectDecision("STOP_UNRESOLVED_MCP_RESULT"))
+    tail = [fake_activity_memory(plan("tv"), "success", "ok") for _ in range(8)]
+    assert fake_recent_activity_context([one, *tail]) is None
+
+
+def test_valid_fake_memory_can_still_create_bounded_context():
+    recs = [
+        fake_activity_memory(plan("move"), "deferred", "option_changed"),
+        fake_activity_memory(plan("tv"), "success", "stood_only"),
+        fake_activity_memory(plan("speak"), "success", "ok"),
+    ]
+    projection = fake_recent_activity_context(recs)
+    assert projection is not None and len(projection) == 3
+    assert projection[1]["selected_activity_status"] == "not_executed"
+    assert all(p["claim_real_completion"] is False for p in projection)
