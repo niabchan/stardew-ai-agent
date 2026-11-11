@@ -119,3 +119,27 @@ The outer loop (lines 477–489) exits on \`outcome='stop'\` or propagated excep
 The G0-only \`interpret_run_once_report\` helper in \`reference/sunny_p11_post_action.py\` separates \`STAND_ONLY_REEVALUATE\` (a prerequisite, selected activity not done) from \`ACK_SUCCESS_REOBSERVE\` (a controller success report, not game-effect proof), \`STAY_AWAIT_CHANGED_SCENE\`, \`DEFER_NO_DISPATCH\`, and \`STOP_UNRESOLVED\`. Eight synthetic tests in \`mod/tests/test_sunny_p11_post_action.py\` test this taxonomy. **This does not replace the original v0.3.10 Python script, drive a real scheduler, prove journal correlation, or authorize effectful dispatch.** The signal \`may_consider_fresh_fake_choice\` is not permission to act without a fresh, verified game observation.
 
 **Recommended later review:** model a *typed memory record* \`intent=move/tv\`, \`completed_prerequisite=stand\`, \`selected_activity_status=not_executed\`, \`outcome=stood_only\`; keep source controller's useful no-retry and revalidation guards. Independently review \`new_attempt_results\` journal correlation, G1 owner/epoch, transport credentials and outcome evidence before any live integration.
+
+
+## Inert typed short-term memory for P11: intent is not a completed action
+
+Following the operator's approval, PR #61 now adds a deliberately **G0-only** typed memory projection inside the existing \`reference/sunny_p11_post_action.py\`; its tests are in the existing \`mod/tests/test_sunny_p11_post_action.py\`. The original local Controller, its \`recent_activity\`, and its prompt are **not modified**.
+
+A \`FakeActivityMemory\` record uses fixed controlled fields:
+
+| Field | Meaning |
+| --- | --- |
+| \`selected_intent\` | The **choice**, e.g. \`move\`, \`tv_weather\`, \`chair\`, \`speak\`, \`stay\` |
+| \`selected_activity_status\` | Separates \`not_executed\`, \`chose_no_action\`, \`tool_reported_not_game_verified\`, \`synthetic_target_tile_observed\`, \`outcome_unresolved\` |
+| \`prerequisite_status\` | Only for the stand-first situation, \`stand_acknowledged_not_independently_verified\`; never an observed \`isSitting=False\` proof |
+| \`evidence_level\` | \`controller_report_only\`, \`mcp_ack_only\`, \`fake_world_only\`, etc.; a truthful indication of source strength |
+| \`claim_real_completion\` | Always \`False\` in this game-free implementation |
+| \`blocks_new_choice\` | True for unknown/inconsistent outcomes, blocking a synthetic next-decision context |
+
+A **stand-only** report now projects as: \`selected_intent=tv_weather\` (or move), \`prerequisite_status=stand_acknowledged_not_independently_verified\`, \`selected_activity_status=not_executed\`. It does **not** claim Sunny watched TV or walked. \`STAY\` remains an active selection of no action, not an implicit failure or a daily quota. Even ordinary P11 \`success\` is labeled a tool report, not verified game behavior.
+
+\`fake_recent_activity_context\` builds a maximum-six-item structured, **synthetic-only** sequence and excludes raw MCP text, P1 chat, diaries and other human-origin data. It refuses to create any next-step context if any unresolved record is present, including one outside the last six, so bounded memory cannot silently erase an unresolved effect. Neither a list nor its fields is authoritative server data; the input is entirely test-supplied.
+
+**Why this is a small change instead of a new planner:** the extracted P11 \`run_once\` already records both \`action\` and \`outcome\`. We retain the same underlying semantics and improve only how a future consumer *could* represent them. The missing \`new_attempt_results\` internals, real evidence/loaded version, authenticated epoch/owner, independent STOP, host privacy gates and G1/G2 approval remain unresolved. No local game/tool calls, source import into the real controller, or deployment.
+
+Tests: \`python -m pytest -q mod/tests/test_sunny_p11_post_action.py\`. A passing test proves only this pure classifier on synthetic inputs.
