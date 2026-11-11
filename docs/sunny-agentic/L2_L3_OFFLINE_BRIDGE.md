@@ -84,3 +84,23 @@ Do not merge/deploy or run Windows/Luna/SMAPI as a result of these passing toy c
 **New *inert* G0 tests:** \`reference/sunny_p11_reply_contract.py\` and \`mod/tests/test_sunny_p11_reply_contract.py\`. The parser accepts only simulated JSON-RPC response objects; it never sends a request or dispatches anything. A fully coherent response is called \`ACK_REOBSERVE\` (**not** \`VERIFIED\`), while inconsistent flags, partial outcomes, untrusted/missing IDs, declared failures or malformed results are \`UNKNOWN_*\` and cannot authorize blind retries. For chair exit, matching stand text provides only \`STAND_REOBSERVE\`, **not actual seated-state proof**. This parser is a proposed conservative policy for eventual review, not a claim that the historical v0.3.10 code already behaves that way.
 
 All G1/G2 no-go gates and draft/independent review requirements remain unchanged; nothing in these tests connects to the user's installed game or authorizes a runtime change.
+
+
+## Final P11 v0.3.10 section inspected: line 486–541, not a verified-action loop
+
+Operator's read-only excerpts of extracted \`sunny_freeplay.py\` show:
+- Lines 486–495: after a stand prerequisite, the script checks a final fresh game-state gate and P2 position again; if the world changed, it records \`stood_only\` and does not send the originally selected activity. If posture is \`uncertain\` or \`snapshot_pending\`, it cancels without a blind chair toggle.
+- Lines 497–504: it records \`dispatch\` **before** invoking a game tool. Any uncertain MCP call records \`unknown\` and returns without an automatic retry.
+- Lines 505–515: after an MCP response, it calls \`read_state\` and records the current P2 coordinate and the reply's \`ok/reason/text\`. **It does not itself compare target against actual position, establish P2 seating state, verify the TV channel, or verify P1 received speech.** It explicitly prints instructions for the human operator to verify walking or chair sitting **visually**. A journal \`ok=true\` at this stage is the **tool-reply flag**, not an independently verified game effect. This file is a *one-shot* \`perform\` command; continuous scheduling may belong to the separate uninspected \`sunny_loop.py\`.
+- Lines 518–541 show the CLI wrapper and exception handling. Read-state exceptions after dispatch may be caught at the outer CLI layer and stop, but that does **not** provide durable reconciliation or proof of which game effect occurred. No claims about subsequent autonomous-loop retries are warranted from this file alone.
+
+### Focused G0 follow-up: evidence-gated *next* choice
+
+\`reference/sunny_p11_post_action.py\` and \`mod/tests/test_sunny_p11_post_action.py\` are **synthetic only**. A fake, explicitly P2-only scene includes save/day/epoch/owner/roles/revision/tile, and the pure policy receives an inert P11 plan and fake MCP reply assessment from the earlier tests.
+
+- A coherent MCP acknowledgement is **only** \`ACK_REOBSERVE\`; if a **new fake snapshot** has unchanged identity and shows an exact selected move target reached, the result is called \`FAKE_MOVE_OBSERVED\`, with permission **only to offer another fake choice**. It is **not independent game causation, actual seat authorization or a real effect verification**. An unchanged/wrong target, unknown result, partial result, failed tool or changed save/epoch/owner/seat roles does not permit re-planning.
+- A chair \`interact\` or TV/speech acknowledgement plus changed P2 coordinates **does not** establish sitting, program playback or P1 receipt. These remain \`DEFER_*\` until a separately trusted, specific evidence source exists. This is an intentionally conservative *proposal for future review*, not a claim that the historical v0.3.10 controller already pauses those activities.
+- \`STAY\` remains no-dispatch and waits for changed observation before another choice. An unresolved result never triggers an automatic effectful retry.
+- \`FakeP2Snapshot\` fields are **caller-supplied in tests**, not authenticated or independent of any tool that caused a game action. The missing server-verified P2 postconditions, durable attempt ID, independent STOP and G1 gates remain **unimplemented**. Even 100% green G0 tests cannot prove the real gameplay loop is safe.
+
+No changes to the operator's local v0.3.10 script, DLL, SteamLibrary, game save, API, or the earlier stacked Draft PRs. No run authorization or merge.
