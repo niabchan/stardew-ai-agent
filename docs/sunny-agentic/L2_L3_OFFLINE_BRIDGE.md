@@ -143,3 +143,14 @@ A **stand-only** report now projects as: \`selected_intent=tv_weather\` (or move
 **Why this is a small change instead of a new planner:** the extracted P11 \`run_once\` already records both \`action\` and \`outcome\`. We retain the same underlying semantics and improve only how a future consumer *could* represent them. The missing \`new_attempt_results\` internals, real evidence/loaded version, authenticated epoch/owner, independent STOP, host privacy gates and G1/G2 approval remain unresolved. No local game/tool calls, source import into the real controller, or deployment.
 
 Tests: \`python -m pytest -q mod/tests/test_sunny_p11_post_action.py\`. A passing test proves only this pure classifier on synthetic inputs.
+
+
+### G0 adversarial review correction: memory records are not intrinsically trusted
+
+A reviewer pass on the inert typed memory code identified a real **test-contract** issue: the original \`fake_recent_activity_context\` checked only \`isinstance(FakeActivityMemory)\` and \`blocks_new_choice\`. A caller could construct the dataclass directly with \`claim_real_completion=True\`, a spoofed \`selected_intent\`, or a contradictory pair such as \`outcome_unresolved\` + \`blocks_new_choice=False\` and have it projected into synthetic context. **Frozen dataclasses are not provenance.**
+
+The updated \`fake_recent_activity_context\` requires canonical allowlisted \`(status, prerequisite, evidence_level, blocks_new_choice)\` combinations and compatible intents; \`claim_real_completion\` must be exactly Boolean \`False\`. If *any* input record is malformed or unresolved, even if it falls outside the final six-item context window, the complete projection is rejected. The test-only status vocabulary is kept narrow and no free-form human-origin text is accepted.
+
+A second correction binds an observed fake move to its **option ID and target tile** within the synthetic \`FakeEffectDecision\`. A success-shaped journal record paired with an unknown post-effect, the wrong activity, the wrong option, or the wrong target yields \`outcome_unresolved\` and blocks the synthetic next-choice context instead of quietly falling back to an ordinary ACK. Contradictory STAY-as-success and ungrounded pre-dispatch defer reasons also fail closed in the fake memory classification. The valid stand-before-TV case remains \`not_executed\`, never \`watched TV\`.
+
+**Scope disclaimer:** the new allowlist proves *shape consistency only*. It cannot authenticate that a canonical fake record was produced by a genuine game action or independently witnessed. Neither fake move option binding nor synthetic ACK is an authorization, durable idempotency key, or actual-world completion proof. No real controller imports these helpers; no production code, Windows game, Lua/SMAPI, Luna API, P1/P2 live data, or operator files were touched. The exact v0.3.10 \`new_attempt_results\` implementation remains uninspected.
