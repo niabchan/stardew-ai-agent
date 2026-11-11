@@ -28,6 +28,8 @@ class FakeEffectDecision:
     # This is ONLY a toy policy permitting an additional synthetic observation
     # round, never dispatch or proof of success in real Stardew/SMAPI.
     can_offer_next_fake_choice: bool = False
+    observed_option_id: str | None = None
+    observed_target: tuple[int, int] | None = None
 
 
 def assess_after_action(plan: P11Plan, reply: ReplyAssessment | None,
@@ -64,7 +66,7 @@ def assess_after_action(plan: P11Plan, reply: ReplyAssessment | None,
             return FakeEffectDecision("DEFER_FAKE_MOVE_NOT_CONFIRMED")
         # Moving the fake tile matches the selected destination, but source
         # authenticity/causation and pathing remain unproved in live game.
-        return FakeEffectDecision("FAKE_MOVE_OBSERVED", True)
+        return FakeEffectDecision("FAKE_MOVE_OBSERVED", True, plan.option_id, target)
 
     if plan.tool == "interact":
         # The actual P11 /api/state had no reliable isSitting field; changed
@@ -185,7 +187,17 @@ def fake_activity_memory(plan, outcome, journal_reason, effect=None):
             return None
         return FakeActivityMemory(intent, "chose_no_action", "not_applicable",
                                   "controller_choice_only")
-    if intent == "stay" or meaning.status == "DEFER_NO_DISPATCH":
+    # Never let a contradictory scheduler signal turn STAY into a game action.
+    if intent == "stay":
+        return FakeActivityMemory(intent, "outcome_unresolved", "unknown",
+                                  "journal_uncertain", blocks_new_choice=True)
+    if meaning.status == "DEFER_NO_DISPATCH":
+        # Only selected PRE-dispatch reasons observed in extracted v0.3.10.
+        # Other cases may also safely defer in the real loop, but a caller-
+        # supplied report without corroboration is not proof of no dispatch.
+        if journal_reason not in ("option_changed", "state_changed", "already_awake"):
+            return FakeActivityMemory(intent, "outcome_unresolved", "unknown",
+                                      "journal_uncertain", blocks_new_choice=True)
         return FakeActivityMemory(intent, "not_executed", "not_applicable",
                                   "pre_dispatch_controller_report")
     if meaning.status == "STAND_ONLY_REEVALUATE":
@@ -198,22 +210,64 @@ def fake_activity_memory(plan, outcome, journal_reason, effect=None):
                                   "controller_report_only")
     if meaning.status != "ACK_SUCCESS_REOBSERVE":
         return None
-    if (isinstance(effect, FakeEffectDecision)
-            and effect.status == "FAKE_MOVE_OBSERVED" and intent == "move"):
-        return FakeActivityMemory(intent, "synthetic_target_tile_observed",
-                                  "not_applicable", "fake_world_only")
+    if effect is not None:
+        # A post-effect report attached to the wrong intent, unknown outcome,
+        # or different offered target is contradictory rather than harmless.
+        args = plan.arguments if isinstance(plan.arguments, dict) else {}
+        matching_move = (isinstance(effect, FakeEffectDecision)
+                         and effect.status == "FAKE_MOVE_OBSERVED"
+                         and effect.can_offer_next_fake_choice is True
+                         and intent == "move"
+                         and effect.observed_option_id == plan.option_id
+                         and effect.observed_target == (args.get("x"), args.get("y")))
+        if matching_move:
+            return FakeActivityMemory(intent, "synthetic_target_tile_observed",
+                                      "not_applicable", "fake_world_only")
+        return FakeActivityMemory(intent, "outcome_unresolved", "unknown",
+                                  "post_effect_unresolved", blocks_new_choice=True)
     return FakeActivityMemory(intent, "tool_reported_not_game_verified",
                               "not_applicable", "mcp_ack_only")
+
+
+# Canonical evidence tuples are checked AGAIN at the context boundary.
+# A Python dataclass instance is not intrinsically trusted: another caller can
+# construct forged statuses, arbitrary human text, and even claim success.
+_MEMORY_STATUS_POLICY = {
+    ("outcome_unresolved", "unknown", "journal_uncertain", True): _INTENTS,
+    ("outcome_unresolved", "unknown", "post_effect_unresolved", True): _INTENTS,
+    ("chose_no_action", "not_applicable", "controller_choice_only", False):
+        frozenset(("stay",)),
+    ("not_executed", "not_applicable", "pre_dispatch_controller_report", False):
+        _INTENTS - frozenset(("stay",)),
+    ("not_executed", "stand_acknowledged_not_independently_verified",
+     "controller_report_only", False):
+        frozenset(("move", "tv_weather", "tv_fortune")),
+    ("tool_reported_not_game_verified", "not_applicable", "mcp_ack_only", False):
+        _INTENTS - frozenset(("stay",)),
+    ("synthetic_target_tile_observed", "not_applicable", "fake_world_only", False):
+        frozenset(("move",)),
+}
+
+
+def _valid_synthetic_memory(record):
+    if (type(record) is not FakeActivityMemory
+            or record.claim_real_completion is not False
+            or type(record.blocks_new_choice) is not bool):
+        return False
+    signature = (record.selected_activity_status, record.prerequisite_status,
+                 record.evidence_level, record.blocks_new_choice)
+    return record.selected_intent in _MEMORY_STATUS_POLICY.get(signature, ())
 
 
 def fake_recent_activity_context(records):
     """At most six evidence-labeled, no-raw-text synthetic memory items.
 
-    A blocked/unknown record disallows this pretend next-step context, rather
-    than laundering unresolved changes into new model-facing history.
+    All inputs are caller-supplied and UNTRUSTED, even frozen dataclasses.
+    Reject one inconsistent or unresolved item anywhere in the history.
+    This context never authorizes further real or fake game actions.
     """
     if not isinstance(records, (list, tuple)):
         return None
-    if any(not isinstance(r, FakeActivityMemory) or r.blocks_new_choice for r in records):
+    if any(not _valid_synthetic_memory(r) or r.blocks_new_choice for r in records):
         return None
     return [r.as_synthetic_context() for r in records[-6:]]
