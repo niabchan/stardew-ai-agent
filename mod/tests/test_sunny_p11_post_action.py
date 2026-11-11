@@ -2,7 +2,9 @@
 from dataclasses import replace
 
 from reference.sunny_p11_option_contract import plan_p11_choice
-from reference.sunny_p11_post_action import FakeP2Snapshot, assess_after_action, interpret_run_once_report
+from reference.sunny_p11_post_action import (FakeP2Snapshot, assess_after_action,
+    interpret_run_once_report, fake_activity_memory, fake_recent_activity_context,
+    FakeActivityMemory)
 from reference.sunny_p11_reply_contract import inspect_mcp_reply
 
 
@@ -197,3 +199,107 @@ def test_unknown_scheduler_result_fails_closed():
     meaning = interpret_run_once_report("unexpected", "ok")
     assert meaning.status == "STOP_UNRECOGNIZED_OUTCOME"
     assert not meaning.may_consider_fresh_fake_choice
+
+
+
+def test_stand_before_tv_remembers_original_tv_not_executed():
+    record = fake_activity_memory(plan("tv"), "success", "stood_only")
+    assert record.selected_intent == "tv_weather"
+    assert record.selected_activity_status == "not_executed"
+    assert record.prerequisite_status == "stand_acknowledged_not_independently_verified"
+    assert not record.claim_real_completion
+
+
+def test_stand_before_move_does_not_become_walked():
+    record = fake_activity_memory(plan("move"), "success", "stood_only")
+    assert record.selected_intent == "move"
+    assert record.selected_activity_status == "not_executed"
+    assert record.evidence_level == "controller_report_only"
+
+
+def test_mcp_success_only_stores_unverified_selected_activity():
+    for intent in ("move", "chair", "tv", "speak"):
+        record = fake_activity_memory(plan(intent), "success", "ok")
+        assert record.selected_activity_status == "tool_reported_not_game_verified"
+        assert record.evidence_level == "mcp_ack_only"
+        assert not record.claim_real_completion
+
+
+def test_stay_is_an_explicit_no_action_choice():
+    p = plan_p11_choice(options(), "F0", "")
+    record = fake_activity_memory(p, "stay", "stay")
+    assert record.selected_intent == "stay"
+    assert record.selected_activity_status == "chose_no_action"
+    assert not record.claim_real_completion
+
+
+def test_deferred_choice_is_not_an_executed_activity():
+    record = fake_activity_memory(plan("move"), "deferred", "option_changed")
+    assert record.selected_activity_status == "not_executed"
+    assert record.evidence_level == "pre_dispatch_controller_report"
+
+
+def test_uncertain_action_is_blocked_from_next_synthetic_context():
+    unresolved = fake_activity_memory(plan("chair"), "stop", "unknown")
+    assert unresolved.blocks_new_choice
+    assert unresolved.selected_activity_status == "outcome_unresolved"
+    assert fake_recent_activity_context([unresolved]) is None
+
+
+def test_inconsistent_report_stays_unresolved():
+    record = fake_activity_memory(plan("speak"), "success", "unknown")
+    assert record.blocks_new_choice
+    assert fake_recent_activity_context([record]) is None
+
+
+def test_fake_move_observation_never_becomes_real_completed_game_action():
+    before = FakeP2Snapshot()
+    after = replace(before, revision=2, p2_tile=(8, 9))
+    fake_effect = assess_after_action(plan("move"), reply(), before, after)
+    record = fake_activity_memory(plan("move"), "success", "ok", fake_effect)
+    assert record.selected_activity_status == "synthetic_target_tile_observed"
+    assert record.evidence_level == "fake_world_only"
+    assert not record.claim_real_completion
+
+
+def test_mismatched_evidence_never_claims_tv_succeeded():
+    fake_effect = assess_after_action(plan("move"), reply(),
+        FakeP2Snapshot(), replace(FakeP2Snapshot(), revision=2, p2_tile=(8, 9)))
+    record = fake_activity_memory(plan("tv"), "success", "ok", fake_effect)
+    assert record.selected_activity_status == "tool_reported_not_game_verified"
+    assert not record.claim_real_completion
+
+
+def test_unsupported_plan_does_not_create_activity_memory():
+    p = plan_p11_choice(options(), "F4", "Hello")
+    assert fake_activity_memory(p, "success", "ok") is None
+
+
+def test_stand_only_not_accepted_for_chair_or_speech():
+    for activity in ("chair", "speak"):
+        assert fake_activity_memory(plan(activity), "success", "stood_only") is None
+
+
+def test_synthetic_context_bounded_to_six_and_structured_no_raw_reply():
+    records = [fake_activity_memory(plan("move"), "deferred", "option_changed")
+               for _ in range(9)]
+    result = fake_recent_activity_context(records)
+    assert len(result) == 6
+    assert all(item["selected_intent"] == "move" for item in result)
+    assert all("reply" not in item and "text" not in item for item in result)
+    assert all(item["claim_real_completion"] is False for item in result)
+
+
+def test_prior_unresolved_record_blocks_next_context_even_if_many_new_items():
+    unknown = fake_activity_memory(plan("move"), "stop", "unknown")
+    records = [unknown] + [fake_activity_memory(plan("move"), "deferred", "option_changed")
+                           for _ in range(7)]
+    assert fake_recent_activity_context(records) is None
+
+
+def test_intent_memory_record_fields_exclude_private_human_content():
+    from dataclasses import fields
+    names = {f.name for f in fields(FakeActivityMemory)}
+    assert names == {"selected_intent", "selected_activity_status",
+                     "prerequisite_status", "evidence_level",
+                     "claim_real_completion", "blocks_new_choice"}
