@@ -77,3 +77,40 @@ def assess_after_action(plan: P11Plan, reply: ReplyAssessment | None,
         # No proof that P1 heard it, nor that they consented to being interrupted.
         return FakeEffectDecision("DEFER_SPEECH_DELIVERY_UNPROVEN")
     return FakeEffectDecision("BLOCKED_UNKNOWN_TOOL")
+
+
+@dataclass(frozen=True)
+class FakeLoopMeaning:
+    status: str
+    selected_activity_completed: bool = False
+    may_consider_fresh_fake_choice: bool = False
+
+
+def interpret_run_once_report(outcome: str, journal_reason: str | None) -> FakeLoopMeaning:
+    """Interpret *synthetic* scheduler signals without promoting tool ACKs.
+
+    Extracted v0.3.10 run_once() (operator lines 253-304) returns 'success'
+    for every journal result with ok=True except STAY. In particular
+    'stood_only' means that the chair-exit prerequisite happened, but the
+    selected move/TV action was deliberately NOT dispatched.
+
+    This is an inert design aid, NOT a replacement for run_once() or a
+    security boundary. A new in-game observation and independent gates are
+    still necessary before attempting another real tool call.
+    """
+    if outcome == "stop":
+        return FakeLoopMeaning("STOP_UNRESOLVED")
+    if outcome == "deferred":
+        return FakeLoopMeaning("DEFER_NO_DISPATCH")
+    if outcome == "stay" and journal_reason == "stay":
+        return FakeLoopMeaning("STAY_AWAIT_CHANGED_SCENE")
+    if outcome != "success":
+        return FakeLoopMeaning("STOP_UNRECOGNIZED_OUTCOME")
+    if journal_reason == "stood_only":
+        return FakeLoopMeaning("STAND_ONLY_REEVALUATE", may_consider_fresh_fake_choice=True)
+    if journal_reason in ("unknown", "model_uncertain", "posture_uncertain",
+                          "stand_unconfirmed", None):
+        return FakeLoopMeaning("STOP_INCONSISTENT_SUCCESS")
+    # Even a normal success is a controller report, not independent proof of
+    # the intended game effect. Avoid marking the selected action complete.
+    return FakeLoopMeaning("ACK_SUCCESS_REOBSERVE", may_consider_fresh_fake_choice=True)
