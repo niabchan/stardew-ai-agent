@@ -33,7 +33,7 @@ class P11Plan:
 
 def _safe_coordinate(value):
     # bool is an int subclass but never a valid game tile coordinate.
-    return type(value) is int and 0 <= value <= 4096
+    return type(value) is int and 0 <= value < 200
 
 
 def _valid_offers(options):
