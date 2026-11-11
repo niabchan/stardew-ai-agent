@@ -85,7 +85,7 @@ def test_duplicate_id_missing_f0_or_extra_args_rejected():
 
 
 def test_bool_negative_and_non_integer_tiles_are_not_accepted():
-    for x, y in ((True, 3), (-1, 3), (2.5, 3), (3, "4"), (4097, 1)):
+    for x, y in ((True, 3), (-1, 3), (2.5, 3), (3, "4"), (200, 3), (4097, 1)):
         options = offers({"id": "M1", "action": "move", "x": x, "y": y})
         assert plan_p11_choice(options, "M1").verdict == "INVALID_OFFER_SNAPSHOT"
 
