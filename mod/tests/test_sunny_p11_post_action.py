@@ -2,7 +2,7 @@
 from dataclasses import replace
 
 from reference.sunny_p11_option_contract import plan_p11_choice
-from reference.sunny_p11_post_action import FakeP2Snapshot, assess_after_action
+from reference.sunny_p11_post_action import FakeP2Snapshot, assess_after_action, interpret_run_once_report
 from reference.sunny_p11_reply_contract import inspect_mcp_reply
 
 
@@ -144,3 +144,56 @@ def test_no_p1_private_messages_in_post_action_snapshot():
     names = {f.name for f in fields(FakeP2Snapshot)}
     assert not any(term in name for name in names
                    for term in ("diary", "chat", "message", "feed", "inventory", "secret"))
+
+
+def test_p11_loop_stop_for_unknown_game_effect_is_not_a_replan():
+    meaning = interpret_run_once_report("stop", "unknown")
+    assert meaning.status == "STOP_UNRESOLVED"
+    assert not meaning.may_consider_fresh_fake_choice
+    assert not meaning.selected_activity_completed
+
+
+def test_p11_loop_stand_only_must_not_mark_selected_move_completed():
+    meaning = interpret_run_once_report("success", "stood_only")
+    assert meaning.status == "STAND_ONLY_REEVALUATE"
+    assert meaning.may_consider_fresh_fake_choice
+    assert not meaning.selected_activity_completed
+
+
+def test_p11_loop_stand_only_must_not_mark_selected_tv_completed():
+    # The same stand-only journal reason is used before TV and before MOVE.
+    result = interpret_run_once_report("success", "stood_only")
+    assert not result.selected_activity_completed
+
+
+def test_p11_loop_stay_does_not_complete_any_activity():
+    meaning = interpret_run_once_report("stay", "stay")
+    assert meaning.status == "STAY_AWAIT_CHANGED_SCENE"
+    assert not meaning.may_consider_fresh_fake_choice
+
+
+def test_p11_loop_pre_dispatch_defer_is_not_retrying_selected_tool():
+    meaning = interpret_run_once_report("deferred", "option_changed")
+    assert meaning.status == "DEFER_NO_DISPATCH"
+    assert not meaning.may_consider_fresh_fake_choice
+
+
+def test_p11_loop_ack_success_still_does_not_prove_game_effect():
+    meaning = interpret_run_once_report("success", "ok")
+    assert meaning.status == "ACK_SUCCESS_REOBSERVE"
+    assert meaning.may_consider_fresh_fake_choice
+    assert not meaning.selected_activity_completed
+
+
+def test_inconsistent_success_unknown_reason_must_not_promote_activity():
+    for reason in ("unknown", "model_uncertain", "posture_uncertain",
+                   "stand_unconfirmed", None):
+        meaning = interpret_run_once_report("success", reason)
+        assert meaning.status == "STOP_INCONSISTENT_SUCCESS"
+        assert not meaning.may_consider_fresh_fake_choice
+
+
+def test_unknown_scheduler_result_fails_closed():
+    meaning = interpret_run_once_report("unexpected", "ok")
+    assert meaning.status == "STOP_UNRECOGNIZED_OUTCOME"
+    assert not meaning.may_consider_fresh_fake_choice
