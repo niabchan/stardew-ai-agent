@@ -36,6 +36,7 @@ class ProposedScope:
 class G0JournalAssessment:
     status: str
     detail: str
+    # Shape validation alone cannot release a choice or resolve pending effects.
     blocks_next_choice: bool = True
     # Never real action authorization or actual gameplay completion.
     new_mutation_authorized: bool = False
@@ -113,19 +114,19 @@ def audit_synthetic_journal(rows, scope: ProposedScope, *, stop_requested=False)
     if result["ok"] is False:
         if dispatch is None and result["reason"] == "pre_dispatch_aborted":
             # A fake no-dispatch journal is not proof no hidden send occurred.
-            return G0JournalAssessment("DEFER_REOBSERVE", "reported_pre_dispatch_abort", False)
+            return G0JournalAssessment("DEFER_REOBSERVE", "reported_pre_dispatch_abort")
         return _stop("reported_failure_or_unknown")
 
     if choice is None:
         return _stop("success_without_choice")
     if scope.intent == "stay" and dispatch is None and result["reason"] == "stay":
-        return G0JournalAssessment("STAY_AWAIT_CHANGE", "no_dispatch_choice", False)
+        return G0JournalAssessment("STAY_AWAIT_CHANGE", "reported_no_dispatch_choice")
     if (scope.intent in ("move", "tv_weather", "tv_fortune")
             and dispatch is not None and dispatch["purpose"] == "stand_prerequisite"
             and result["reason"] == "stood_only"):
         return G0JournalAssessment("PREREQUISITE_ACK_REOBSERVE",
-                                   "original_selected_action_not_executed", False)
+                                   "stand_prerequisite_report_only")
     if (scope.intent != "stay" and dispatch is not None
             and dispatch["purpose"] == "selected_action" and result["reason"] == "ok"):
-        return G0JournalAssessment("ACK_REOBSERVE", "tool_report_only", False)
+        return G0JournalAssessment("ACK_REOBSERVE", "tool_report_only")
     return _stop("contradictory_success_record")

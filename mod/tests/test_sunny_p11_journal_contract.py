@@ -25,7 +25,7 @@ def good_move():
 
 def test_normal_action_is_only_tool_ack_never_verified_game_effect():
     outcome = audit_synthetic_journal(good_move(), SCOPE)
-    assert (outcome.status, outcome.blocks_next_choice) == ("ACK_REOBSERVE", False)
+    assert (outcome.status, outcome.blocks_next_choice) == ("ACK_REOBSERVE", True)
     assert outcome.real_effect_verified is False
     assert outcome.selected_activity_completed is False
     assert outcome.new_mutation_authorized is False
@@ -149,3 +149,73 @@ def test_malformed_caller_scope_and_unbounded_log_segments_fail_closed():
 def test_unhashable_expected_intent_fails_closed_not_typeerror():
     result = audit_synthetic_journal(good_move(), replace(SCOPE, intent=[]))
     assert result.status == "STOP_UNRESOLVED"
+
+
+def test_all_classifications_keep_choice_blocked_and_effect_claims_false():
+    cases = [(good_move(), SCOPE, "ACK_REOBSERVE")]
+    stay = replace(SCOPE, intent="stay")
+    cases.append(([row("reserved", stay), row("choice", stay, selected_intent="stay"),
+                   row("result", stay, ok=True, reason="stay")], stay, "STAY_AWAIT_CHANGE"))
+    for intent in ("move", "tv_weather", "tv_fortune"):
+        scope = replace(SCOPE, intent=intent)
+        cases.append(([row("reserved", scope), row("choice", scope, selected_intent=intent),
+                       row("dispatch", scope, purpose="stand_prerequisite"),
+                       row("result", scope, ok=True, reason="stood_only")],
+                      scope, "PREREQUISITE_ACK_REOBSERVE"))
+    cases.append(([row("reserved"), row("result", ok=False, reason="pre_dispatch_aborted")],
+                  SCOPE, "DEFER_REOBSERVE"))
+    cases.append(([], SCOPE, "STOP_UNRESOLVED"))
+    for rows, scope, status in cases:
+        outcome = audit_synthetic_journal(rows, scope)
+        assert outcome.status == status
+        assert outcome.blocks_next_choice is True
+        assert (outcome.new_mutation_authorized, outcome.selected_activity_completed,
+                outcome.real_effect_verified) == (False, False, False)
+
+
+def test_nested_malformed_fields_and_unknown_codes_reject_by_status():
+    # Status assertions remain meaningful even though every outcome blocks choices.
+    bad_values = (None, [], {}, ["private-text"], True, 1, "", "unknown", "private-text")
+    for index, key in ((0, "phase"), (1, "selected_intent"),
+                       (2, "purpose"), (3, "ok"), (3, "reason")):
+        for value in bad_values:
+            if key == "ok" and value is True:
+                continue
+            rows = good_move()
+            rows[index] = {**rows[index], key: value}
+            assert audit_synthetic_journal(rows, SCOPE).status == "STOP_UNRESOLVED"
+    for index in range(4):
+        for key in ("policy", "save", "day", "epoch", "owner", "attempt_id", "operation_id", "intent"):
+            for value in bad_values:
+                rows = good_move()
+                rows[index] = {**rows[index], key: value}
+                assert audit_synthetic_journal(rows, SCOPE).status == "STOP_UNRESOLVED"
+
+
+def test_matching_forged_provenance_and_restart_cannot_release_choice():
+    for scope in (SCOPE, replace(SCOPE, owner="forged-owner", epoch="same-day-reload",
+                                 attempt_id="different-attempt")):
+        rows = [row("reserved", scope), row("choice", scope, selected_intent="move"),
+                row("dispatch", scope, purpose="selected_action"),
+                row("result", scope, ok=True, reason="ok")]
+        # A preceding unresolved call cannot be reconciled by caller-supplied labels.
+        assert audit_synthetic_journal(rows[:-1], scope).status == "STOP_UNRESOLVED"
+        result = audit_synthetic_journal(rows, scope)
+        assert result.status == "ACK_REOBSERVE"  # Shape only, not authenticity.
+        assert result.blocks_next_choice and not result.real_effect_verified
+
+
+def test_guard_negative_controls_reject_otherwise_ack_shaped_records():
+    cases = []
+    rows = good_move()
+    cases.append([rows[0], rows[0], *rows[1:]])
+    cases.append([rows[0], rows[1], rows[1], *rows[2:]])
+    cases.append([*rows[:3], rows[2], rows[3]])
+    cases.append([rows[0], rows[2], rows[1], rows[3]])
+    cases.append([rows[0], *rows[2:]])
+    cases.append([rows[0], {**rows[1], "selected_intent": "chair"}, *rows[2:]])
+    cases.append([*rows[:3], {**rows[3], "policy": "foreign"}])
+    cases.append([*rows[:3], {**rows[3], "ok": 1}])
+    cases.append([*rows[:3], {**rows[3], "reply": "private-text"}])
+    for bad in cases:
+        assert audit_synthetic_journal(bad, SCOPE).status == "STOP_UNRESOLVED"

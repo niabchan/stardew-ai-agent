@@ -13,20 +13,20 @@ The operator privately supplied read-only extracted v0.3.10 **scripts/sunny_loop
 
 ## The new, stricter proposal is intentionally NOT the old schema
 
-The reference module accepts a **caller-supplied fake expected scope**, comprising policy, save, farm day, load epoch, P2 owner, attempt ID, operation ID and selected intent. Each simulated event must match every field; one reserved event, at most one choice and one dispatch, and exactly one result must be ordered as reserved → choice → dispatch → result (with optional middle events). A successful activity requires an explicit matching choice; a dispatch purpose identifies either the selected action or the stand prerequisite.
+The reference module accepts a **caller-supplied fake expected scope**, comprising policy, save, farm day, load epoch, P2 owner, attempt ID, operation ID and selected intent. Each simulated event must match every field; one reserved event, at most one choice and one dispatch, and exactly one result must be ordered as reserved → choice → dispatch → result (with optional middle events). A reported success requires an explicit matching choice; a dispatch purpose identifies either the selected action or the stand prerequisite.
 
 **Important difference:** the historical v0.3.10 writer is NOT known to emit authoritative epoch, owner, operation ID or dispatch purpose on every row; its extractor does not enforce this proposal. Existing log data must not be interpreted as approved, silently migrated, or accepted because a string happens to match. The proposed statuses also use strictly narrowed example reason codes; they do not claim to represent all historical PRE_DISPATCH_ABORTS or actual Mod response reasons.
 
 | Pure G0 result | Conservative interpretation | Not established |
 | --- | --- | --- |
 | **ACK_REOBSERVE** | One coherent selected dispatch plus reported success | The actor reached a tile, sat, watched TV or delivered speech |
-| **PREREQUISITE_ACK_REOBSERVE** | Stand prerequisite reportedly dispatched; original move or TV not executed | P2's real seated state or chosen activity completion |
+| **PREREQUISITE_ACK_REOBSERVE** | Stand prerequisite reportedly dispatched; original move or TV completion not established | P2's real seated state or chosen activity completion |
 | **STAY_AWAIT_CHANGE** | STAY chosen with no dispatch | Forced next choice or daily action quota |
 | **DEFER_REOBSERVE** | Fake pre-dispatch abort and no dispatch event in the supplied segment | No unlogged action happened; automatic retry is safe |
 | **STOP_UNRESOLVED** | Missing, duplicate, foreign, conflicting, malformed or out-of-order event | Diagnosis of an actual live mutation |
 | **STOP_REQUESTED** | Test caller set a stop Boolean | Host-independent cancellation and resource retirement |
 
-Every output explicitly has **new_mutation_authorized=False**, **selected_activity_completed=False**, and **real_effect_verified=False**. An ACK cannot by itself allow another game mutation; the future system needs separate, authenticated new observation and reconciliation. The caller can fabricate even a syntactically perfect fake journal, so the reference is **shape validation only, not provenance**. A row count is not an authenticated cursor and a JSON-RPC request ID is not an idempotency/operation ID.
+Every output retains **blocks_next_choice=True**: no supplied segment can release unresolved effects or authorize a new choice, including ACK, STAY and reported pre-dispatch abort. The other three fields explicitly have **new_mutation_authorized=False**, **selected_activity_completed=False**, and **real_effect_verified=False**. An ACK cannot by itself allow another game mutation; the future system needs separate, authenticated new observation and reconciliation. The caller can fabricate even a syntactically perfect fake journal, so the reference is **shape validation only, not provenance**. A row count is not an authenticated cursor and a JSON-RPC request ID is not an idempotency/operation ID.
 
 ## Required real implementation before any G1 pilot
 
@@ -41,6 +41,8 @@ Every output explicitly has **new_mutation_authorized=False**, **selected_activi
 
 Focused command: **python -m pytest -q mod/tests/test_sunny_p11_journal_contract.py**.
 
-Sixteen game-free tests cover normal ACK, STAY and stand-only, no-replay deferral, unknown/missing result, duplicates, concurrent/foreign reservations, contradictory/out-of-order results, foreign policy/save/day/epoch/owner/attempt/operation, stray dispatch, malformed/nonboolean fields, untrusted reply text, stop flag, incomplete legacy rows and bounds. This is **not** test coverage of the actual local Controller code, host cleanup or real crash recovery.
+The original sixteen game-free tests cover normal ACK, STAY and stand-only, no-replay deferral, unknown/missing result, duplicates, concurrent/foreign reservations, contradictory/out-of-order results, foreign policy/save/day/epoch/owner/attempt/operation, stray dispatch, malformed/nonboolean fields, untrusted reply text, stop flag, incomplete legacy rows and bounds. This is **not** test coverage of the actual local Controller code, host cleanup or real crash recovery.
 
 **Final gate status remains unchanged:** all eleven G1 gates OPEN; fifty historical live cases not_run; Phase 2G limits unratified; **NO_GO_G1_START / NO_GO_LIVE_G2**. Keep every PR Draft/unmerged. Independently review this G0 classifier before any further design integration.
+
+Adversarial review regressions additionally check every output flag, forged matching scope/reload claims, malformed nested fields, all row scope types, invalid purposes/reasons, and guard-removal negative controls. This stateless function cannot remember pending work across calls, processes or reloads; changing the supplied epoch/owner cannot reconcile it. Do not repeat an unresolved operation or silently clean up its pending state. Free-form caller identity labels are untrusted and must not contain P1 content; shape validation is not a privacy filter.
