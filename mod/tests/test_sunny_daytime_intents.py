@@ -84,3 +84,77 @@ def test_never_guess_interest_not_in_offered_choices():
 def test_no_stay_in_observation_blocks_candidates():
     result = FakeDaytimePlanner().choose(FakeScene(offered_actions=("MOVE_TO_CHAIR",)), "MOVE_TO_CHAIR")
     assert result.status == "BLOCKED_NO_STAY"
+
+
+def test_malformed_scene_fields_fail_closed_without_consuming_revision():
+    malformed = {
+        'offered_actions': [None, 'STAY', ([],), ('STAY', 1), {'STAY': True}],
+        'recently_completed': [None, 'MOVE_TO_CHAIR', ([],), (1,)],
+        'revision': [None, True, False, -1, 1.5, '2'],
+        'p1_distance_tiles': [True, False, -1, 2.5, '3', float('nan'), float('inf')],
+        'epoch': [None, 1], 'owner': [None, 1],
+    }
+    for name in ('p1_is_human', 'p2_is_ai', 'p2_ready', 'chair_reachable',
+                 'p2_seated', 'tv_reachable', 'p1_awake', 'social_cooldown',
+                 'unresolved_attempt'):
+        malformed[name] = [None, 0, 1, 'false', [], {}]
+    for name, values in malformed.items():
+        for value in values:
+            planner = FakeDaytimePlanner()
+            result = planner.choose(replace(FakeScene(), **{name: value}), 'STAY')
+            assert (result.status, result.action, result.candidates) == ('BLOCKED_MALFORMED_SCENE', None, ()), (name, value)
+            assert planner.choose(FakeScene(), 'STAY').status == 'SELECTED_FAKE'
+    assert FakeDaytimePlanner().choose(None, 'STAY').status == 'BLOCKED_MALFORMED_SCENE'
+
+
+def test_hostile_interest_never_raises_or_invents_offer():
+    class Hostile:
+        def __hash__(self):
+            raise AssertionError('must not hash untrusted candidate')
+        def __eq__(self, other):
+            raise AssertionError('must not compare untrusted candidate')
+    for interest in (None, [], {}, ['STAY'], 1, True, Hostile()):
+        result = FakeDaytimePlanner().choose(FakeScene(), interest)
+        assert result.status == 'DENIED_NOT_GROUNDED'
+        assert result.action is None
+    result = FakeDaytimePlanner().choose(FakeScene(offered_actions=('STAY', 'MARRY_NPC')), 'MARRY_NPC')
+    assert result.status == 'DENIED_NOT_GROUNDED'
+    assert [c.action for c in result.candidates] == ['STAY']
+
+
+def test_unresolved_attempt_latches_even_before_first_choice_and_after_refresh():
+    for choose_first in (False, True):
+        planner = FakeDaytimePlanner()
+        if choose_first:
+            assert planner.choose(FakeScene(), 'WATCH_WEATHER_TV').status == 'SELECTED_FAKE'
+        assert planner.choose(FakeScene(revision=2, unresolved_attempt=True), 'STAY').status == 'BLOCKED_UNRESOLVED'
+        result = planner.choose(FakeScene(revision=3, recently_completed=('WATCH_WEATHER_TV',)), 'MOVE_TO_CHAIR')
+        assert (result.status, result.action, result.candidates) == ('BLOCKED_UNRESOLVED', None, ())
+
+
+def test_identity_readiness_checks_are_not_masked_by_stale_revision():
+    for changes, status in (({'owner': 'other'}, 'BLOCKED_ROLE_OR_OWNER'),
+                            ({'epoch': 'other'}, 'BLOCKED_EPOCH'),
+                            ({'p1_is_human': False}, 'BLOCKED_ROLE_OR_OWNER'),
+                            ({'p2_is_ai': False}, 'BLOCKED_ROLE_OR_OWNER'),
+                            ({'p2_ready': False}, 'BLOCKED_ROLE_OR_OWNER')):
+        for revision in (1, 2):
+            planner = FakeDaytimePlanner()
+            assert planner.choose(FakeScene(), 'STAY').status == 'SELECTED_FAKE'
+            assert planner.choose(replace(FakeScene(revision=revision), **changes), 'STAY').status == status
+
+
+def test_changed_scene_same_revision_still_waits_and_boundary_speech_is_optional():
+    planner = FakeDaytimePlanner()
+    assert planner.choose(FakeScene(), 'STAY').status == 'SELECTED_FAKE'
+    result = planner.choose(FakeScene(weather='rainy', p2_seated=True), 'WATCH_WEATHER_TV')
+    assert (result.status, result.action) == ('WAIT_NEW_OBSERVATION', None)
+    for distance in (0, 5):
+        assert FakeDaytimePlanner().choose(FakeScene(p1_distance_tiles=distance), 'SPEAK_TO_P1').status == 'SELECTED_FAKE'
+    for distance in (6, 1000000, None):
+        result = FakeDaytimePlanner().propose(FakeScene(p1_distance_tiles=distance))
+        assert result.status == 'PROPOSED_FAKE'
+        assert 'SPEAK_TO_P1' not in {c.action for c in result.candidates}
+    result = FakeDaytimePlanner().choose(FakeScene(recently_completed=('STAY',)), 'STAY')
+    assert result.status == 'SELECTED_FAKE'
+    assert next(c for c in result.candidates if c.action == 'STAY').expected_observation == 'no dispatched activity'
