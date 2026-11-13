@@ -59,6 +59,27 @@ def test_ack_without_observed_change_is_not_success():
     assert world.pending_attempt is not None
 
 
+def test_revision_change_alone_does_not_verify_chair_arrival():
+    # Isolate the tile predicate: an unrelated fake revision must not mask a
+    # missing effect or movement to the wrong destination.
+    for observed_tile in ((3, 11), (5, 5)):
+        class WrongDestination(FakeGame):
+            def dispatch(self, action, expected, attempt):
+                response = super().dispatch(action, expected, attempt)
+                self.revision += 1
+                self.sunny_tile = observed_tile
+                return response
+
+        world = WrongDestination()
+        world.delivery = "ack_no_effect"
+        assert OfflineController(world, ScriptedChooser("MOVE_TO_CHAIR")).step().verdict == "UNKNOWN"
+        assert len(world.dispatched) == 1
+        assert world.pending_attempt == "offline-attempt-1"
+        chooser = ScriptedChooser("MOVE_TO_CHAIR")
+        assert OfflineController(world, chooser).step().verdict == "BLOCKED_UNRESOLVED"
+        assert chooser.calls == 0
+
+
 def test_stay_has_no_dispatch_or_forced_activity():
     world = FakeGame()
     loop = OfflineController(world, ScriptedChooser("STAY"))
