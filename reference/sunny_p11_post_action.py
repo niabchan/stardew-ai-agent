@@ -110,8 +110,7 @@ def interpret_run_once_report(outcome: str, journal_reason: str | None) -> FakeL
         return FakeLoopMeaning("STOP_UNRECOGNIZED_OUTCOME")
     if journal_reason == "stood_only":
         return FakeLoopMeaning("STAND_ONLY_REEVALUATE", may_consider_fresh_fake_choice=True)
-    if journal_reason in ("unknown", "model_uncertain", "posture_uncertain",
-                          "stand_unconfirmed", None):
+    if journal_reason != "ok":
         return FakeLoopMeaning("STOP_INCONSISTENT_SUCCESS")
     # Even a normal success is a controller report, not independent proof of
     # the intended game effect. Avoid marking the selected action complete.
@@ -182,6 +181,11 @@ def fake_activity_memory(plan, outcome, journal_reason, effect=None):
                           "STOP_UNRECOGNIZED_OUTCOME"):
         return FakeActivityMemory(intent, "outcome_unresolved", "unknown",
                                   "journal_uncertain", blocks_new_choice=True)
+    # No-dispatch/stand-only reports cannot discard contradictory supplied
+    # effect evidence. These branches have no selected-action effect to bind.
+    if effect is not None and meaning.status != "ACK_SUCCESS_REOBSERVE":
+        return FakeActivityMemory(intent, "outcome_unresolved", "unknown",
+                                  "post_effect_unresolved", blocks_new_choice=True)
     if meaning.status == "STAY_AWAIT_CHANGED_SCENE":
         if intent != "stay":
             return None
@@ -253,6 +257,10 @@ def _valid_synthetic_memory(record):
     if (type(record) is not FakeActivityMemory
             or record.claim_real_completion is not False
             or type(record.blocks_new_choice) is not bool):
+        return False
+    if any(type(value) is not str for value in (
+            record.selected_intent, record.selected_activity_status,
+            record.prerequisite_status, record.evidence_level)):
         return False
     signature = (record.selected_activity_status, record.prerequisite_status,
                  record.evidence_level, record.blocks_new_choice)

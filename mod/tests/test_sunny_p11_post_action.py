@@ -398,3 +398,74 @@ def test_valid_fake_memory_can_still_create_bounded_context():
     assert projection is not None and len(projection) == 3
     assert projection[1]["selected_activity_status"] == "not_executed"
     assert all(p["claim_real_completion"] is False for p in projection)
+
+
+def test_unresolved_effect_cannot_be_erased_by_no_dispatch_reports():
+    stay = plan_p11_choice(options(), "F0", "")
+    for p, outcome, reason in (
+        (plan("tv"), "success", "stood_only"),
+        (plan("move"), "deferred", "option_changed"),
+        (stay, "stay", "stay"),
+    ):
+        rec = fake_activity_memory(p, outcome, reason,
+                                  FakeEffectDecision("STOP_UNRESOLVED_MCP_RESULT"))
+        assert rec.blocks_new_choice
+        assert fake_recent_activity_context([rec]) is None
+
+
+def test_malformed_memory_fields_are_rejected_even_outside_last_six():
+    good = fake_activity_memory(plan("tv"), "success", "ok")
+    for field in ("selected_intent", "selected_activity_status",
+                  "prerequisite_status", "evidence_level"):
+        for value in ([], {}, None, 1):
+            bad = replace(good, **{field: value})
+            assert fake_recent_activity_context([bad, *([good] * 7)]) is None
+
+
+def test_arbitrary_success_reason_does_not_create_ack_memory():
+    rec = fake_activity_memory(plan("tv"), "success", "invented_success")
+    assert rec.blocks_new_choice
+    assert fake_recent_activity_context([rec]) is None
+
+
+def test_reported_last_row_extractor_is_not_an_integrity_check():
+    # Reconstruction ONLY of operator-reported sunny_loop.py:243-250.
+    # The actual extracted file is absent; this is not a runtime exploit test.
+    def reported_extract(rows):
+        reserved = [r for r in rows if r.get("phase") == "reserved"
+                    and r.get("policy") == "synthetic-policy"]
+        if not reserved:
+            return None
+        attempt = reserved[-1].get("attempt_id")
+        results = [r for r in rows if r.get("phase") == "result"
+                   and r.get("attempt_id") == attempt]
+        return results[-1] if results else None
+
+    reserve = {"phase": "reserved", "policy": "synthetic-policy",
+               "attempt_id": "a", "save": "synthetic-save", "day": 1}
+    ok = {**reserve, "phase": "result", "ok": True}
+    bad = {**ok, "ok": False}
+    other = {**reserve, "attempt_id": "b"}
+    cases = (
+        [reserve, other, {**bad, "attempt_id": "b"}, reserve, ok],
+        [reserve, bad, ok],  # contradictory results, last one wins
+        [ok, reserve],  # result before reservation
+        [reserve, {**ok, "policy": "wrong"}],
+        [reserve, {**ok, "save": "wrong", "day": 2}],
+        [reserve, {**other, "phase": "dispatch"}, ok],
+        [reserve, reserve, ok],  # duplicate reservation/attempt ID
+    )
+    for rows in cases:
+        assert reported_extract(rows)["ok"] is True
+    assert reported_extract([reserve]) is None
+    # A later concurrent reservation can also hide the earlier success.
+    assert reported_extract([reserve, ok, other]) is None
+
+
+def test_matching_forged_effect_is_only_synthetic_shape_evidence():
+    # Deliberately demonstrates the provenance limit, not authentication.
+    forged = FakeEffectDecision("FAKE_MOVE_OBSERVED", True, "M1", (8, 9))
+    rec = fake_activity_memory(plan("move"), "success", "ok", forged)
+    context = fake_recent_activity_context([rec])
+    assert context[0]["evidence_level"] == "fake_world_only"
+    assert context[0]["claim_real_completion"] is False

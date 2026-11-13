@@ -108,7 +108,7 @@ No changes to the operator's local v0.3.10 script, DLL, SteamLibrary, game save,
 
 ## Extracted v0.3.10 P11 scheduler handoff verified — operator source lines 253–304 and 350–505
 
-**Important correction to the earlier unknown-result risk:** The one-shot \`freeplay.perform()\` can indeed return integer \`0\` even when its journal records \`reason='unknown'\`. However, the v0.3.10 **\`sunny_loop.py:run_once\` reads the newly appended journal records** (\`new_attempt_results\`, lines 255–259). If a completed attempt has \`result.ok != True\`, it returns **\`stop\`**, unless the reason is one of \`PRE_DISPATCH_ABORTS\` **and** there is *no* dispatch row for that exact attempt; only in that pre-effect case does it return \`deferred\` (274–286). Missing or ambiguous records also result in \`stop\`, except for the documented zero-journal, newly ineligible pre-dispatch case (260–273). Therefore **the feared direct conflation of \`return 0\` with a safe completed action is not present at this scheduler handoff**.
+**Important correction to the earlier unknown-result risk:** The one-shot \`freeplay.perform()\` can indeed return integer \`0\` even when its journal records \`reason='unknown'\`. However, the v0.3.10 **\`sunny_loop.py:run_once\` reads the newly appended journal records** (\`new_attempt_results\`, lines 255–259). If a completed attempt has \`result.ok != True\`, it returns **\`stop\`**, unless the reason is one of \`PRE_DISPATCH_ABORTS\` **and** there is *no* dispatch row for that exact attempt; only in that pre-effect case does it return \`deferred\` (274–286). Missing records also result in \`stop\`, except for the documented zero-journal, newly ineligible pre-dispatch case (260–273). Therefore **the feared direct conflation of \`return 0\` with a safe completed action is not present at this scheduler handoff**.
 
 The outer loop (lines 477–489) exits on \`outcome='stop'\` or propagated exception. It suppresses identical fingerprints and checks a user stop request at decision boundaries (450–472). \`STAY\` becomes \`outcome='stay'\`, waits for a changed observation, and does not imply a daily decision quota. These are **source-level protections**, not assurance of crash-persistent leases, source authenticity, independent in-flight cancellation, or post-effect proof; the exact \`new_attempt_results\` internal implementation has not been inspected.
 
@@ -154,3 +154,41 @@ The updated \`fake_recent_activity_context\` requires canonical allowlisted \`(s
 A second correction binds an observed fake move to its **option ID and target tile** within the synthetic \`FakeEffectDecision\`. A success-shaped journal record paired with an unknown post-effect, the wrong activity, the wrong option, or the wrong target yields \`outcome_unresolved\` and blocks the synthetic next-choice context instead of quietly falling back to an ordinary ACK. Contradictory STAY-as-success and ungrounded pre-dispatch defer reasons also fail closed in the fake memory classification. The valid stand-before-TV case remains \`not_executed\`, never \`watched TV\`.
 
 **Scope disclaimer:** the new allowlist proves *shape consistency only*. It cannot authenticate that a canonical fake record was produced by a genuine game action or independently witnessed. Neither fake move option binding nor synthetic ACK is an authorization, durable idempotency key, or actual-world completion proof. No real controller imports these helpers; no production code, Windows game, Lua/SMAPI, Luna API, P1/P2 live data, or operator files were touched. The exact v0.3.10 \`new_attempt_results\` implementation remains uninspected.
+
+
+## Independent Issue #62 review corrections and evidence limits
+
+The operator-reported `sunny_loop.py:243–250` extractor selects the last
+policy-matching reservation and last result with its attempt ID. It does not
+establish ambiguity rejection. A test-local reconstruction demonstrates that
+contradictory/duplicate results, a result before its reservation, wrong result
+policy/save/day, duplicate reservations, and stray dispatch rows can still select
+`ok=True`; a later concurrent reservation can hide an earlier result. These are
+counterexamples to the reported selection algorithm, **not proof of an exploit
+in an authentic loaded v0.3.10 runtime**. The original file is not committed.
+No effectful command is replayed. The useful `run_once` stop-on-missing/failed
+result guard does not independently validate correlation or actual effects.
+
+Three narrow reference corrections reject supplied effect evidence on stand-only
+or no-dispatch reports rather than erase it; require string memory labels before
+allowlist lookup; and limit ordinary success to reason `ok` (intentionally
+stricter than the reported historical scheduler). Offline regressions first
+failed on the pinned source and pass after correction. Stand-only without a
+contradictory effect still records the selected activity as `not_executed`.
+
+A forged matching `FakeEffectDecision` and caller-created matching snapshots can
+still produce `fake_world_only` memory and another synthetic choice. This is
+explicitly a shape-only test contract: no authenticated owner/epoch, journal
+provenance, causal effect, real authorization or actual model memory is supplied.
+Canonical caller-created memory is equally forgeable; all completion claims
+remain false. These limits cannot be repaired by dataclass validation.
+
+Upstream #58 is independently reviewed at
+`901646a52e3587a8c7b9d018099412338d491183`. Earlier references here to its pending
+review are historical. #60 at `052355baffb13f63520d5cc824c6d4e628ebcf70`
+diverges from that head (three commits ahead, one behind); #61 inherits #60,
+not the new #58 regression. No upstream branch was changed. A later separately
+reviewed integration must incorporate that regression through the stack and
+rerun both CI jobs on the actual reconciled head. This review does not approve
+#60 independently or certify the reconciled graph. All eleven G1 gates remain
+open: `NO_GO_G1_START` / `NO_GO_LIVE_G2`.
