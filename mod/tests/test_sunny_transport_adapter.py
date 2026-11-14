@@ -49,13 +49,21 @@ def client(**kw):
 @pytest.mark.parametrize("base", ["https://127.0.0.1:8770", "http://example.com:8770", "http://localhost",
                                  "http://localhost:8770/mcp", "http://user:password@localhost:8770",
                                  "http://localhost:8770?token=X", "http://localhost:8770#fragment",
-                                 "http://127.0.0.1:99999", "http://127.0.0.2:8770"])
+                                 "http://127.0.0.1:99999", "http://127.0.0.2:8770",
+                                 "http://[::1]:8770", "http://LOCALHOST:8770",
+                                 "http://localhost:08770", "http://localhost:0",
+                                 "http://localhost:65536",
+                                 "http://localhost:8770//", "http://localhost:8770%2f",
+                                 "http://localhost:8770\\@127.0.0.1",
+                                 "http://localhost:8770\n", "http://0x7f000001:8770",
+                                 "http://127.1:8770", "http://localhost.:8770",
+                                 "http://localhost:8770?"])
 def test_reject_unsafe_game_url(base):
     with pytest.raises(ValueError):
         GameTransport(base, FakeExchange(), credential="synthetic")
 
 
-@pytest.mark.parametrize("base", ["http://localhost:8770", "http://127.0.0.1:18770", "http://[::1]:8770"])
+@pytest.mark.parametrize("base", ["http://localhost:8770", "http://127.0.0.1:18770"])
 def test_explicit_loopback_port(base):
     fake = FakeExchange()
     transport = GameTransport(base, fake, credential="synthetic")
@@ -583,3 +591,76 @@ def test_unverified_retirement_never_authorizes_lease_or_action(response, pendin
             t.call_tool("say", {}, mutation=True, attempt_id=attempt, claim_dispatch=claims.append)
     assert claims == (["one"] if pending_mutation else [])
     assert len(fake.requests) == before + 1  # no second handshake/DELETE/action
+
+
+def test_trailing_slash_is_normalized_once_without_changing_authority():
+    fake = FakeExchange()
+    t = GameTransport("http://localhost:18770/", fake, credential="synthetic")
+    assert t.base_url == "http://localhost:18770"
+    t.initialize()
+    t.read_safety()
+    assert [r.url for r in fake.requests] == [
+        "http://localhost:18770/mcp/p2",
+        "http://localhost:18770/api/companion/v1/p2/safety",
+    ]
+
+
+def test_positive_tool_ack_is_not_game_effect_and_does_not_release_next_action():
+    t, fake = client()
+    t.initialize()
+    result = t.call_tool("say", {"text": "Hello"}, mutation=True,
+                         attempt_id="say-1", claim_dispatch=lambda _: None)
+    assert result["isError"] is False
+    assert t.unresolved_mutation  # tool ACK is not independent effect evidence
+    assert t.call_tool("status", {}, mutation=False)["isError"] is False
+    before = len(fake.requests)
+    with pytest.raises(ProtocolFailure):
+        t.call_tool("go_to_bed", {}, mutation=True,
+                    attempt_id="bed-2", claim_dispatch=lambda _: None)
+    assert len(fake.requests) == before
+    with pytest.raises(OwnershipOutcomeUnknown):
+        t.release()
+    assert t.unresolved_mutation  # neither ACK nor DELETE clears uncertainty
+
+
+@pytest.mark.parametrize("origin", ["http://127.0.0.1:8770", "http://localhost:18770"])
+@pytest.mark.parametrize("name,arguments", [
+    ("walk_to", {"x": 7, "y": 4}), ("say", {"text": "Hi!"}),
+    ("respond", {"option": 1}), ("go_to_bed", {}),
+])
+def test_future_p10_p13_fake_actions_cannot_change_selected_game_origin(origin, name, arguments):
+    # Synthetic tool matrix only. Does not establish real v0.3.10 script wiring,
+    # server identity, game side effects, or an authenticated host.
+    fake = FakeExchange()
+    t = GameTransport(origin, fake, credential="synthetic")
+    t.initialize()
+    assert t.call_tool(name, arguments, mutation=True,
+                       attempt_id="once", claim_dispatch=lambda _: None)["isError"] is False
+    assert all(req.url == origin + "/mcp/p2" for req in fake.requests)
+    assert len(fake.requests) == 2
+    assert t.unresolved_mutation
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308, 401, 403, 409, 429, 503])
+def test_fake_redirect_and_denial_do_not_switch_port_or_retry(status):
+    fake = FakeExchange()
+    t = GameTransport("http://localhost:18770", fake, credential="synthetic")
+    t.initialize()
+    fake.status_override = status
+    with pytest.raises(MutationOutcomeUnknown):
+        t.call_tool("respond", {"option": 0}, mutation=True,
+                    attempt_id="offer-1", claim_dispatch=lambda _: None)
+    assert len(fake.requests) == 2
+    assert all(req.url.startswith("http://localhost:18770/") for req in fake.requests)
+    assert t.unresolved_mutation
+
+
+def test_selected_game_origin_is_read_only_after_startup():
+    fake = FakeExchange()
+    t = GameTransport("http://localhost:18770", fake, credential="synthetic")
+    with pytest.raises(AttributeError):
+        t.base_url = "http://127.0.0.1:8770"
+    assert t.base_url == "http://localhost:18770"
+    t.initialize()
+    t.call_tool("status", {}, mutation=False)
+    assert all(r.url.startswith("http://localhost:18770/") for r in fake.requests)

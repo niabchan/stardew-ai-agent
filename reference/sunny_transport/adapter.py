@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from typing import Callable, Mapping
-from urllib.parse import urlsplit
+import re
 from threading import Lock
 from functools import wraps
 
@@ -100,25 +100,29 @@ class GameTransport:
     MAX_RESPONSE_BYTES = 262_144
 
     def __init__(self, base_url: str, exchange: Exchange, *, credential: str):
-        if not isinstance(base_url, str) or any(ord(c) <= 32 or ord(c) == 127 for c in base_url):
+        # Canonical, explicit IPv4 loopback origin only. This *syntax* gate
+        # cannot authenticate a listener or verify its connected peer. The
+        # future real HTTP backend must independently prohibit proxies and
+        # redirects and verify the exact peer, Host, Origin and server identity.
+        if not isinstance(base_url, str):
             raise ValueError("Invalid game origin")
-        parsed = urlsplit(base_url)
-        if (parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost", "::1") \
-                or parsed.username is not None or parsed.password is not None \
-                or parsed.query or parsed.fragment or parsed.path not in ("", "/")):
-            raise ValueError("Game URL must be an explicit loopback http origin with no path, query or credentials")
-        try:
-            port = parsed.port
-        except ValueError as exc:
-            raise ValueError("Invalid game port") from exc
-        if port is None or port <= 0 or port > 65535:
-            raise ValueError("Explicit valid game port required")
+        match = re.fullmatch(
+            r"http://(127\.0\.0\.1|localhost):([1-9][0-9]{0,4})/?",
+            base_url,
+            flags=re.ASCII,
+        )
+        if match is None:
+            raise ValueError("Game URL must be an explicit canonical loopback http origin")
+        host, port_text = match.groups()
+        port = int(port_text)
+        if port > 65535:
+            raise ValueError("Invalid game port")
         if not isinstance(credential, str) or not credential.strip() or any(ord(c) <= 32 or ord(c) >= 127 for c in credential):
             raise ValueError("Separate nonblank game credential required (not the model API key)")
         self._busy = Lock()
         self._initialization_uncertain = False
         self._credential_denied = False
-        self.base_url = base_url.rstrip("/")
+        self._base_url = f"http://{host}:{port}"
         self._exchange = exchange
         self._credential = credential
         self._session: str | None = None
@@ -126,6 +130,11 @@ class GameTransport:
         self._next_id = 0
         self._claimed: set[str] = set()  # in-memory defense only; durable claim belongs to caller
         self._unresolved_mutation = False  # fail closed after any ambiguous action
+
+    @property
+    def base_url(self) -> str:
+        """Read-only chosen origin: no runtime switch to a different port."""
+        return self._base_url
 
     @property
     def connected(self) -> bool:
@@ -332,7 +341,10 @@ class GameTransport:
                 if mutation:
                     if type(result.get("isError")) is not bool or result["isError"]:
                         raise MutationOutcomeUnknown("Tool error or incomplete acknowledgment; effect unknown")
-                    self._unresolved_mutation = False
+                    # isError=False is only an RPC/tool acknowledgment, NOT
+                    # proof of a real-game effect or of durable completion.
+                    # Remain fenced until a separately approved authoritative
+                    # reconciliation workflow exists (not implemented here).
                 return result
             except ProtocolFailure as exc:
                 if mutation:
