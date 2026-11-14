@@ -63,8 +63,11 @@ outcomes: no agreed pre-dispatch rejection proof is implemented. Read denials
 retain HTTP classification; 401/403 stop future use of that object's credential.
 A result-level tool error, malformed/duplicate JSON, invalid callback return,
 lost response or epoch change also fences mutations. Successful tool
-acknowledgment is still not observed effect or persisted-save evidence. Release,
-reinitialize and epoch changes never clear an unresolved mutation.
+acknowledgment is still not observed effect or persisted-save evidence. The
+adapter now deliberately **retains the unresolved-mutation fence even after
+`isError=false`**: a second game action requires future separately reviewed,
+authoritative effect reconciliation; it cannot be authorized by an ACK.
+Release, reinitialize and epoch changes never clear an unresolved mutation.
 
 Header lookup is case insensitive and rejects case-variant duplicates. Session
 requests include the **proposed** epoch header as a precondition as well as
@@ -84,10 +87,17 @@ filter before serialization, and handle revocation. A caller must use fresh
 prompt/offer identity before `respond`; these coarse facts do not prove which
 menu is open, and do not authorize automatic acceptance or speech.
 
-Port choice is explicit and never falls back between 8770 and 18770. An epoch
-mismatch fences a connected session; an opaque epoch alone cannot authenticate
-the intended instance on first contact. Actual address resolution, listener
-identity, redirects and credential delivery remain future backend obligations.
+Port choice is explicit and never falls back between 8770 and 18770.
+The constructor now accepts only canonical lowercase `http://localhost:PORT` or
+`http://127.0.0.1:PORT`, with an optional trailing slash removed once. It
+rejects IPv6, alternative numeric host forms, userinfo, paths, redirects encoded
+as URLs, queries, fragments, leading-zero ports and whitespace. This is
+**syntax validation only**: there is no network backend, trusted provisioning,
+DNS/peer verification, proxy/redirect enforcement or server authentication.
+An epoch mismatch fences a connected session; an opaque epoch alone cannot
+authenticate the intended instance on first contact. Actual address resolution,
+listener identity, redirects and credential delivery remain future backend
+obligations.
 The constructor accepts an opaque synthetic game token; it cannot determine
 whether a caller has improperly supplied a model key. Credential provenance and
 separation require independently reviewed provisioning, with no real key access
