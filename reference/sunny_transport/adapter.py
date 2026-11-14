@@ -122,7 +122,7 @@ class GameTransport:
         self._busy = Lock()
         self._initialization_uncertain = False
         self._credential_denied = False
-        self.base_url = f"http://{host}:{port}"
+        self._base_url = f"http://{host}:{port}"
         self._exchange = exchange
         self._credential = credential
         self._session: str | None = None
@@ -130,6 +130,11 @@ class GameTransport:
         self._next_id = 0
         self._claimed: set[str] = set()  # in-memory defense only; durable claim belongs to caller
         self._unresolved_mutation = False  # fail closed after any ambiguous action
+
+    @property
+    def base_url(self) -> str:
+        """Read-only chosen origin: no runtime switch to a different port."""
+        return self._base_url
 
     @property
     def connected(self) -> bool:
