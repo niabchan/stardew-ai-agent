@@ -653,3 +653,14 @@ def test_fake_redirect_and_denial_do_not_switch_port_or_retry(status):
     assert len(fake.requests) == 2
     assert all(req.url.startswith("http://localhost:18770/") for req in fake.requests)
     assert t.unresolved_mutation
+
+
+def test_selected_game_origin_is_read_only_after_startup():
+    fake = FakeExchange()
+    t = GameTransport("http://localhost:18770", fake, credential="synthetic")
+    with pytest.raises(AttributeError):
+        t.base_url = "http://127.0.0.1:8770"
+    assert t.base_url == "http://localhost:18770"
+    t.initialize()
+    t.call_tool("status", {}, mutation=False)
+    assert all(r.url.startswith("http://localhost:18770/") for r in fake.requests)
