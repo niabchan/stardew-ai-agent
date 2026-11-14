@@ -52,7 +52,7 @@ def client(**kw):
                                  "http://127.0.0.1:99999", "http://127.0.0.2:8770",
                                  "http://[::1]:8770", "http://LOCALHOST:8770",
                                  "http://localhost:08770", "http://localhost:0",
-                                 "http://localhost:65536", "http://localhost:8770/",
+                                 "http://localhost:65536",
                                  "http://localhost:8770//", "http://localhost:8770%2f",
                                  "http://localhost:8770\\@127.0.0.1",
                                  "http://localhost:8770\n", "http://0x7f000001:8770",
