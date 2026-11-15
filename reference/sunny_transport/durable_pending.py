@@ -139,8 +139,8 @@ class PendingLedger:
         if not path.is_file():
             raise LedgerUnavailable("Pending ledger missing; do not reset on restart")
         instance = cls(path)
-        with instance._connect() as con:
-            pass
+        con = instance._connect()
+        con.close()
         return instance
 
     def _connect(self, *, check_schema: bool = True) -> sqlite3.Connection:
