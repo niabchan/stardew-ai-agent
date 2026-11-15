@@ -206,3 +206,153 @@ def test_sqlite_write_lock_or_unknown_ledger_state_fails_closed(tmp_path):
         lock.execute("ROLLBACK")
         lock.close()
     assert PendingLedger.open_existing(path).pending() is None
+
+
+@pytest.mark.parametrize("arguments", [{1: "x"}, {"nested": [{False: "x"}]}])
+def test_fingerprint_rejects_keys_that_json_would_coerce(arguments):
+    with pytest.raises(ValueError):
+        fingerprint_arguments(arguments)
+
+
+def test_restart_open_deletion_race_never_creates_file(tmp_path, monkeypatch):
+    path = tmp_path / "pending ?#.sqlite3"
+    PendingLedger.initialize_new(path)
+    real_connect = sqlite3.connect
+
+    def disappear(*args, **kwargs):
+        path.unlink()
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", disappear)
+    with pytest.raises(LedgerUnavailable):
+        PendingLedger.open_existing(path)
+    assert not path.exists()
+
+
+def test_ledger_object_rejects_replacement_database(tmp_path):
+    ledger = new_ledger(tmp_path)
+    ledger.reserve(scope())
+    path = tmp_path / "pending.sqlite3"
+    path.rename(tmp_path / "quarantined.sqlite3")
+    PendingLedger.initialize_new(path)
+    with pytest.raises(LedgerUnavailable):
+        ledger.reserve(scope(attempt="a2"))
+
+
+def test_concurrent_reservations_have_exactly_one_winner(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    ledger = new_ledger(tmp_path)
+    start = Barrier(2)
+
+    def reserve(attempt):
+        start.wait(timeout=5)
+        try:
+            ledger.reserve(scope(attempt=attempt))
+            return "committed"
+        except (PendingBlocked, LedgerUnavailable):
+            return "blocked"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(reserve, ["a1", "a2"]))
+    assert sorted(results) == ["blocked", "committed"]
+    assert ledger.pending().attempt_id in ("a1", "a2")
+
+
+@pytest.mark.parametrize("committed", [False, True])
+def test_exit_at_commit_boundary_never_sends_and_restart_respects_commit(tmp_path, committed):
+    path = tmp_path / "pending.sqlite3"
+    new_ledger(tmp_path)
+    code = '''
+import os, sys, sqlite3
+from pathlib import Path
+from reference.sunny_transport.durable_pending import PendingLedger, PendingClaim
+real_connect = sqlite3.connect
+class Connection(sqlite3.Connection):
+    def execute(self, sql, *args):
+        if sql == "COMMIT":
+            if sys.argv[2] == "True":
+                super().execute(sql, *args)
+            os._exit(23)
+        return super().execute(sql, *args)
+def connect(*args, **kwargs):
+    return real_connect(*args, factory=Connection, **kwargs)
+sqlite3.connect = connect
+PendingLedger.open_existing(Path(sys.argv[1])).reserve(
+    PendingClaim('i','e','o','op','a','say','a'*64))
+Path(sys.argv[3]).write_text('fake send')
+'''
+    sent = tmp_path / "sent"
+    child = subprocess.run([sys.executable, "-c", code, str(path), str(committed), str(sent)],
+                           cwd=Path(__file__).resolve().parents[2], timeout=15)
+    assert child.returncode == 23 and not sent.exists()
+    reopened = PendingLedger.open_existing(path)
+    assert (reopened.pending() is not None) == committed
+    if committed:
+        with pytest.raises(PendingBlocked):
+            reopened.reserve(scope())
+    else:
+        reopened.reserve(scope())  # no committed reservation and no dispatch
+
+
+def test_claim_callback_does_not_attest_tool_or_arguments(tmp_path):
+    ledger = new_ledger(tmp_path)
+    fake = FakeP2()
+    client = GameTransport("http://127.0.0.1:18770", fake, credential="synthetic")
+    client.initialize()
+    client.call_tool("go_to_bed", {}, mutation=True, attempt_id="a1",
+                     claim_dispatch=ledger.claim_for(scope(tool="say")))
+    assert ledger.pending().tool == "say"
+    assert json.loads(fake.calls[-1].body)["params"]["name"] == "go_to_bed"
+    # This is an untrusted caller contract, never authenticated host evidence.
+
+
+@pytest.mark.parametrize("damage", ["PRAGMA user_version=2", "ALTER TABLE pending_operation ADD COLUMN surprise TEXT"])
+def test_schema_or_version_mismatch_stops_restart(tmp_path, damage):
+    path = tmp_path / "pending.sqlite3"
+    new_ledger(tmp_path)
+    with sqlite3.connect(path) as con:
+        con.execute(damage)
+    with pytest.raises(LedgerUnavailable):
+        PendingLedger.open_existing(path)
+
+
+def test_failed_provision_leaves_quarantined_file(tmp_path, monkeypatch):
+    path = tmp_path / "pending.sqlite3"
+    def unavailable(*args, **kwargs):
+        raise sqlite3.OperationalError("synthetic setup failure")
+    with monkeypatch.context() as patch:
+        patch.setattr(sqlite3, "connect", unavailable)
+        with pytest.raises(LedgerUnavailable):
+            PendingLedger.initialize_new(path)
+    assert path.exists()
+    with pytest.raises(LedgerUnavailable):
+        PendingLedger.open_existing(path)
+    with pytest.raises(LedgerUnavailable):
+        PendingLedger.initialize_new(path)
+
+
+@pytest.mark.parametrize("after_commit", [False, True])
+def test_commit_error_stops_fake_send_even_if_commit_succeeded(tmp_path, monkeypatch, after_commit):
+    ledger = new_ledger(tmp_path)
+    real_connect = sqlite3.connect
+    class Connection(sqlite3.Connection):
+        def execute(self, sql, *args):
+            if sql == "COMMIT":
+                if after_commit:
+                    super().execute(sql, *args)
+                raise sqlite3.OperationalError("synthetic commit uncertainty")
+            return super().execute(sql, *args)
+    def connect(*args, **kwargs):
+        return real_connect(*args, factory=Connection, **kwargs)
+    fake = FakeP2()
+    client = GameTransport("http://127.0.0.1:18770", fake, credential="synthetic")
+    client.initialize()
+    with monkeypatch.context() as patch:
+        patch.setattr(sqlite3, "connect", connect)
+        with pytest.raises(LedgerUnavailable):
+            client.call_tool("say", {}, mutation=True, attempt_id="a1",
+                             claim_dispatch=ledger.claim_for(scope()))
+    assert len(fake.calls) == 1 and client.unresolved_mutation
+    assert (ledger.pending() is not None) == after_commit

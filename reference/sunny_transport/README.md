@@ -175,3 +175,17 @@ automatically clear pending to support another game activity. The old
 provenance/shape classifier, **not** a crash-durable storage component.
 
 Focused offline test: `python -m pytest -q mod/tests/test_sunny_durable_pending.py`.
+
+Independent persistence review: SQLite connections use URI `mode=rw`, including
+provisioning after exclusive file creation, so disappearance at open cannot
+silently create an empty replacement. Ledger objects also check device/inode
+identity before and after connecting and reject detected replacement. These
+checks do not secure a directory against hostile writers or authenticate a
+newly constructed ledger's path. Canonical argument objects require string keys
+recursively; Python key coercion must not alias a distinct argument object.
+Additional temporary-file tests exercise concurrent reservations and process
+exit immediately before/after COMMIT and before a fake send. Pre-commit exit
+leaves no reservation and no dispatch; post-commit exit leaves the barrier.
+These remain process-crash tests on the test platform, not power-loss or Windows
+validation. An explicit mismatched tool test demonstrates that the attempt-only
+callback cannot authenticate the stored tool or arguments.

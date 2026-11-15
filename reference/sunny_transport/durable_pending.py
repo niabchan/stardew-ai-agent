@@ -41,10 +41,22 @@ def fingerprint_arguments(arguments: dict) -> str:
     """Stable fingerprint without storing actual arguments / P1 speech text."""
     if type(arguments) is not dict:
         raise ValueError("Tool arguments must be a plain dict")
+
+    def check_keys(value):
+        if isinstance(value, dict):
+            if any(type(key) is not str for key in value):
+                raise ValueError("Tool argument object keys must be strings")
+            for child in value.values():
+                check_keys(child)
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                check_keys(child)
+
     try:
+        check_keys(arguments)
         raw = json.dumps(arguments, sort_keys=True, separators=(",", ":"),
                          ensure_ascii=True, allow_nan=False).encode("ascii")
-    except (TypeError, ValueError, OverflowError) as exc:
+    except (TypeError, ValueError, OverflowError, RecursionError) as exc:
         raise ValueError("Invalid tool arguments") from exc
     return hashlib.sha256(raw).hexdigest()
 
@@ -77,6 +89,11 @@ class PendingLedger:
 
     def __init__(self, path: Path):
         self._path = path
+        try:
+            info = path.stat(follow_symlinks=False)
+            self._identity = (info.st_dev, info.st_ino)
+        except OSError as exc:
+            raise LedgerUnavailable("Pending ledger missing") from exc
 
     @staticmethod
     def _path_checked(path: Path) -> Path:
@@ -147,7 +164,15 @@ class PendingLedger:
         if self._path.is_symlink() or not self._path.is_file():
             raise LedgerUnavailable("Pending ledger missing or redirected")
         try:
-            con = sqlite3.connect(str(self._path), timeout=0.2, isolation_level=None)
+            before = self._path.stat(follow_symlinks=False)
+            if (before.st_dev, before.st_ino) != self._identity:
+                raise LedgerUnavailable("Pending ledger file changed")
+            # URI rw forbids creation even if the checked file disappears.
+            con = sqlite3.connect(self._path.as_uri() + "?mode=rw", uri=True,
+                                  timeout=0.2, isolation_level=None)
+            after = self._path.stat(follow_symlinks=False)
+            if (after.st_dev, after.st_ino) != self._identity or self._path.is_symlink():
+                raise LedgerUnavailable("Pending ledger file changed during open")
             con.execute("PRAGMA synchronous=FULL")
             if check_schema:
                 if con.execute("PRAGMA user_version").fetchone()[0] != 1:
@@ -160,7 +185,7 @@ class PendingLedger:
                 if integrity is None or integrity[0] != "ok":
                     raise LedgerUnavailable("Pending ledger integrity unknown")
             return con
-        except (sqlite3.Error, LedgerUnavailable) as exc:
+        except (sqlite3.Error, OSError, LedgerUnavailable) as exc:
             if "con" in locals():
                 con.close()
             raise LedgerUnavailable("Pending ledger cannot be verified") from exc
