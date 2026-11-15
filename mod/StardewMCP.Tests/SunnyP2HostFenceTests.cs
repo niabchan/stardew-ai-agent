@@ -54,7 +54,9 @@ public class SunnyP2HostFenceTests
     {
         var (fence, token, lease) = Ready();
         Assert.Equal(43, token.Length);
-        Assert.All(token, c => Assert.True(char.IsAsciiLetterOrDigit(c) || c is '-' or '_'));
+        Assert.All(token, c => Assert.True((c >= 'A' && c <= 'Z') ||
+                                          (c >= 'a' && c <= 'z') ||
+                                          (c >= '0' && c <= '9') || c is '-' or '_'));
         Assert.NotEqual(token, lease.Session);
         Assert.Equal(43, lease.Epoch.Length);
         Assert.Equal(43, lease.Instance.Length);
