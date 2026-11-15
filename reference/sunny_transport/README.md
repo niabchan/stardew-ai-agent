@@ -126,3 +126,66 @@ owner+session+epoch-bound retirement evidence and the disposition of queued/runn
 mutations (quiescent retirement or separately fenced cleanup). It must not clear an
 unresolved mutation merely because ownership was retired. The current C# DELETE
 returns 200 without owner teardown; neither it nor this fake proves server safety.
+
+
+## Offline crash-persistent pending barrier (next G0 slice, **not Controller wiring**)
+
+`durable_pending.py` is a small **real SQLite-on-disk** companion to the
+existing injected fake `GameTransport`, not another simulated action planner.
+Tests use temporary local SQLite files and fake exchange callbacks only. The
+user's private v0.3.10 scripts, SMAPI, game, installed DLL and API are never
+opened or contacted.
+
+- **Explicit first provision:** `PendingLedger.initialize_new(absolute_path)`
+  creates a file exclusively; a second call fails rather than replacing it.
+- **Restart:** `PendingLedger.open_existing(absolute_path)` requires the
+  *same existing DB*. Missing, corrupt, redirected or incompatible databases
+  STOP rather than silently recreating empty operation history.
+- **Write-ahead claim:** `reserve(PendingClaim(...))` uses a SQLite
+  `BEGIN IMMEDIATE` transaction with `synchronous=FULL`, committing **one
+  singleton unresolved operation** before the caller's fake exchange may
+  attempt an effect. Any prior pending operation blocks every later attempt,
+  including a *different attempt ID, owner or epoch*, even after a new
+  process opens the DB. No `clear` API exists: even positive tool ACK, DELETE,
+  a changed epoch or manual file/owner labels **cannot** reconcile the effect.
+- **Confidentiality:** the DB stores only bounded caller-supplied opaque
+  identifiers, tool name and SHA-256 of canonical arguments, **never raw
+  arguments, P1 dialogue, model keys, bearer/session tokens or game logs**.
+  Hashing is not a privacy/security boundary against inference; choose
+  private identifiers and protect the actual DB from unrelated filesystem
+  writers/readers.
+- **Trust limit:** caller-provided instance/epoch/owner/operation strings
+  are **not authenticated**; a journal row is not proof of source provenance,
+  actual send, outcome or durable save effect. `claim_for()` receives only
+  the adapter's attempt ID, **not** independently verified tool/arguments or
+  a signed host identity. The eventual integration must bind these at the
+  host boundary and audit the full private v0.3.10 call chain.
+- **Platform/recovery limit:** SQLite uses a strong local durability
+  configuration, and a subprocess test commits then abruptly exits, but
+  tests **do not prove resistance to power loss, hostile file deletion,
+  alternate DB paths, filesystem tampering, network shares, Windows file
+  sharing behavior or independent STOP/queued-action retirement**. A future
+  trusted runner must pin and protect one stable DB path before choosing any
+  target, and implement independently reviewed reconciliation/retirement.
+  Opening another new DB must not be used to bypass a pending row.
+
+This slice deliberately **does not** modify the actual v0.3.10 controller or
+automatically clear pending to support another game activity. The old
+`reference/sunny_p11_journal_contract.py` remains the separate inert
+provenance/shape classifier, **not** a crash-durable storage component.
+
+Focused offline test: `python -m pytest -q mod/tests/test_sunny_durable_pending.py`.
+
+Independent persistence review: SQLite connections use URI `mode=rw`, including
+provisioning after exclusive file creation, so disappearance at open cannot
+silently create an empty replacement. Ledger objects also check device/inode
+identity before and after connecting and reject detected replacement. These
+checks do not secure a directory against hostile writers or authenticate a
+newly constructed ledger's path. Canonical argument objects require string keys
+recursively; Python key coercion must not alias a distinct argument object.
+Additional temporary-file tests exercise concurrent reservations and process
+exit immediately before/after COMMIT and before a fake send. Pre-commit exit
+leaves no reservation and no dispatch; post-commit exit leaves the barrier.
+These remain process-crash tests on the test platform, not power-loss or Windows
+validation. An explicit mismatched tool test demonstrates that the attempt-only
+callback cannot authenticate the stored tool or arguments.
