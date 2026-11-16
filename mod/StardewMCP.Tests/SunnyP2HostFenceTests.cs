@@ -199,4 +199,49 @@ public class SunnyP2HostFenceTests
         Assert.True(fence.TryQueueMutation(laterToken, laterLease, "new"));
         Assert.False(fence.TryBeginOnGameThread(lease, "new"));
     }
+
+    [Fact]
+    public void ExplicitStopBeforeFirstMutationCannotBeRearmedInSameEpoch()
+    {
+        var (fence, token, lease) = Ready();
+        fence.HostStop();
+        Assert.True(fence.Stopped);
+        Assert.False(fence.PendingUnknown);
+        Assert.False(fence.HostArmForOneOperation());
+        Assert.False(fence.TryQueueMutation(token, lease, "after-stop"));
+        Assert.Null(fence.HostIssueCredential(SunnyP2HostFence.Grant.Control));
+        // A future trusted new load can generate a fresh credential, never
+        // revalidate the prior owner or re-use the prior credential.
+        fence.HostSaveLoaded(true, true, true);
+        var token2 = fence.HostIssueCredential(SunnyP2HostFence.Grant.Control);
+        Assert.NotNull(token2);
+        var lease2 = fence.TryAcquire(token2);
+        Assert.NotNull(lease2);
+        Assert.NotEqual(lease.Epoch, lease2!.Epoch);
+        Assert.False(fence.TryQueueMutation(token, lease, "after-old-stop"));
+    }
+
+    [Fact]
+    public void InvalidInitialRolesCannotBeRepairedWithinTheSameEpoch()
+    {
+        var fence = new SunnyP2HostFence();
+        fence.HostSaveLoaded(false, true, true);
+        fence.HostRolesChanged(true, true, true);
+        Assert.Null(fence.HostIssueCredential(SunnyP2HostFence.Grant.Control));
+        Assert.False(fence.HostArmForOneOperation());
+        fence.HostSaveLoaded(true, true, true);
+        Assert.NotNull(fence.HostIssueCredential(SunnyP2HostFence.Grant.Control));
+    }
+
+    [Fact]
+    public void ValidRoleBecomingInvalidCanOnlyRecoverWithNewLoad()
+    {
+        var (fence, token, lease) = Ready();
+        fence.HostRolesChanged(false, true, true);
+        fence.HostRolesChanged(true, true, true);
+        Assert.False(fence.HostArmForOneOperation());
+        Assert.Null(fence.HostIssueCredential(SunnyP2HostFence.Grant.Control));
+        Assert.False(fence.TryQueueMutation(token, lease, "stale"));
+    }
+
 }
