@@ -28,6 +28,7 @@ public sealed class SunnyP2HostFence
     private Grant _grants;
     private bool _rolesReady;
     private bool _stopped = true;
+    private bool _terminalStop = true; // explicit STOP cannot be rearmed within the same load epoch
     private WorkState _workState;
     private string? _pendingOperation;
     private long _stopRevision;
@@ -58,6 +59,7 @@ public sealed class SunnyP2HostFence
         {
             FenceUnderLock();
             _epoch = GenerateOpaque();
+            _terminalStop = false; // only trusted new host load can re-enable provisioning
             _rolesReady = p1Human && p2Ai && p2ExternalBrainNone;
             _session = null;
             _credentialDigest = null;
@@ -74,6 +76,7 @@ public sealed class SunnyP2HostFence
         {
             FenceUnderLock();
             _epoch = null;
+            _terminalStop = true;
             _rolesReady = false;
             _session = null;
             _credentialDigest = null;
@@ -90,6 +93,7 @@ public sealed class SunnyP2HostFence
             if (!_rolesReady)
             {
                 FenceUnderLock();
+                _terminalStop = true;
                 _session = null;
                 _credentialDigest = null;
                 _grants = Grant.None;
@@ -107,7 +111,7 @@ public sealed class SunnyP2HostFence
     {
         lock (_gate)
         {
-            if (!_rolesReady || _epoch is null || grants is Grant.None ||
+            if (_terminalStop || !_rolesReady || _epoch is null || grants is Grant.None ||
                 (grants & ~(Grant.Control | Grant.Observe)) != 0 ||
                 _pendingOperation is not null)
                 return null;
@@ -148,7 +152,7 @@ public sealed class SunnyP2HostFence
     {
         lock (_gate)
         {
-            if (!_rolesReady || _epoch is null || _session is not null ||
+            if (_terminalStop || !_rolesReady || _epoch is null || _session is not null ||
                 (_grants & Grant.Control) == 0 || !CredentialMatches(bearer) ||
                 _pendingOperation is not null)
                 return null;
@@ -166,7 +170,7 @@ public sealed class SunnyP2HostFence
     {
         lock (_gate)
         {
-            if (_session is null || !_rolesReady || _epoch is null ||
+            if (_terminalStop || _session is null || !_rolesReady || _epoch is null ||
                 _credentialDigest is null || _pendingOperation is not null)
                 return false;
             _stopped = false;
@@ -184,7 +188,7 @@ public sealed class SunnyP2HostFence
     {
         lock (_gate)
         {
-            if (_stopped || !LeaseMatches(lease) || !CredentialMatches(bearer) ||
+            if (_terminalStop || _stopped || !LeaseMatches(lease) || !CredentialMatches(bearer) ||
                 (_grants & Grant.Control) == 0 || _pendingOperation is not null ||
                 string.IsNullOrWhiteSpace(operationId) || operationId.Length > 128)
                 return false;
@@ -199,7 +203,7 @@ public sealed class SunnyP2HostFence
     {
         lock (_gate)
         {
-            if (_stopped || !LeaseMatches(lease) || _pendingOperation != operationId ||
+            if (_terminalStop || _stopped || !LeaseMatches(lease) || _pendingOperation != operationId ||
                 _workState != WorkState.Queued)
                 return false;
             _workState = WorkState.Running;
@@ -211,7 +215,7 @@ public sealed class SunnyP2HostFence
     public bool MayContinueOnGameThread(Lease? lease, string operationId)
     {
         lock (_gate)
-            return !_stopped && LeaseMatches(lease) && _pendingOperation == operationId &&
+            return !_terminalStop && !_stopped && LeaseMatches(lease) && _pendingOperation == operationId &&
                    _workState == WorkState.Running;
     }
 
@@ -223,7 +227,10 @@ public sealed class SunnyP2HostFence
     public void HostStop()
     {
         lock (_gate)
+        {
             FenceUnderLock();
+            _terminalStop = true;
+        }
     }
 
     /// <summary>
