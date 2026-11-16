@@ -55,6 +55,11 @@ non-intrusive method; do not probe or touch existing services. If an endpoint
 is unexpectedly bound, **STOP**, do not auto-select a fallback. A generated
 binary, GitHub CI run or prior G0 review is not consent to start it.
 
+Any change to transport, source/build, limits, fixture variants, evidence
+schema or stop design invalidates affected downstream reviews and prior
+scope-specific consent. Re-review before a new operator decision; revised
+limits require separate reconciliation of the Phase 2F/2I expectations.
+
 ## 2. Minimal proposed non-game testbed (diagram is not running architecture)
 
 ```text
@@ -178,7 +183,11 @@ Each future request/variant record must preserve:
    parsed URL, headers/values *as exposed*, actual endpoint fields and
    handler-entry timestamp. No inferred duplicate original lines.
 4. **Effects and ownership:** sanitized handler/auth/candidate/contact/
-   queue/private-field counters (denied traffic must all remain zero),
+   queue/private-field and protected-effect counters. Record handler entry
+   and auth lookup as observed for the case's denial stage; handler-side
+   denial can have nonzero handler entry. Denied traffic must produce zero
+   candidates, contacts, queued work, private fields and protected effects.
+   Also record
    thread/task/read/write aliases, held/aborted collateral work, stop
    state, buffer owner/quarantine and observed cleanup. A 200/408 or
    `CandidateOnly` is never an effect/retirement receipt.
@@ -198,6 +207,13 @@ or real game logs may be uploaded as evidence.
 
 **Before any traffic**, independently review the exact process/task/handle
 inventory and mechanically verifiable stop sequence. Required stages:
+
+These are milestones, not blocking sequential waits. Latch HALT first;
+sender shutdown, collateral fencing and transport abort must then proceed
+without waiting for sender acknowledgement or a stalled listener. An
+independent watchdog must escalate at the immutable monotonic deadline
+from every nonterminal state, including a hung abort invocation, task
+observer or evidence writer. No stage may reset or defer that deadline.
 
 1. Operator/supervisor **latches terminal HALT** independent of the
    listener; stop *new* synthetic sends and all new test candidates.
