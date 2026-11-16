@@ -113,7 +113,7 @@ Never upload real secrets, actual P1 or game data, private logs, local paths or 
 ## G0 public API source-to-evidence crosswalk (2026-11-16; NO Windows test)
 
 **Why appended to this plan:** The independently accepted but **dormant**
-[PR #77 bounded P2 bridge](https://github.com/niabchan/stardew-ai-agent/pull/77)
+[PR #77 bounded P2 bridge][g0-native-evidence-1]
 (at reviewed head `ed7ac61a4fee35bdb5c2ee259ba24b1524575bb8`)
 consumes a `SunnyP2IngressCapture` whose raw target, headers, peer, bound
 port and framing metadata are **asserted by its future caller**. Passing
@@ -137,13 +137,13 @@ measurements of the installed system.
 
 ### Microsoft source links (public documentation, NOT observed Windows tests)
 
-- [`HttpListenerRequest.RawUrl`](https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.rawurl?view=net-10.0) and [`Url`](https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.url?view=net-10.0) — raw request path/query versus parsed `Uri`.
-- [`HttpListenerRequest.Headers`](https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.headers?view=net-10.0) — `WebHeaderCollection` and `GetValues`, NOT a raw-header-line guarantee.
-- [`RemoteEndPoint`](https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.remoteendpoint?view=net-10.0) and [`LocalEndPoint`](https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.localendpoint?view=net-10.0) — transport endpoints, not caller authorization.
-- [`ContentLength64`](https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.contentlength64?view=net-10.0) and [`InputStream`](https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.inputstream?view=net-10.0) — declared length and exposed body stream.
-- [`HttpListenerTimeoutManager.HeaderWait`](https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenertimeoutmanager.headerwait?view=net-10.0) — first-request two-minute/default-vs-configured exception.
-- Win32 [`HTTP_REQUEST_V1`](https://learn.microsoft.com/en-us/windows/win32/api/http/ns-http-http_request_v1) and [`HTTP_REQUEST_HEADERS`](https://learn.microsoft.com/en-us/windows/win32/api/http/ns-http-http_request_headers) — raw/cooked URL, native header structures (not automatically exposed by managed HttpListener).
-- ASP.NET Core [`IHttpRequestFeature`](https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.features.ihttprequestfeature?view=aspnetcore-10.0) and [`RawTarget`](https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.features.ihttprequestfeature.rawtarget?view=aspnetcore-10.0); [Kestrel server limits](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/options?view=aspnetcore-10.0) — documented candidate properties and still-missing guarantees.
+- [`HttpListenerRequest.RawUrl`][g0-native-evidence-2] and [`Url`][g0-native-evidence-3] — raw request path/query versus parsed `Uri`.
+- [`HttpListenerRequest.Headers`][g0-native-evidence-4] — `WebHeaderCollection` and `GetValues`, NOT a raw-header-line guarantee.
+- [`RemoteEndPoint`][g0-native-evidence-5] and [`LocalEndPoint`][g0-native-evidence-6] — transport endpoints, not caller authorization.
+- [`ContentLength64`][g0-native-evidence-7] and [`InputStream`][g0-native-evidence-8] — declared length and exposed body stream.
+- [`HttpListenerTimeoutManager.HeaderWait`][g0-native-evidence-9] — first-request two-minute/default-vs-configured exception.
+- Win32 [`HTTP_REQUEST_V1`][g0-native-evidence-10] and [`HTTP_REQUEST_HEADERS`][g0-native-evidence-11] — raw/cooked URL, native header structures (not automatically exposed by managed HttpListener).
+- ASP.NET Core [`IHttpRequestFeature`][g0-native-evidence-12] and [`RawTarget`][g0-native-evidence-13]; [Kestrel server limits][g0-native-evidence-14] — documented candidate properties and still-missing guarantees.
 
 **Decision from this source-only update:** `HttpListener` is **NOT yet accepted**
 for a trusted `SunnyP2IngressCapture`; Kestrel is **NOT selected**. The
@@ -160,3 +160,18 @@ Windows G1 and 13 runtime G2 cases, **all 50 `not_run`**, 11 G1 gates
 OPEN; `NO_GO_G1_START / NO_GO_LIVE_G2`. No installed game/Mod/Controller,
 legacy HTTP route, listener, credential or user save is changed by this
 appendix.
+
+[g0-native-evidence-1]: https://github.com/niabchan/stardew-ai-agent/pull/77
+[g0-native-evidence-2]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.rawurl?view=net-10.0
+[g0-native-evidence-3]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.url?view=net-10.0
+[g0-native-evidence-4]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.headers?view=net-10.0
+[g0-native-evidence-5]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.remoteendpoint?view=net-10.0
+[g0-native-evidence-6]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.localendpoint?view=net-10.0
+[g0-native-evidence-7]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.contentlength64?view=net-10.0
+[g0-native-evidence-8]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.inputstream?view=net-10.0
+[g0-native-evidence-9]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenertimeoutmanager.headerwait?view=net-10.0
+[g0-native-evidence-10]: https://learn.microsoft.com/en-us/windows/win32/api/http/ns-http-http_request_v1
+[g0-native-evidence-11]: https://learn.microsoft.com/en-us/windows/win32/api/http/ns-http-http_request_headers
+[g0-native-evidence-12]: https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.features.ihttprequestfeature?view=aspnetcore-10.0
+[g0-native-evidence-13]: https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.features.ihttprequestfeature.rawtarget?view=aspnetcore-10.0
+[g0-native-evidence-14]: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/options?view=aspnetcore-10.0
