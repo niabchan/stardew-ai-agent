@@ -40,8 +40,11 @@ and trusted operator provisioning do **not** exist.
 The host must explicitly arm **one** potential effectful dispatch; by default
 STOP is latched. `TryQueueMutation` records a pending operation in memory;
 `TryBeginOnGameThread` and `MayContinueOnGameThread` independently recheck
-epoch, owner, role and STOP. `HostStop`, Title, load, invalid role or token
-rotation fence future steps. **Pending cannot be cleared** in this G0 class:
+epoch, owner, role and STOP. An explicit `HostStop` or invalid role latches a
+**terminal stop for that load epoch**, so `HostArmForOneOperation` cannot
+silently undo the stop. Only a new trusted, valid host load may reset that
+terminal flag; it does NOT clear any pending operation. Title, load, invalid
+role or token rotation fence future steps. **Pending cannot be cleared** in this G0 class:
 a positive tool acknowledgment, STOP or new save cannot authorize an action
 retry, new owner, or next mutation while that operation is unresolved.
 
