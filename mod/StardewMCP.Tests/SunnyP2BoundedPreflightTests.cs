@@ -29,10 +29,12 @@ public class SunnyP2BoundedPreflightTests
         public bool Current = true;
         public bool Ready = true;
         public bool ThrowOnResolve;
+        public Action? OnResolve;
 
         public SunnyP2Principal? ResolveGameCredential(string token)
         {
             Resolutions++;
+            OnResolve?.Invoke();
             if (ThrowOnResolve) throw new IOException("synthetic authority unavailable");
             return token == Bearer ? new("synthetic-p2", "p2", true, true) : null;
         }
@@ -340,4 +342,115 @@ public class SunnyP2BoundedPreflightTests
         Assert.True(s.Reads > 0);
         Assert.Equal(1, a.Resolutions);
     }
+    // The advertised Count is small, but enumeration must still have a hard cap.
+    private sealed class ExpandingHeaders : IReadOnlyList<KeyValuePair<string, string>>
+    {
+        internal int Visits;
+        public int Count => 1;
+        public KeyValuePair<string, string> this[int index] => new("X-Test", "x");
+        public IEnumerator<KeyValuePair<string, string>> GetEnumerator()
+        {
+            for (int i = 0; i < 10000; i++)
+            {
+                Visits++;
+                yield return this[i];
+            }
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    [Fact]
+    public async Task Header_snapshot_stops_after_first_over_limit_entry()
+    {
+        var bytes = Encoding.UTF8.GetBytes(InitJson);
+        var headers = new ExpandingHeaders();
+        var (result, stream, authority) = await Run(bytes, Capture(bytes) with { Headers = headers });
+        Assert.Equal(400, result.Status);
+        Assert.InRange(headers.Visits, 0, 65);
+        Assert.Equal(0, stream.Reads);
+        Assert.Equal(0, authority.Resolutions);
+    }
+
+    [Theory]
+    [InlineData("POST")]
+    [InlineData("DELETE")]
+    public async Task Cancellation_during_preflight_cannot_return_a_candidate(string method)
+    {
+        using var cts = new CancellationTokenSource();
+        var bytes = method == "POST" ? Encoding.UTF8.GetBytes(InitJson) : Array.Empty<byte>();
+        using var stream = new ReadCounter(bytes);
+        var authority = new Authority { OnResolve = cts.Cancel };
+        var result = await SunnyP2BoundedPreflight.CheckAsync(
+            Capture(bytes, method: method, withSession: method == "DELETE"), stream, authority, cts.Token);
+        Assert.Equal(408, result.Status);
+        Assert.False(result.CandidateOnly);
+        Assert.Null(result.Preflight);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("-1")]
+    [InlineData("+1")]
+    [InlineData("1,1")]
+    [InlineData(" 1")]
+    [InlineData("9223372036854775808")]
+    public async Task Malformed_lengths_never_read_or_resolve(string length)
+    {
+        var bytes = Encoding.UTF8.GetBytes(InitJson);
+        var capture = Add(Remove(Capture(bytes), "Content-Length"), "Content-Length", length);
+        var (result, stream, authority) = await Run(bytes, capture);
+        Assert.Equal(400, result.Status);
+        Assert.Null(result.Preflight);
+        Assert.Equal(0, stream.Reads);
+        Assert.Equal(0, authority.Resolutions);
+    }
+
+    private sealed class PausedRead : MemoryStream
+    {
+        internal readonly TaskCompletionSource<bool> Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly TaskCompletionSource<bool> Resume = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal PausedRead(byte[] bytes) : base(bytes, writable: false) { }
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken token = default)
+        {
+            Entered.TrySetResult(true);
+            await Resume.Task;
+            // Deliberately ignore cancellation, but eventually complete; no deadline claim.
+            return await base.ReadAsync(buffer, CancellationToken.None);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Awaited_read_uses_header_snapshot_and_rechecks_cancellation(bool cancel)
+    {
+        var bytes = Encoding.UTF8.GetBytes(InitJson);
+        var capture = Capture(bytes);
+        var headers = (List<KeyValuePair<string, string>>)capture.Headers;
+        using var stream = new PausedRead(bytes);
+        using var cts = new CancellationTokenSource();
+        var authority = new Authority();
+        var pending = SunnyP2BoundedPreflight.CheckAsync(capture, stream, authority, cts.Token);
+        await stream.Entered.Task;
+        headers.Clear();
+        headers.Add(new("Authorization", "Bearer changed-untrusted-token"));
+        if (cancel) cts.Cancel();
+        stream.Resume.TrySetResult(true);
+        var result = await pending;
+        Assert.Equal(cancel ? 408 : 200, result.Status);
+        Assert.Equal(!cancel, result.CandidateOnly);
+        Assert.Equal(cancel ? 0 : 1, authority.Resolutions);
+    }
+
+    [Fact]
+    public async Task Exact_maximum_body_is_a_candidate_but_never_reads_beyond_budget()
+    {
+        var bytes = Encoding.UTF8.GetBytes(InitJson.PadRight(SunnyP2Preflight.MaxBodyBytes));
+        var (result, stream, authority) = await Run(bytes);
+        Assert.True(result.CandidateOnly);
+        Assert.Equal(SunnyP2Preflight.MaxBodyBytes, stream.Position);
+        Assert.Equal(16, stream.Reads);
+        Assert.Equal(1, authority.Resolutions);
+    }
+
 }

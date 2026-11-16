@@ -58,7 +58,9 @@ internal static class SunnyP2BoundedPreflight
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            headers = capture.Headers?.ToArray() ??
+            // Bound enumeration/allocation too, including a changing or inaccurate Count.
+            // The 65th entry is sufficient evidence to reject the 64-header limit.
+            headers = capture.Headers?.Take(65).ToArray() ??
                 Array.Empty<KeyValuePair<string, string>>();
             if (capture.Method is not ("POST" or "DELETE") ||
                 capture.RawTarget != "/mcp/p2" ||
@@ -148,6 +150,8 @@ internal static class SunnyP2BoundedPreflight
                 capture.RawHost, capture.PeerAddress, capture.ListenerPort,
                 headers, bytes);
             SunnyP2Decision candidate = SunnyP2Preflight.Evaluate(request, authority);
+            // Synchronous policy callbacks may have observed cancellation meanwhile.
+            cancellationToken.ThrowIfCancellationRequested();
             return candidate.Allowed
                 ? new SunnyP2IngressCheck(candidate.Status, candidate)
                 : SunnyP2IngressCheck.Deny(candidate.Status);

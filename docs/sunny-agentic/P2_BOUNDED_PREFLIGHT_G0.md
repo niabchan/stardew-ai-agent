@@ -84,3 +84,21 @@ Controller, Luna, installed DLLs or saves.
 **G1 stays NO_GO:** 11 gates OPEN, 50 historical live cases `not_run`,
 `NO_GO_G1_START / NO_GO_LIVE_G2`. Independent review required before
 integration. Keep this PR Draft/unmerged.
+
+## Independent Issue #78 review repairs
+
+- **MED — header snapshot allocation was unbounded before validation.**
+  `Headers.ToArray()` consumed all entries before applying the 64-header limit.
+  A synthetic list reporting Count=1 but yielding 10,000 entries reproduced
+  10,000 visits. Snapshot enumeration now stops at entry 65 and rejects it,
+  bounding this helper's allocation even if a mutable capture expands.
+- **MED — cancellation during synchronous preflight could return a candidate.**
+  An authority callback canceling the supplied token reproduced status 200 for
+  both POST initialize and DELETE. A post-evaluation cancellation check now
+  returns 408 with no preflight decision. This does not interrupt callbacks,
+  guarantee a deadline, or replace atomic admission/revocation checks.
+
+These are synthetic game-free regressions, not native transport evidence.
+No production caller or G1 integration is added. Positive CandidateOnly remains
+provisional, including exposed preflight fields such as `MayMarkContact`:
+none may authorize contact, dispatch, retirement or a positive client response.
