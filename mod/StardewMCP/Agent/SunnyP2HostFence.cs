@@ -59,8 +59,8 @@ public sealed class SunnyP2HostFence
         {
             FenceUnderLock();
             _epoch = GenerateOpaque();
-            _terminalStop = false; // only trusted new host load can re-enable provisioning
             _rolesReady = p1Human && p2Ai && p2ExternalBrainNone;
+            _terminalStop = !_rolesReady; // invalid load cannot be corrected by a later role toggle
             _session = null;
             _credentialDigest = null;
             _grants = Grant.None;
