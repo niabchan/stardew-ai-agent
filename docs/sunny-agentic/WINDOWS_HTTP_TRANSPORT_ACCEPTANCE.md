@@ -106,3 +106,74 @@ Never upload real secrets, actual P1 or game data, private logs, local paths or 
 **G2 start/pass:** separate review/approval of all-route real credential issuance, immutable principal and grants, P2 server-owned lease/save epoch + atomic queue/game-thread admission, verified DELETE retirement and unknown effect journal, P1 consent-safe projection, safe browser/OBS, actual Luna client migration and Windows/SMAPI gameplay acceptance. **No merge to `main` or deployment** based on G0/G1 alone.
 
 **Current state:** G0 plan only. G1/G2 not started. PR #22/#19/#10 stay Draft; Sunny/Luna installed game unchanged.
+
+
+---
+
+## G0 public API source-to-evidence crosswalk (2026-11-16; NO Windows test)
+
+**Why appended to this plan:** The independently accepted but **dormant**
+[PR #77 bounded P2 bridge][g0-native-evidence-1]
+(at reviewed head `ed7ac61a4fee35bdb5c2ee259ba24b1524575bb8`)
+consumes a `SunnyP2IngressCapture` whose raw target, headers, peer, bound
+port and framing metadata are **asserted by its future caller**. Passing
+bounded C# tests does **not** create or prove that caller. This crosswalk
+adds documented API evidence to the existing 50-case acceptance plan;
+it neither changes those cases nor starts any case. Distinguish:
+**S** = public API/source documentation, **U** = not established for the
+approved target OS/.NET/HTTP.sys implementation, **D** = required future
+design/acceptance rule. Public docs describe an API contract, not
+measurements of the installed system.
+
+| Required evidence | Official published API fact (S) | Still unproven (U) and future go/no-go requirement (D) | Existing case IDs |
+| --- | --- | --- | --- |
+| Exact request target | `HttpListenerRequest.RawUrl` exposes the URL part including query, whereas `Url` is parsed. Windows native `HTTP_REQUEST_V1.pRawUrl` exposes original unprocessed URL octets, **but the Win32 reference says to use it only for tracking/statistics and to use `CookedUrl` for normal routing**. | Neither `RawUrl` nor parsed `Url.AbsolutePath` proves original sent bytes or how rejected requests were parsed. A future adapter must record both, identify transformations, require exact allowlisted canonical route **and** reject ambiguous raw forms. If original byte/normalization distinctions needed for the policy cannot be observed or conclusively rejected, **BLOCK**; do not route solely on `pRawUrl`. | RAW-01..05 |
+| Exact raw Host and repeated security headers | `HttpListenerRequest.Headers` is a `WebHeaderCollection` / `NameValueCollection` exposing key/values and `GetValues`. Native HTTP.sys `HTTP_REQUEST_HEADERS` has known/unknown header slots and a count of unknown headers. | Documentation does NOT establish that `HttpListenerRequest.Headers` preserves every original header **line**, casing, whitespace, duplicate Host/Authorization/Origin, or a header rejected before the handler. A normalized single value is NOT raw multiplicity proof. Record sent test bytes, OS rejection vs handler observations; ambiguously coalesced or unobservable sensitive duplicates => **BLOCK** selected adapter, not synthetic `Evidence.All`. | HOST-01..03, HDR-01..05, FRM-02..05 |
+| Socket peer and local listener identity | `HttpListenerRequest.RemoteEndPoint` documents client IP/port; `LocalEndPoint` documents server IP/port directed to by request. | Endpoints are better evidence than forwarded headers, but do NOT prove a particular Windows user, operator authority, intended running game instance or credential. Check bound process/prefix and direct OS-observed endpoints on an approved isolated fixture. Native loopback is a network restriction only. | ENV-01..03, HOST-04..05 |
+| Declared length and stream framing | `ContentLength64` returns declared request Content-Length, or `-1` if unknown; `InputStream` contains body data exposed to the app. | The declared length is not proof of transmitted wire length, absence of Transfer-Encoding ambiguity, trailer bytes or whether bytes after N are a second keep-alive/pipelined request. **Do not** add an `InputStream` EOF probe as a presumed wire check. Require proved transport framing and independent sent-versus-exposed comparison, or fail closed. PR #77 bounds only app-level reads after capture. | FRM-01..12 |
+| First-request and pre-handler time | `HttpListenerTimeoutManager.HeaderWait` documents **a default HeaderWait timer of two minutes for the first request on each connection**, because the server cannot associate the request with a registered queue/group until headers are parsed; the **configured** HeaderWait applies to subsequent requests on that Keep-Alive connection, after the first request is routed. This is a documented header timer, not an observed whole-ingress wall-time bound. | `GetContextAsync` return time and an application `CancellationToken` do not bound all first-byte, header, kernel-queue and body lifetime. A shorter per-listener HeaderWait is NOT a solution for the first request; require trusted independently measurable pre-handler budget and finite abort/cleanup. If unavailable without forbidden global changes => **BLOCK** HttpListener candidate. | TIME-01, TIME-04..05 |
+| Bounded read and independent STOP | PR #77 only consumes exactly N bytes with cooperative cancel and a post-preflight cancellation check. This is repo source, **not** a Windows API guarantee. | A stream that ignores cancellation may continue using buffers. Only verified transport-owned abort, completed reads/writes and finite task/buffer cleanup can count as request retirement. Neither `CandidateOnly`, HTTP 408, `Response.Close`, `HttpListener.Stop`, nor a cancellation signal is cleanup proof. STOP of actual game queues/coroutines remains a separate blocker. | TIME-02..06; AUTH-03/04/06 (G2) |
+| ASP.NET Core/Kestrel alternative | `IHttpRequestFeature.RawTarget` is documented as the request target as sent, not URL-decoded; ASP.NET Core's `Headers` aggregates by name but retains separate **values** across header lines in its documented abstraction. Kestrel offers `RequestHeadersTimeout` for receiving headers (not enforced with a debugger attached), `MaxRequestBodySize`, `MaxConcurrentConnections` and **a separate upgraded-connection cap** (`MaxConcurrentUpgradedConnections`). Upgraded connections leave the ordinary connection count, and `MaxRequestBodySize` has no effect on them; both connection caps default to unlimited. Microsoft also cautions that `RawTarget` is not used internally for routing or authorization. | This is a *candidate*, **not selected**. Documented values are not original header-line bytes/casing nor rejected-wire telemetry, and configurable limits do not automatically yield a non-resetting absolute first-byte-to-cleanup deadline, proven pre-auth queue budget or per-request abort. API-version compatibility with the .NET 6 game target, package/host ownership and all-route privacy remain unverified. If proposed mandatory evidence cannot be obtained, **BLOCK or redesign**, rather than switching servers by assumption. | RAW/HDR/FRM/TIME families |
+
+### Microsoft source links (public documentation, NOT observed Windows tests)
+
+- [`HttpListenerRequest.RawUrl`][g0-native-evidence-2] and [`Url`][g0-native-evidence-3] — raw request path/query versus parsed `Uri`.
+- [`HttpListenerRequest.Headers`][g0-native-evidence-4] — `WebHeaderCollection` and `GetValues`, NOT a raw-header-line guarantee.
+- [`RemoteEndPoint`][g0-native-evidence-5] and [`LocalEndPoint`][g0-native-evidence-6] — transport endpoints, not caller authorization.
+- [`ContentLength64`][g0-native-evidence-7] and [`InputStream`][g0-native-evidence-8] — declared length and exposed body stream.
+- [`HttpListenerTimeoutManager.HeaderWait`][g0-native-evidence-9] — first-request two-minute/default-vs-configured exception.
+- Win32 [`HTTP_REQUEST_V1`][g0-native-evidence-10] and [`HTTP_REQUEST_HEADERS`][g0-native-evidence-11] — raw/cooked URL, native header structures (not automatically exposed by managed HttpListener).
+- ASP.NET Core [`IHttpRequestFeature`][g0-native-evidence-12] and [`RawTarget`][g0-native-evidence-13]; [Kestrel server limits][g0-native-evidence-14] and [`MaxRequestBodySize`][g0-native-evidence-15] — documented candidate properties, debugger/upgrade exceptions and still-missing guarantees.
+
+**Decision from this source-only update:** `HttpListener` is **NOT yet accepted**
+for a trusted `SunnyP2IngressCapture`; Kestrel is **NOT selected**. The
+highest-value next task is to present one independently reviewed,
+**disposable Windows-only, non-game** test specification that answers
+which mandatory fields can be observed and which remain unobservable,
+with an exact process owner, unused port, finite non-resetting timers,
+owned abort/cleanup and rollback. It requires the operator's **separate,
+explicit approval before opening any listener**, and does not authorize
+a test merely because this document is reviewed.
+
+**Do not change G1 case status.** The manifest remains 37 isolated
+Windows G1 and 13 runtime G2 cases, **all 50 `not_run`**, 11 G1 gates
+OPEN; `NO_GO_G1_START / NO_GO_LIVE_G2`. No installed game/Mod/Controller,
+legacy HTTP route, listener, credential or user save is changed by this
+appendix.
+
+[g0-native-evidence-1]: https://github.com/niabchan/stardew-ai-agent/pull/77
+[g0-native-evidence-2]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.rawurl?view=net-10.0
+[g0-native-evidence-3]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.url?view=net-10.0
+[g0-native-evidence-4]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.headers?view=net-10.0
+[g0-native-evidence-5]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.remoteendpoint?view=net-10.0
+[g0-native-evidence-6]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.localendpoint?view=net-10.0
+[g0-native-evidence-7]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.contentlength64?view=net-10.0
+[g0-native-evidence-8]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenerrequest.inputstream?view=net-10.0
+[g0-native-evidence-9]: https://learn.microsoft.com/en-us/dotnet/api/system.net.httplistenertimeoutmanager.headerwait?view=net-10.0
+[g0-native-evidence-10]: https://learn.microsoft.com/en-us/windows/win32/api/http/ns-http-http_request_v1
+[g0-native-evidence-11]: https://learn.microsoft.com/en-us/windows/win32/api/http/ns-http-http_request_headers
+[g0-native-evidence-12]: https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.features.ihttprequestfeature?view=aspnetcore-10.0
+[g0-native-evidence-13]: https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.features.ihttprequestfeature.rawtarget?view=aspnetcore-10.0
+[g0-native-evidence-14]: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/options?view=aspnetcore-10.0
+
+[g0-native-evidence-15]: https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.server.kestrel.core.kestrelserverlimits.maxrequestbodysize?view=aspnetcore-10.0
