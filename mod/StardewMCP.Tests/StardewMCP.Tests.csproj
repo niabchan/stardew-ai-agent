@@ -43,6 +43,8 @@
     <Compile Include="..\StardewMCP\Agent\SunnyP2Preflight.cs" Link="Mod\SunnyP2Preflight.cs" />
     <!-- Dormant production-source host P2 epoch/STOP fence: not called by the listener or real runtime. -->
     <Compile Include="..\StardewMCP\Agent\SunnyP2HostFence.cs" Link="Mod\SunnyP2HostFence.cs" />
+    <!-- Dormant native-body bounds + strict SunnyP2Preflight bridge; NOT wired to AgentHttp. -->
+    <Compile Include="..\StardewMCP\Agent\SunnyP2BoundedPreflight.cs" Link="Mod\SunnyP2BoundedPreflight.cs" />
     <Compile Include="..\StardewMCP\Agent\Peek.cs" Link="Mod\Peek.cs" />
     <Compile Include="..\StardewMCP\Agent\KnowledgeMath.cs" Link="Mod\KnowledgeMath.cs" />
     <Compile Include="..\StardewMCP\Agent\BobberController.cs" Link="Mod\BobberController.cs" />
