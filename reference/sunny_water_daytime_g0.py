@@ -70,9 +70,10 @@ class FakeDaytimeWaterBridge:
                 and type(scene.weather) is str
                 and type(scene.offered_actions) is tuple
                 and len(scene.offered_actions) <= 16
-                and len(set(scene.offered_actions)) == len(scene.offered_actions)
                 and all(type(a) is str for a in scene.offered_actions)
+                and len(set(scene.offered_actions)) == len(scene.offered_actions)
                 and type(scene.recently_completed) is tuple
+                and len(scene.recently_completed) <= 16
                 and all(type(a) is str for a in scene.recently_completed))
 
     @staticmethod
