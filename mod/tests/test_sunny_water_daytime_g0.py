@@ -301,3 +301,74 @@ def test_no_host_forced_deduction_from_base_planner_cannot_water_without_offer()
     )
     assert result.verdict == "STAY_NOT_GROUNDED"
     assert host.events == []
+
+
+def test_two_bridges_cannot_replay_completed_water_after_revision_collision():
+    """Exact prior reviewer counterexample: bridge B must never issue effect 2."""
+    host = FakeHostWaterFence()
+    bridge_a = FakeDaytimeWaterBridge(host)
+    assert bridge_a.step(scene(revision=1), crop(revision=1), "STAY").verdict == "STAY"
+    first = bridge_a.step(scene(revision=2), crop(revision=2), "WATER")
+    assert first.verdict == "FAKE_WATER_VERIFIED"
+    assert host.pending is None
+    assert host._fake_daytime_water_last_revision == 2
+
+    # Fresh bridge has forgotten A's planner history and starts its own
+    # counter in the rejected predecessor. The shared Host must deny BOTH
+    # stale rev 1 and replayed rev 2, without emitting another fake effect.
+    bridge_b = FakeDaytimeWaterBridge(host)
+    assert bridge_b.step(scene(revision=1), crop(revision=1), "WATER").verdict == (
+        "DENIED_HOST_STALE_SNAPSHOT"
+    )
+    again = bridge_b.step(scene(revision=2), crop(revision=2), "WATER")
+    assert again.verdict == "DENIED_HOST_STALE_SNAPSHOT"
+    assert host.events.count("FAKE_EFFECT") == 1
+    assert host.used_ids == {first.operation_id}
+    assert host._fake_daytime_water_last_revision == 2
+    assert FakeDaytimeWaterBridge(host).step(
+        scene(revision=2), crop(revision=2), "WATER"
+    ).verdict == "DENIED_HOST_STALE_SNAPSHOT"
+    assert host.events.count("FAKE_EFFECT") == 1
+
+
+@pytest.mark.parametrize("completed", [
+    ("MOVE_TO_CHAIR", "MOVE_TO_CHAIR"),
+    ("WATER", "WATER"),
+    ("SPEAK_TO_P1", "SPEAK_TO_P1", "WATCH_WEATHER_TV"),
+])
+def test_duplicate_recently_completed_is_malformed_before_any_host_event(completed):
+    host = FakeHostWaterFence()
+    result = FakeDaytimeWaterBridge(host).step(
+        scene(recently_completed=completed), crop(), "WATER"
+    )
+    assert result.verdict == "BLOCKED_MALFORMED_SCENE"
+    assert host.events == []
+    assert host.pending is None
+    assert host.used_ids == set()
+
+
+def test_failed_reservation_does_not_consume_host_revision_watermark():
+    host = FakeHostWaterFence()
+    # Same snapshot ID was already spent in this synthetic host, so the
+    # reservation fails without any A/B effect and without moving the
+    # watermark. A genuinely new scene revision can still be submitted.
+    first_id = FakeDaytimeWaterBridge._snapshot_operation_id(scene(), crop())
+    host.used_ids.add(first_id)
+    bridge = FakeDaytimeWaterBridge(host)
+    assert bridge.step(scene(), crop(), "WATER").verdict == "DENIED_HOST_RESERVATION"
+    assert not hasattr(host, "_fake_daytime_water_last_revision")
+    assert host.events == []
+    fresh = bridge.step(scene(revision=2), crop(revision=2), "WATER")
+    assert fresh.verdict == "FAKE_WATER_VERIFIED"
+    assert fresh.operation_id != first_id
+    assert host._fake_daytime_water_last_revision == 2
+    assert host.events.count("FAKE_EFFECT") == 1
+
+
+def test_corrupted_host_watermark_fails_closed_before_reservation():
+    host = FakeHostWaterFence()
+    host._fake_daytime_water_last_revision = "2"
+    assert FakeDaytimeWaterBridge(host).step(
+        scene(revision=3), crop(revision=3), "WATER"
+    ).verdict == "DENIED_HOST_SNAPSHOT_STATE"
+    assert host.events == []
