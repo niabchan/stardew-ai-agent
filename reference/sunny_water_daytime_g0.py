@@ -5,6 +5,7 @@ No real game, SMAPI, provider, file, HTTP, authority or physical STOP.
 """
 
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Callable
 
 from reference.sunny_daytime_intents import FakeDaytimePlanner, FakeScene
@@ -60,7 +61,6 @@ class FakeDaytimeWaterBridge:
         self.planner = FakeDaytimePlanner(
             expected_epoch=self.expected_epoch, expected_owner=self.expected_owner
         )
-        self.serial = 0
 
     @staticmethod
     def _scene_shape(scene):
@@ -74,7 +74,8 @@ class FakeDaytimeWaterBridge:
                 and len(set(scene.offered_actions)) == len(scene.offered_actions)
                 and type(scene.recently_completed) is tuple
                 and len(scene.recently_completed) <= 16
-                and all(type(a) is str for a in scene.recently_completed))
+                and all(type(a) is str for a in scene.recently_completed)
+                and len(set(scene.recently_completed)) == len(scene.recently_completed))
 
     @staticmethod
     def _crop_shape(crop):
@@ -102,6 +103,21 @@ class FakeDaytimeWaterBridge:
                 and scene.weather == "sunny"
                 and "WATER" in scene.offered_actions
                 and "WATER" not in scene.recently_completed)
+
+    @staticmethod
+    def _snapshot_operation_id(scene, crop):
+        """Stable per synthetic epoch/owner/revision/tile, even across bridges.
+
+        Used by the SAME fake Host's shared used_ids replay fence; never a
+        credential, signed record, or durable proof of an observation.
+        """
+        # All fields are known primitive types before reaching this helper.
+        # No variable-length untrusted metadata is echoed in a public result.
+        identity = (
+            f"fake-water-v1\\0{scene.epoch}\\0{scene.owner}\\0"
+            f"{scene.revision}\\0{crop.tile[0]}\\0{crop.tile[1]}"
+        )
+        return "fake-day-water-" + sha256(identity.encode("utf-8")).hexdigest()[:40]
 
     def step(self, scene, crop, scripted_interest, at_stage: Callable | None = None):
         """One fake proposal/decision and, if allowed, one fake Host operation.
@@ -136,11 +152,11 @@ class FakeDaytimeWaterBridge:
         if at_stage is not None and not callable(at_stage):
             return FakeWaterStep("DENIED_INVALID_TEST_HOOK", offered=offered)
 
-        # This operation ID is synthetic and only unique inside this instance.
-        # A new instance cannot bypass host.pending or host.used_ids.
-        self.serial += 1
+        # Snapshot-scoped deterministic ID: the shared fake Host consumes it
+        # exactly once, across new bridge/planner instances. A refused
+        # reservation does NOT advance a counter or mint another identity.
         operation = FakeWaterOperation(
-            f"fake-day-water-{self.serial}", scene.epoch,
+            self._snapshot_operation_id(scene, crop), scene.epoch,
             self.expected_owner, "P2", "WATER", crop.tile
         )
         if self.host.reserve(operation) != "B_LINEAGE_RESERVED":
