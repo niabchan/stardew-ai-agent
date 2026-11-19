@@ -39,6 +39,7 @@ class FakeHostWaterFence:
         self.b_entered = False
         self.b_finished = False
         self.fake_wet = False
+        self.last_effect_op: str | None = None
         self.events: list[str] = []
 
     def _valid(self, op):
@@ -51,7 +52,7 @@ class FakeHostWaterFence:
                 and all(type(n) is int and 0 <= n < 200 for n in op.tile))
 
     def _same(self, op):
-        return type(op) is FakeWaterOperation and self.pending is not None and op == self.pending
+        return type(op) is FakeWaterOperation and self.pending is op
 
     def reserve(self, op):
         """Synthetic unresolved reservation, including callback B lineage."""
@@ -108,6 +109,7 @@ class FakeHostWaterFence:
         if not self._same(op) or not self.b_entered or self.b_finished:
             return "DENY_B_NOT_INFLIGHT"
         self.fake_wet = True
+        self.last_effect_op = op.operation_id
         self.b_finished = True
         self.events.append("FAKE_EFFECT")
         return "B_FINISHED_FAKE"
@@ -128,12 +130,14 @@ class FakeHostWaterFence:
 
     def rotate_epoch(self):
         """Never silently clear STOP/pending/seen IDs on a fake reload."""
+        self.latch_stop()  # A load change revokes; no new grant is modeled.
         self.epoch = "fake-load-2"
         self.events.append("FAKE_EPOCH_CHANGED")
 
     def confirm_fake_observation(self, op):
         """Internally grounded synthetic receipt, NOT a game or durable receipt."""
-        if not self._same(op) or not self.a_finished or not self.b_finished or not self.fake_wet:
+        if (not self._same(op) or not self.a_finished or not self.b_finished
+                or not self.fake_wet or self.last_effect_op != op.operation_id):
             return "UNKNOWN_PENDING"
         self.pending = None
         self.b_reserved = False
