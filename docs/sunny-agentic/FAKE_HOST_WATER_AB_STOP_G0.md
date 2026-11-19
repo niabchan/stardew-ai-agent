@@ -19,7 +19,7 @@ The synthetic fake host has one actor `P2`, one literal action `WATER`, an exact
 3. `run_a_with_callback(op, callback)`: the injected fake callback may call `enter_b(op)` while A is entered but has **not** finished. B must have the same immutable operation and pre-reserved lineage. This depicts possible early/reentrant callback ordering without dispatching native game methods.
 4. `enter_b(op)` and `finish_b(op)`: one B entry and one synthetic effect. If STOP latches **before** B entry, entry is denied. If B entered **before** STOP, a modelled effect may complete **after** the latch; the test **must not** falsely promise immediate physical cancellation.
 5. `latch_stop()`: monotone, idempotent in this *same in-memory fake object*. STOP prevents any new A, B or operation reservations but cannot retract a B already entered. No independent watchdog, delivery/observation latency or physical preemption exists.
-6. `confirm_fake_observation(op)`: an **internal fake confirmation** is possible only if both regions finished and `fake_wet` is true. Otherwise unresolved remains. Lost/ambiguous receipts **never** clear pending. A fake epoch change does not clear old pending, seen operation IDs or STOP. A resolved operation ID is not replayable.
+6. `confirm_fake_observation(op)`: an **internal fake confirmation** is possible only if both regions finished and `fake_wet` is true. Otherwise unresolved remains. Lost/ambiguous receipts **never** clear pending. A fake epoch change **also latches terminal STOP**, even when no operation is pending; it does not rearm new-epoch operations or clear pending/seen IDs. The synthetic B/finish calls accept only the **same reserved in-memory operation object** (not an equal-but-unissued clone); this models a host-owned handle, **not** real authentication. A resolved operation ID is not replayable.
 
 **Important boundaries:** B lineage pre-reservation is not a *real* atomic ticket. Calls chosen by a deterministic test **cannot prove** a race-safe STOP-vs-region-entry total order, physical STOP latency, effect callback ownership/cleanup, any actual game refills/wetting, private recipient-specific egress or durable persistence after process restart. The fake `fake_wet` value is not a real-game state receipt. Fake epoch rotation is not a real SaveLoaded observation. Authentication, untrusted client messages, grant delivery and actual source coverage are **not represented**.
 
@@ -29,12 +29,12 @@ The synthetic fake host has one actor `P2`, one literal action `WATER`, an exact
 - STOP before operation reservation; STOP between reservation/A; STOP after A before B.
 - B entry wins before STOP, then residual fake effect *after* STOP; no rearm.
 - Lost receipt keeps pending even after simulated mutation; no new operation ID bypass.
-- Fake epoch rotation denies stale A/B without clearing pending; STOP stays latched.
-- Wrong operation, wrong P1 seat, disallowed action, invalid tile, stale owner/epoch.
+- Fake epoch rotation terminally revokes old authority (even with no pending), denies stale A/B without clearing pending; STOP stays latched.
+- Wrong operation and equal-but-unissued clone, wrong P1 seat, disallowed action, invalid tile, stale owner/epoch.
 - Callback exception leaves unresolved; no silent retry.
 - Fake observation cannot resolve until A/B completion; one effect cannot occur before A.
 
-Local isolated smoke tests in a temporary Python workspace: **13 passed** using `python -m pytest -q test_sunny_host_stop_fake.py`. This is **not** a full repository suite or a CI result. After pushing files, run/verify repository CI separately and request independent code review; do not re-label game G1/G2 cases as passed.
+Local isolated smoke tests in a temporary Python workspace: **15 passed** using `python -m pytest -q test_sunny_host_stop_fake.py`. This is **not** a full repository suite or a CI result. After pushing files, run/verify repository CI separately and request independent code review; do not re-label game G1/G2 cases as passed.
 
 ## Review criteria and explicit blockers
 
