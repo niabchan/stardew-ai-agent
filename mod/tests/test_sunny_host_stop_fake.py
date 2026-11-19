@@ -1,6 +1,6 @@
 """G0-only tests of a deterministic model, NOT evidence about game STOP."""
 
-from reference.sunny_host_stop_fake import FakeHostWaterFence, FakeWaterOperation
+from reference.sunny_host_stop_fake import FakeEffectEvidence, FakeHostWaterFence, FakeWaterOperation
 
 
 def op(name="op-1", epoch="fake-load-1", owner="fake-host-p2", seat="P2", action="WATER", tile=(4, 5)):
@@ -186,3 +186,72 @@ def test_equal_but_unissued_clone_cannot_enter_b_or_finish():
     assert host.enter_b(clone) == "DENY_STALE_OR_UNRESERVED"
     assert host.finish_a(clone) == "DENY_A_NOT_INFLIGHT"
     assert host.enter_b(task) == "B_ENTERED"
+
+
+def test_old_epoch_b_already_inflight_may_finish_but_cannot_clear_old_pending():
+    host = FakeHostWaterFence()
+    task = op()
+    assert host.reserve(task) == "B_LINEAGE_RESERVED"
+    assert host.enter_a(task) == "A_ENTERED"
+    assert host.enter_b(task) == "B_ENTERED"
+
+    host.rotate_epoch()
+    assert host.stopped and host.epoch == "fake-load-2"
+    assert host.finish_b(task) == "B_FINISHED_FAKE"  # residual may occur
+    assert host.finish_a(task) == "A_FINISHED_FAKE"
+    assert host.last_effect_evidence == FakeEffectEvidence(
+        "op-1", "fake-load-1", "fake-host-p2", (4, 5)
+    )
+    assert host.events.index("FAKE_EPOCH_CHANGED") < host.events.index("FAKE_EFFECT")
+    assert host.confirm_fake_observation(task) == "UNKNOWN_PENDING"
+    assert host.pending is task
+    assert "FAKE_OBSERVED_AND_RESOLVED" not in host.events
+    assert host.reserve(op("op-2", epoch="fake-load-2")) == "DENY_STOP"
+
+
+def test_mutable_equality_alias_for_seat_or_action_is_rejected_before_reserve():
+    class EqualAlias:
+        def __init__(self, text):
+            self.text = text
+
+        def __eq__(self, other):
+            return self.text == other
+
+    seat_alias = EqualAlias("P2")
+    action_alias = EqualAlias("WATER")
+    assert seat_alias == "P2" and action_alias == "WATER"
+    for candidate in (
+        op(seat=seat_alias), op(action=action_alias),
+        op(seat=seat_alias, action=action_alias),
+    ):
+        host = FakeHostWaterFence()
+        assert host.reserve(candidate) == "DENY_INVALID"
+        assert host.pending is None
+        assert not host.used_ids
+        assert host.events == []
+    seat_alias.text = "P1"
+    action_alias.text = "OTHER"  # no mutable alias was ever retained
+
+
+def test_same_epoch_fake_receipt_requires_matching_operation_load_owner_and_tile():
+    host = FakeHostWaterFence()
+    task = op()
+    host.reserve(task)
+    host.enter_a(task)
+    host.enter_b(task)
+    host.finish_b(task)
+    host.finish_a(task)
+
+    original = host.last_effect_evidence
+    assert original is not None
+    for bad in (
+        FakeEffectEvidence("op-other", task.epoch, task.owner, task.tile),
+        FakeEffectEvidence(task.operation_id, "fake-load-2", task.owner, task.tile),
+        FakeEffectEvidence(task.operation_id, task.epoch, "other-owner", task.tile),
+        FakeEffectEvidence(task.operation_id, task.epoch, task.owner, (99, 99)),
+    ):
+        host.last_effect_evidence = bad
+        assert host.confirm_fake_observation(task) == "UNKNOWN_PENDING"
+        assert host.pending is task
+    host.last_effect_evidence = original
+    assert host.confirm_fake_observation(task) == "FAKE_VERIFIED"
