@@ -92,9 +92,10 @@ def test_new_fake_epoch_does_not_rearm_pending_old_b():
     task = op()
     host.reserve(task)
     host.rotate_epoch()
-    assert host.enter_a(task) == "DENY_STALE_OR_UNRESERVED"
-    assert host.enter_b(task) == "DENY_STALE_OR_UNRESERVED"
-    assert host.reserve(op("op-2", epoch="fake-load-2")) == "DENY_UNRESOLVED"
+    assert host.enter_a(task) == "DENY_STOP"
+    assert host.enter_b(task) == "DENY_STOP"
+    assert host.reserve(op("op-2", epoch="fake-load-2")) == "DENY_STOP"
+    assert host.pending == task
 
 
 def test_stop_is_monotonic_and_does_not_clear_on_epoch_rotation():
@@ -166,3 +167,22 @@ def test_no_effect_or_callback_without_a_entry():
     assert host.finish_b(task) == "DENY_B_NOT_INFLIGHT"
     assert host.enter_b(task) == "DENY_B_BEFORE_A"
     assert not host.fake_wet
+
+
+def test_epoch_change_without_pending_still_revokes_old_owner_grant():
+    host = FakeHostWaterFence()
+    host.rotate_epoch()
+    assert host.stopped
+    assert host.reserve(op("new-op", epoch="fake-load-2")) == "DENY_STOP"
+
+
+def test_equal_but_unissued_clone_cannot_enter_b_or_finish():
+    host = FakeHostWaterFence()
+    task = op()
+    host.reserve(task)
+    host.enter_a(task)
+    clone = op()  # equal fields do not constitute a host-issued object handle
+    assert clone == task and clone is not task
+    assert host.enter_b(clone) == "DENY_STALE_OR_UNRESERVED"
+    assert host.finish_a(clone) == "DENY_A_NOT_INFLIGHT"
+    assert host.enter_b(task) == "B_ENTERED"
