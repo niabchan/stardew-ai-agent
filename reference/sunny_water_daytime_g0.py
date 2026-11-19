@@ -68,6 +68,7 @@ class FakeDaytimeWaterBridge:
         # narrows its own input contract before calling the planner.
         return (type(scene) is FakeScene
                 and type(scene.weather) is str
+                and type(scene.revision) is int and 0 <= scene.revision <= 1_000_000_000
                 and type(scene.offered_actions) is tuple
                 and len(scene.offered_actions) <= 16
                 and all(type(a) is str for a in scene.offered_actions)
@@ -152,6 +153,18 @@ class FakeDaytimeWaterBridge:
         if at_stage is not None and not callable(at_stage):
             return FakeWaterStep("DENIED_INVALID_TEST_HOOK", offered=offered)
 
+        # A monotone *host-object-shared* snapshot watermark prevents a
+        # newly created bridge from going backwards to previously passed
+        # scene revisions. It is not persisted or thread-safe and must not
+        # be presented as a real game observation/authorization fence.
+        last_water_revision = getattr(
+            self.host, "_fake_daytime_water_last_revision", -1
+        )
+        if type(last_water_revision) is not int or last_water_revision < -1:
+            return FakeWaterStep("DENIED_HOST_SNAPSHOT_STATE", offered=offered)
+        if scene.revision <= last_water_revision:
+            return FakeWaterStep("DENIED_HOST_STALE_SNAPSHOT", offered=offered)
+
         # Snapshot-scoped deterministic ID: the shared fake Host consumes it
         # exactly once, across new bridge/planner instances. A refused
         # reservation does NOT advance a counter or mint another identity.
@@ -161,6 +174,10 @@ class FakeDaytimeWaterBridge:
         )
         if self.host.reserve(operation) != "B_LINEAGE_RESERVED":
             return FakeWaterStep("DENIED_HOST_RESERVATION", offered=offered)
+        # This synchronous in-memory assignment follows a successful
+        # reservation and precedes A; it is NOT crash-safe or atomic in any
+        # real Host. A lost reply cannot rearm an older snapshot.
+        self.host._fake_daytime_water_last_revision = scene.revision
         # Once reserved, any failure remains pending/unknown. No auto retry.
         try:
             if at_stage is not None:
