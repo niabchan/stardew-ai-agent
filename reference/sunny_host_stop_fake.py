@@ -19,6 +19,16 @@ class FakeWaterOperation:
     tile: tuple[int, int]
 
 
+@dataclass(frozen=True)
+class FakeEffectEvidence:
+    """Synthetic effect receipt tied to a specific operation and load."""
+
+    operation_id: str
+    epoch: str
+    owner: str
+    tile: tuple[int, int]
+
+
 class FakeHostWaterFence:
     """Single unresolved synthetic operation; B lineage reserved before A.
 
@@ -39,7 +49,7 @@ class FakeHostWaterFence:
         self.b_entered = False
         self.b_finished = False
         self.fake_wet = False
-        self.last_effect_op: str | None = None
+        self.last_effect_evidence: FakeEffectEvidence | None = None
         self.events: list[str] = []
 
     def _valid(self, op):
@@ -47,7 +57,8 @@ class FakeHostWaterFence:
                 and type(op.operation_id) is str and bool(op.operation_id)
                 and len(op.operation_id) <= 64
                 and type(op.epoch) is str and type(op.owner) is str
-                and op.seat == "P2" and op.action == "WATER"
+                and type(op.seat) is str and op.seat == "P2"
+                and type(op.action) is str and op.action == "WATER"
                 and type(op.tile) is tuple and len(op.tile) == 2
                 and all(type(n) is int and 0 <= n < 200 for n in op.tile))
 
@@ -109,7 +120,10 @@ class FakeHostWaterFence:
         if not self._same(op) or not self.b_entered or self.b_finished:
             return "DENY_B_NOT_INFLIGHT"
         self.fake_wet = True
-        self.last_effect_op = op.operation_id
+        # Capture the original op's load, NOT the potentially rotated host epoch.
+        self.last_effect_evidence = FakeEffectEvidence(
+            op.operation_id, op.epoch, op.owner, op.tile
+        )
         self.b_finished = True
         self.events.append("FAKE_EFFECT")
         return "B_FINISHED_FAKE"
@@ -136,8 +150,16 @@ class FakeHostWaterFence:
 
     def confirm_fake_observation(self, op):
         """Internally grounded synthetic receipt, NOT a game or durable receipt."""
+        evidence = self.last_effect_evidence
         if (not self._same(op) or not self.a_finished or not self.b_finished
-                or not self.fake_wet or self.last_effect_op != op.operation_id):
+                or not self.fake_wet or op.epoch != self.epoch
+                or op.owner != self.owner
+                or type(evidence) is not FakeEffectEvidence
+                or evidence != FakeEffectEvidence(
+                    op.operation_id, op.epoch, op.owner, op.tile
+                )):
+            # An effect from a retired load is not proof about the new load.
+            # In particular, never discard an old unresolved pending marker.
             return "UNKNOWN_PENDING"
         self.pending = None
         self.b_reserved = False
