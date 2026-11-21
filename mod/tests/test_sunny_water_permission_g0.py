@@ -101,7 +101,7 @@ def test_malformed_or_privilege_escalating_grant_is_rejected(change):
 
 
 @pytest.mark.parametrize("change", [
-    {"tile": (6, 7)}, {"save_id": "other-save"}, {"epoch": "old-epoch"},
+    {"tiles": ((6, 7),)}, {"save_id": "other-save"}, {"epoch": "old-epoch"},
     {"day": 2}, {"map_id": "Town"}, {"p2_owner": "other-host"},
 ])
 def test_out_of_scope_grant_or_tile_cannot_water(change):
