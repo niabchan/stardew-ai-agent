@@ -127,25 +127,121 @@ def _crop_identity(crop):
             crop.map_id, crop.tile, crop.crop_id)
 
 
-class FakeWaterPermissionLedger:
-    """Fake single-day accounting shared between new bridge objects.
+def _grant_scope(grant):
+    """Stable fictional issuer/receiver/save/day/region/limits, not a token."""
+    return (grant.grant_id, grant.epoch, grant.save_id, grant.day, grant.map_id,
+            grant.p2_owner, grant.manager, grant.issued_by, grant.grantee,
+            grant.action, grant.tiles, grant.max_distinct_tiles,
+            grant.max_attempted_starts)
 
-    A fixture passes a grant to this constructor. That is NOT authenticated P1
-    approval; hostile code could replace any Python attributes in this toy.
+
+class _FakeGrantAccount:
+    """Host-object-shared, single-threaded, in-memory fake permission account."""
+
+    def __init__(self, grant):
+        self.grant = grant
+        self.revoked = not grant.active
+        self.attempted_starts = 0
+        self.started_tiles = set()
+
+
+class _FakeHostPermissionStore:
+    """Test-fixture-provisioned on the SAME fake Host, not caller authentication.
+
+    A grant ID is bound to its *immutable* scope and budgets. Revocation
+    permanently closes that grant ID; consent renewal requires separately
+    provisioning a new ID. The store never follows a fresh ledger's counts.
     """
+
+    def __init__(self):
+        self.accounts = {}
+
+    def provision(self, grant):
+        if not _grant_shape(grant):
+            return "DENIED_MALFORMED_GRANT"
+        account = self.accounts.get(grant.grant_id)
+        if account is None:
+            self.accounts[grant.grant_id] = _FakeGrantAccount(grant)
+            return "FAKE_GRANT_PROVISIONED" if grant.active else "FAKE_GRANT_REVOKED"
+        if type(account) is not _FakeGrantAccount:
+            return "DENIED_HOST_PERMISSION_STATE"
+        old = account.grant
+        if type(old) is not FakeStandingWaterGrant or not _grant_shape(old):
+            return "DENIED_HOST_PERMISSION_STATE"
+        if _grant_scope(old) != _grant_scope(grant):
+            return "DENIED_GRANT_SCOPE_CHANGED"
+        if grant.grant_revision < old.grant_revision:
+            return "DENIED_STALE_GRANT_REVISION"
+        if grant.grant_revision == old.grant_revision:
+            if grant != old:
+                return "DENIED_CONFLICTING_GRANT_REVISION"
+            return "FAKE_GRANT_ALREADY_PROVISIONED"
+        if account.revoked and grant.active:
+            return "DENIED_GRANT_REVOKED"
+        account.grant = grant
+        account.revoked = not grant.active
+        return "FAKE_GRANT_REVOKED" if account.revoked else "FAKE_GRANT_REVISED"
+
+    def observe_revocation(self, grant):
+        # In this toy, a test-injected, higher-revision inactive fixture is
+        # treated as a monotonic Host notice even if the current step aborts.
+        # This is NOT a trusted P1 revocation channel in a running game.
+        if (_grant_shape(grant) and not grant.active
+                and grant.grant_id in self.accounts):
+            return self.provision(grant)
+        return "NO_VALID_HOST_REVOCATION_NOTICE"
+
+    def resolve(self, grant):
+        if not _grant_shape(grant):
+            return "DENIED_MALFORMED_GRANT", None
+        account = self.accounts.get(grant.grant_id)
+        if type(account) is not _FakeGrantAccount:
+            return "DENIED_UNPROVISIONED_GRANT", None
+        old = account.grant
+        if not _grant_shape(old):
+            return "DENIED_HOST_PERMISSION_STATE", None
+        if _grant_scope(grant) != _grant_scope(old):
+            return "DENIED_GRANT_SCOPE_CHANGED", None
+        if not grant.active:
+            self.observe_revocation(grant)
+            return "DENIED_GRANT_REVOKED", None
+        if account.revoked:
+            return "DENIED_GRANT_REVOKED", None
+        if grant.grant_revision != old.grant_revision or grant != old:
+            return "DENIED_STALE_OR_UNPROVISIONED_GRANT", None
+        if (type(account.attempted_starts) is not int
+                or account.attempted_starts < 0
+                or type(account.started_tiles) is not set
+                or any(not _tile(t) for t in account.started_tiles)
+                or len(account.started_tiles) > old.max_distinct_tiles
+                or account.attempted_starts < len(account.started_tiles)):
+            return "DENIED_HOST_PERMISSION_STATE", None
+        return "ALLOW_FAKE", account
+
+
+class FakeWaterPermissionLedger:
+    """Untrusted per-world view; the fake Host account owns spent budgets.
+
+    A fresh ledger, world or bridge cannot refill an already provisioned
+    grant on that same Host. No durability, threads or trusted signer exist.
+    """
+
     def __init__(self, grant=None):
         self.grant = grant
         self.attempted_starts = 0
         self.started_tiles = set()
 
-    def check(self, scene, crop, steward):
+    def check(self, scene, crop, steward, store):
         grant = self.grant
         if grant is None:
             return "DENIED_NO_GRANT"
         if not _grant_shape(grant):
             return "DENIED_MALFORMED_GRANT"
-        if not grant.active:
-            return "DENIED_GRANT_REVOKED"
+        if type(store) is not _FakeHostPermissionStore:
+            return "DENIED_HOST_PERMISSION_STATE"
+        status, account = store.resolve(grant)
+        if status != "ALLOW_FAKE":
+            return status
         if not _steward_shape(steward):
             return "DENIED_UNKNOWN_STEWARDSHIP"
         if (_crop_identity(crop)[:2] != (grant.epoch, grant.save_id)
@@ -158,27 +254,30 @@ class FakeWaterPermissionLedger:
                 (crop.epoch, crop.save_id, crop.map_id,
                  crop.tile, crop.crop_id, grant.manager)):
             return "DENIED_STEWARDSHIP_MISMATCH"
+        # Reject visibly corrupted views, but NEVER authorize by their counts.
         if (type(self.attempted_starts) is not int or self.attempted_starts < 0
                 or type(self.started_tiles) is not set
-                or any(not _tile(t) for t in self.started_tiles)
-                or len(self.started_tiles) > grant.max_distinct_tiles
-                or self.attempted_starts < len(self.started_tiles)):
+                or any(not _tile(t) for t in self.started_tiles)):
             return "DENIED_LEDGER_STATE"
-        if crop.tile in self.started_tiles:
+        if crop.tile in account.started_tiles:
             return "DENIED_TILE_ALREADY_STARTED"
-        if (self.attempted_starts >= grant.max_attempted_starts
-                or len(self.started_tiles) >= grant.max_distinct_tiles):
+        if (account.attempted_starts >= grant.max_attempted_starts
+                or len(account.started_tiles) >= grant.max_distinct_tiles):
             return "DENIED_BUDGET"
         return "ALLOW_FAKE"
 
-    def claim_start(self, scene, crop, steward):
-        """Sequential, NOT atomic: fake T3 start is just before enter_b."""
-        result = self.check(scene, crop, steward)
+    def claim_start(self, scene, crop, steward, store):
+        """One sequential fake T3 debit immediately before fake B; not atomic."""
+        result = self.check(scene, crop, steward, store)
         if result == "ALLOW_FAKE":
-            self.attempted_starts += 1
-            self.started_tiles.add(crop.tile)
+            account = store.accounts[self.grant.grant_id]
+            account.attempted_starts += 1
+            account.started_tiles.add(crop.tile)
+            # Diagnostic view only. A new view starts empty but cannot refill
+            # Host-owned attempts/tiles.
+            self.attempted_starts = account.attempted_starts
+            self.started_tiles = set(account.started_tiles)
         return result
-
 
 class FakePermissionWorld:
     """Mutable fixture for a new crop reading or permission revocation."""
@@ -197,6 +296,22 @@ class FakePermissionedWaterBridge:
         self.host = host
         self.base = FakeDaytimeWaterBridge(host)
 
+    def _permission_store(self, create=False):
+        store = getattr(self.host, "_fake_water_permission_store", None)
+        if store is None and create:
+            store = _FakeHostPermissionStore()
+            self.host._fake_water_permission_store = store
+        return store
+
+    def provision_standing_grant(self, grant):
+        """Explicit fake-fixture Host provisioning, NOT real P1 consent."""
+        if not _grant_shape(grant):
+            return "DENIED_MALFORMED_GRANT"
+        store = self._permission_store(create=True)
+        if type(store) is not _FakeHostPermissionStore:
+            return "DENIED_HOST_PERMISSION_STATE"
+        return store.provision(grant)
+
     def _preflight(self, scene, world, original_identity,
                    original_steward, original_ledger, original_grant):
         crop = world.crop
@@ -210,6 +325,11 @@ class FakePermissionedWaterBridge:
             return "DENIED_LEDGER_CHANGED"
         if type(world.ledger) is not FakeWaterPermissionLedger:
             return "DENIED_NO_LEDGER"
+        # A newer *inactive* fixture latches revocation even on an aborting
+        # in-flight step; an old object cannot restore that Host grant later.
+        store = self._permission_store()
+        if type(store) is _FakeHostPermissionStore:
+            store.observe_revocation(world.ledger.grant)
         if world.ledger.grant is not original_grant:
             return "DENIED_GRANT_CHANGED"
         if not crop.soil_dry:
@@ -223,7 +343,7 @@ class FakePermissionedWaterBridge:
                 or "WATER" not in scene.offered_actions
                 or "WATER" in scene.recently_completed):
             return "DENIED_NOT_GROUNDED"
-        return world.ledger.check(scene, crop, world.stewardship)
+        return world.ledger.check(scene, crop, world.stewardship, store)
 
     def _host_check(self):
         if self.host.pending is not None:
@@ -322,7 +442,9 @@ class FakePermissionedWaterBridge:
                     b_results.append(check)
                     return
                 # Toy T3: one start budget token, immediately followed by B.
-                check = ledger.claim_start(scene, world.crop, world.stewardship)
+                check = ledger.claim_start(
+                    scene, world.crop, world.stewardship, self._permission_store()
+                )
                 if check != "ALLOW_FAKE":
                     b_results.append(check)
                     return
