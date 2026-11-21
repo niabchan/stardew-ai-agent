@@ -312,8 +312,34 @@ class FakePermissionedWaterBridge:
             return "DENIED_HOST_PERMISSION_STATE"
         return store.provision(grant)
 
+    def _ingest_fixture_revocation(self, world):
+        """Host latches valid inactive notices independently of crop guards.
+
+        A world/ledger is a test-owned fixture, NOT trusted P1 identity.
+        Only the existing same-fake-Host grant/scope/revision can be revoked.
+        """
+        if type(world) is not FakePermissionWorld:
+            return
+        if type(world.ledger) is not FakeWaterPermissionLedger:
+            return
+        store = self._permission_store()
+        if type(store) is _FakeHostPermissionStore:
+            store.observe_revocation(world.ledger.grant)
+
+    def _run_fixture_hook(self, hook, stage, world, operation):
+        """Record revocation even when a synthetic wait/callback raises."""
+        if hook is None:
+            return
+        try:
+            hook(stage, self.host, world, operation)
+        finally:
+            self._ingest_fixture_revocation(world)
+
     def _preflight(self, scene, world, original_identity,
                    original_steward, original_ledger, original_grant):
+        # Revocation precedes any crop identity, moisture, stewardship or
+        # changed-ledger early exit, even for a malformed crop reading.
+        self._ingest_fixture_revocation(world)
         crop = world.crop
         if not _crop_shape(crop):
             return "DENIED_MALFORMED_CROP"
@@ -325,11 +351,7 @@ class FakePermissionedWaterBridge:
             return "DENIED_LEDGER_CHANGED"
         if type(world.ledger) is not FakeWaterPermissionLedger:
             return "DENIED_NO_LEDGER"
-        # A newer *inactive* fixture latches revocation even on an aborting
-        # in-flight step; an old object cannot restore that Host grant later.
         store = self._permission_store()
-        if type(store) is _FakeHostPermissionStore:
-            store.observe_revocation(world.ledger.grant)
         if world.ledger.grant is not original_grant:
             return "DENIED_GRANT_CHANGED"
         if not crop.soil_dry:
@@ -362,10 +384,13 @@ class FakePermissionedWaterBridge:
         The synthetic after_wait precedes reservation. The before_b stage
         precedes a single-use test-owned start budget claim and fake enter_b.
         """
-        if not self.base._scene_shape(scene):
-            return FakePermissionWaterResult("BLOCKED_MALFORMED_SCENE")
         if type(world) is not FakePermissionWorld:
             return FakePermissionWaterResult("DENIED_MALFORMED_WORLD")
+        # Valid grant revocations cannot be masked by a changed crop/scene,
+        # STAY choice, pending Host operation or other action failure.
+        self._ingest_fixture_revocation(world)
+        if not self.base._scene_shape(scene):
+            return FakePermissionWaterResult("BLOCKED_MALFORMED_SCENE")
         if not _crop_shape(world.crop):
             return FakePermissionWaterResult("DENIED_MALFORMED_CROP")
         gate = self._host_check()
@@ -395,8 +420,7 @@ class FakePermissionedWaterBridge:
         if decision != "ALLOW_FAKE":
             return FakePermissionWaterResult(decision, "STAY")
         try:
-            if at_stage is not None:
-                at_stage("after_wait", self.host, world, None)
+            self._run_fixture_hook(at_stage, "after_wait", world, None)
         except Exception:
             return FakePermissionWaterResult("DENIED_WAIT_FAILURE", "STAY")
         gate = self._host_check()
@@ -427,13 +451,11 @@ class FakePermissionedWaterBridge:
             )
 
         try:
-            if at_stage is not None:
-                at_stage("after_reserve", self.host, world, op)
+            self._run_fixture_hook(at_stage, "after_reserve", world, op)
             b_results = []
 
             def callback(host, operation):
-                if at_stage is not None:
-                    at_stage("before_b", host, world, operation)
+                self._run_fixture_hook(at_stage, "before_b", world, operation)
                 if host.stopped or host.epoch != operation.epoch or host.owner != operation.owner:
                     b_results.append("DENIED_HOST_AT_START")
                     return
@@ -452,16 +474,14 @@ class FakePermissionedWaterBridge:
                 b_results.append(result)
                 if result != "B_ENTERED":
                     return
-                if at_stage is not None:
-                    at_stage("b_entered", host, world, operation)
+                self._run_fixture_hook(at_stage, "b_entered", world, operation)
                 b_results.append(host.finish_b(operation))
 
             a_result = self.host.run_a_with_callback(op, callback)
             if a_result != "A_FINISHED_FAKE" or b_results != [
                     "B_ENTERED", "B_FINISHED_FAKE"]:
                 return pending()
-            if at_stage is not None:
-                at_stage("before_receipt", self.host, world, op)
+            self._run_fixture_hook(at_stage, "before_receipt", world, op)
             if self.host.confirm_fake_observation(op) != "FAKE_VERIFIED":
                 return pending()
             return FakePermissionWaterResult(
