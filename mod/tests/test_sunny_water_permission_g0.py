@@ -24,7 +24,9 @@ def setup(grant=None, crop=None, steward=None):
     cr = FakePermissionCrop() if crop is None else crop
     st = FakePlotStewardship() if steward is None else steward
     world = FakePermissionWorld(cr, st, FakeWaterPermissionLedger(gr))
-    return host, world, FakePermissionedWaterBridge(host)
+    bridge = FakePermissionedWaterBridge(host)
+    bridge.provision_standing_grant(gr)  # Explicit fake Host fixture, not P1 consent.
+    return host, world, bridge
 
 
 def test_explicit_standing_p1_help_grant_waters_once_with_fake_ab_evidence():
@@ -352,3 +354,189 @@ def test_forged_wet_observation_without_dispatch_is_not_causal_verification():
     assert result.effect_status == "NO_EFFECT_EVIDENCE"
     assert result.claim_real_completion is False
     assert host.events == []
+
+
+def test_unprovisioned_grant_does_not_become_host_permission():
+    host = FakeHostWaterFence()
+    world = FakePermissionWorld(
+        FakePermissionCrop(), FakePlotStewardship(),
+        FakeWaterPermissionLedger(FakeStandingWaterGrant())
+    )
+    bridge = FakePermissionedWaterBridge(host)
+    assert bridge.step(scene(), world, "WATER").verdict == "DENIED_HOST_PERMISSION_STATE"
+    assert host.events == []
+
+
+def test_new_ledger_same_grant_later_revision_cannot_reset_spent_tile():
+    host, world, bridge = setup()
+    grant = world.ledger.grant
+    assert bridge.step(scene(), world, "WATER").verdict == "FAKE_WATER_VERIFIED"
+    assert world.ledger.attempted_starts == 1
+    new_world = FakePermissionWorld(
+        replace(world.crop, revision=2), world.stewardship,
+        FakeWaterPermissionLedger(grant)  # fresh zero counters, SAME grant
+    )
+    assert new_world.ledger.attempted_starts == 0
+    assert FakePermissionedWaterBridge(host).step(
+        scene(revision=2), new_world, "WATER"
+    ).verdict == "DENIED_TILE_ALREADY_STARTED"
+    assert host.events.count("FAKE_EFFECT") == 1
+
+
+def test_new_ledger_same_grant_cannot_overspend_distinct_tile_or_attempt_budget():
+    grant = replace(FakeStandingWaterGrant(),
+                    tiles=((4, 5), (6, 7)), max_distinct_tiles=1,
+                    max_attempted_starts=1)
+    host, world, bridge = setup(grant=grant)
+    assert bridge.step(scene(), world, "WATER").verdict == "FAKE_WATER_VERIFIED"
+    new_world = FakePermissionWorld(
+        replace(world.crop, revision=2, tile=(6, 7), crop_id="second-crop"),
+        replace(world.stewardship, tile=(6, 7), crop_id="second-crop"),
+        FakeWaterPermissionLedger(grant)
+    )
+    assert FakePermissionedWaterBridge(host).step(
+        scene(revision=2), new_world, "WATER"
+    ).verdict == "DENIED_BUDGET"
+    assert host.events.count("FAKE_EFFECT") == 1
+
+
+def test_revocation_then_old_grant_restore_cannot_reenable_permission():
+    host, world, bridge = setup()
+    original = world.ledger.grant
+    revoked = replace(original, grant_revision=2, active=False)
+    world.ledger.grant = revoked
+    assert bridge.step(scene(), world, "WATER").verdict == "DENIED_GRANT_REVOKED"
+    assert host.events == []
+    world.ledger.grant = original
+    world.crop = replace(world.crop, revision=2)
+    assert FakePermissionedWaterBridge(host).step(
+        scene(revision=2), world, "WATER"
+    ).verdict == "DENIED_GRANT_REVOKED"
+    assert host.events == []
+    assert bridge.provision_standing_grant(original) == "DENIED_STALE_GRANT_REVISION"
+    assert bridge.provision_standing_grant(
+        replace(original, grant_revision=3)
+    ) == "DENIED_GRANT_REVOKED"
+
+
+def test_revocation_tombstone_survives_bridge_and_ledger_recreation():
+    host, world, bridge = setup()
+    original = world.ledger.grant
+    world.ledger.grant = replace(original, grant_revision=2, active=False)
+    assert bridge.step(scene(), world, "WATER").verdict == "DENIED_GRANT_REVOKED"
+    new_world = FakePermissionWorld(
+        replace(world.crop, revision=2), FakePlotStewardship(),
+        FakeWaterPermissionLedger(original)
+    )
+    assert FakePermissionedWaterBridge(host).step(
+        scene(revision=2), new_world, "WATER"
+    ).verdict == "DENIED_GRANT_REVOKED"
+    assert host.events == []
+
+
+def test_revocation_during_wait_is_permanently_latched_even_after_fixture_restore():
+    host, world, bridge = setup()
+    original = world.ledger.grant
+
+    def revoke(stage, _h, w, _op):
+        if stage == "after_wait":
+            w.ledger.grant = replace(original, active=False, grant_revision=2)
+
+    assert bridge.step(scene(), world, "WATER", revoke).verdict == "DENIED_GRANT_CHANGED"
+    world.ledger.grant = original
+    world.crop = replace(world.crop, revision=2)
+    assert bridge.step(scene(revision=2), world, "WATER").verdict == "DENIED_GRANT_REVOKED"
+    assert host.events == []
+
+
+def test_revocation_before_b_is_latched_despite_unresolved_reservation():
+    host, world, bridge = setup()
+    original = world.ledger.grant
+
+    def revoke(stage, _h, w, _op):
+        if stage == "before_b":
+            w.ledger.grant = replace(original, grant_revision=2, active=False)
+
+    assert bridge.step(scene(), world, "WATER", revoke).verdict == "UNKNOWN_PENDING"
+    world.ledger.grant = original
+    assert host.pending is not None
+    assert bridge.provision_standing_grant(original) == "DENIED_STALE_GRANT_REVISION"
+    assert host.events.count("FAKE_EFFECT") == 0
+
+
+def test_same_grant_id_cannot_change_scope_or_limits_at_higher_revision():
+    host, world, bridge = setup()
+    original = world.ledger.grant
+    wider = replace(original, grant_revision=2,
+                    tiles=((4, 5), (6, 7)),
+                    max_distinct_tiles=2, max_attempted_starts=2)
+    assert bridge.provision_standing_grant(wider) == "DENIED_GRANT_SCOPE_CHANGED"
+    world.ledger.grant = wider
+    assert bridge.step(scene(), world, "WATER").verdict == "DENIED_GRANT_SCOPE_CHANGED"
+    assert host.events == []
+
+
+def test_new_ledger_can_use_second_legitimate_tile_with_remaining_host_budget():
+    grant = replace(FakeStandingWaterGrant(),
+                    tiles=((4, 5), (6, 7)), max_distinct_tiles=2,
+                    max_attempted_starts=2)
+    host, world, bridge = setup(grant=grant)
+    assert bridge.step(scene(), world, "WATER").verdict == "FAKE_WATER_VERIFIED"
+    second_world = FakePermissionWorld(
+        replace(world.crop, revision=2, tile=(6, 7), crop_id="second-crop"),
+        replace(world.stewardship, tile=(6, 7), crop_id="second-crop"),
+        FakeWaterPermissionLedger(grant)
+    )
+    assert FakePermissionedWaterBridge(host).step(
+        scene(revision=2), second_world, "WATER"
+    ).verdict == "FAKE_WATER_VERIFIED"
+    assert second_world.ledger.attempted_starts == 2
+    assert second_world.ledger.started_tiles == {(4, 5), (6, 7)}
+    assert host.events.count("FAKE_EFFECT") == 2
+
+
+def test_wait_exception_never_reserves_or_debits_permission():
+    host, world, bridge = setup()
+
+    def fail(stage, _host, _world, _op):
+        if stage == "after_wait":
+            raise RuntimeError("wait failed")
+
+    assert bridge.step(scene(), world, "WATER", fail).verdict == "DENIED_WAIT_FAILURE"
+    assert host.events == []
+    assert world.ledger.attempted_starts == 0
+    assert bridge.step(scene(), world, "WATER").verdict == "FAKE_WATER_VERIFIED"
+
+
+def test_before_b_exception_quarantines_reserved_operation_without_budget_debit():
+    host, world, bridge = setup()
+
+    def fail(stage, _host, _world, _op):
+        if stage == "before_b":
+            raise RuntimeError("callback failed")
+
+    assert bridge.step(scene(), world, "WATER", fail).verdict == "UNKNOWN_PENDING"
+    assert host.pending is not None
+    assert "ENTER_A" in host.events
+    assert "ENTER_B" not in host.events
+    assert world.ledger.attempted_starts == 0
+    assert FakePermissionedWaterBridge(host).step(
+        scene(), world, "WATER"
+    ).verdict == "BLOCKED_UNRESOLVED"
+
+
+def test_after_b_entry_exception_quarantines_started_permission_and_unknown_effect():
+    host, world, bridge = setup()
+
+    def fail(stage, _host, _world, _op):
+        if stage == "b_entered":
+            raise RuntimeError("effect callback unobserved")
+
+    result = bridge.step(scene(), world, "WATER", fail)
+    assert result.verdict == "UNKNOWN_PENDING"
+    assert result.effect_status == "PENDING_UNKNOWN"
+    assert host.pending is not None and host.b_entered
+    assert "ENTER_B" in host.events and "FAKE_EFFECT" not in host.events
+    assert world.ledger.attempted_starts == 1
+    assert world.ledger.started_tiles == {(4, 5)}
+    assert FakePermissionedWaterBridge(host).step(scene(), world, "WATER").verdict == "BLOCKED_UNRESOLVED"
