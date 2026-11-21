@@ -549,3 +549,129 @@ def test_after_b_entry_exception_quarantines_started_permission_and_unknown_effe
     assert world.ledger.attempted_starts == 1
     assert world.ledger.started_tiles == {(4, 5)}
     assert FakePermissionedWaterBridge(host).step(scene(), world, "WATER").verdict == "BLOCKED_UNRESOLVED"
+
+
+@pytest.mark.parametrize("replace_ledger", [False, True])
+def test_combined_changed_crop_and_revocation_during_wait_stays_revoked(replace_ledger):
+    """Issue #94 R1: crop identity failure must not mask inactive v2."""
+    host, world, bridge = setup()
+    original = world.ledger.grant
+    revoked = replace(original, grant_revision=2, active=False)
+
+    def change_both(stage, _host, w, _op):
+        if stage != "after_wait":
+            return
+        w.crop = replace(w.crop, crop_id="replacement-crop")
+        if replace_ledger:
+            w.ledger = FakeWaterPermissionLedger(revoked)
+        else:
+            w.ledger.grant = revoked
+
+    first = bridge.step(scene(), world, "WATER", change_both)
+    assert first.verdict == "DENIED_CHANGED_CROP"
+    assert host.events == [] and host.pending is None and host.used_ids == set()
+    assert getattr(host, "_fake_daytime_water_last_revision", -1) == -1
+    assert bridge.provision_standing_grant(original) == "DENIED_STALE_GRANT_REVISION"
+
+    # A *fresh* ledger/bridge with the old active v1 and a proper new crop
+    # observation cannot reactivate the consumed permission on this Host.
+    retry_world = FakePermissionWorld(
+        replace(FakePermissionCrop(), revision=2),
+        FakePlotStewardship(), FakeWaterPermissionLedger(original)
+    )
+    retry = FakePermissionedWaterBridge(host).step(
+        scene(revision=2), retry_world, "WATER"
+    )
+    assert retry.verdict == "DENIED_GRANT_REVOKED"
+    assert retry.effect_status == "NO_EFFECT_EVIDENCE"
+    assert host.events.count("FAKE_EFFECT") == 0
+    assert host.pending is None
+
+
+@pytest.mark.parametrize("replace_ledger", [False, True])
+def test_wait_exception_after_revocation_and_crop_change_records_tombstone(replace_ledger):
+    """Ingestion runs in a finally block when the injected wait hook raises."""
+    host, world, bridge = setup()
+    original = world.ledger.grant
+    revoked = replace(original, grant_revision=2, active=False)
+
+    def fail_after_notice(stage, _host, w, _op):
+        if stage != "after_wait":
+            return
+        w.crop = replace(w.crop, crop_id="changed-while-failing")
+        if replace_ledger:
+            w.ledger = FakeWaterPermissionLedger(revoked)
+        else:
+            w.ledger.grant = revoked
+        raise RuntimeError("synthetic wait failure after P1 notice")
+
+    result = bridge.step(scene(), world, "WATER", fail_after_notice)
+    assert result.verdict == "DENIED_WAIT_FAILURE"
+    assert host.events == [] and host.pending is None
+    assert bridge.provision_standing_grant(original) == "DENIED_STALE_GRANT_REVISION"
+    later = FakePermissionWorld(
+        replace(FakePermissionCrop(), revision=2),
+        FakePlotStewardship(), FakeWaterPermissionLedger(original)
+    )
+    assert FakePermissionedWaterBridge(host).step(
+        scene(revision=2), later, "WATER"
+    ).verdict == "DENIED_GRANT_REVOKED"
+    assert host.events.count("FAKE_EFFECT") == 0
+
+
+@pytest.mark.parametrize("replace_ledger", [False, True])
+@pytest.mark.parametrize("raise_after_notice", [False, True])
+def test_before_b_combined_crop_change_and_revoke_survives_pending_quarantine(
+    replace_ledger, raise_after_notice
+):
+    host, world, bridge = setup()
+    original = world.ledger.grant
+    revoked = replace(original, grant_revision=2, active=False)
+
+    def change_both(stage, _host, w, _op):
+        if stage != "before_b":
+            return
+        w.crop = replace(w.crop, crop_id="unrelated-crop")
+        if replace_ledger:
+            w.ledger = FakeWaterPermissionLedger(revoked)
+        else:
+            w.ledger.grant = revoked
+        if raise_after_notice:
+            raise RuntimeError("synthetic callback failed after P1 revoked")
+
+    result = bridge.step(scene(), world, "WATER", change_both)
+    assert result.verdict == "UNKNOWN_PENDING"
+    assert result.effect_status == "PENDING_UNKNOWN"
+    assert host.pending is not None
+    assert "ENTER_A" in host.events and "ENTER_B" not in host.events
+    assert host.events.count("FAKE_EFFECT") == 0
+    assert bridge.provision_standing_grant(original) == "DENIED_STALE_GRANT_REVISION"
+    assert host._fake_water_permission_store.accounts[original.grant_id].revoked is True
+
+
+def test_malformed_crop_cannot_mask_valid_revocation_notice_at_step_entry():
+    host, world, bridge = setup()
+    original = world.ledger.grant
+    world.crop = replace(world.crop, tile=[4, 5])  # deliberately invalid list
+    world.ledger = FakeWaterPermissionLedger(
+        replace(original, grant_revision=2, active=False)
+    )
+    assert bridge.step(scene(), world, "WATER").verdict == "DENIED_MALFORMED_CROP"
+    assert bridge.provision_standing_grant(original) == "DENIED_STALE_GRANT_REVISION"
+    assert host.events == []
+
+
+def test_voluntary_stay_must_not_suppress_permission_revocation_notice():
+    host, world, bridge = setup()
+    original = world.ledger.grant
+    world.ledger.grant = replace(original, grant_revision=2, active=False)
+    assert bridge.step(scene(), world, "STAY").verdict == "STAY"
+    assert bridge.provision_standing_grant(original) == "DENIED_STALE_GRANT_REVISION"
+    later = FakePermissionWorld(
+        replace(FakePermissionCrop(), revision=2),
+        FakePlotStewardship(), FakeWaterPermissionLedger(original)
+    )
+    assert FakePermissionedWaterBridge(host).step(
+        scene(revision=2), later, "WATER"
+    ).verdict == "DENIED_GRANT_REVOKED"
+    assert host.events == []
