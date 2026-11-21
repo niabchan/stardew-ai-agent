@@ -310,11 +310,15 @@ def test_lost_receipt_never_creates_success_or_blind_retry():
 def test_cross_bridge_completed_snapshot_cannot_replay_even_with_fresh_ledger():
     host, world, bridge = setup()
     assert bridge.step(scene(), world, "WATER").verdict == "FAKE_WATER_VERIFIED"
+    # A separately, explicitly provisioned *new* fictional grant avoids the
+    # spent old grant's budget gate, so this isolates the Host snapshot fence.
+    fresh_grant = replace(FakeStandingWaterGrant(), grant_id="fresh-p1-grant")
     fresh_world = FakePermissionWorld(
         FakePermissionCrop(), FakePlotStewardship(),
-        FakeWaterPermissionLedger(FakeStandingWaterGrant())
+        FakeWaterPermissionLedger(fresh_grant)
     )
     fresh_bridge = FakePermissionedWaterBridge(host)
+    assert fresh_bridge.provision_standing_grant(fresh_grant) == "FAKE_GRANT_PROVISIONED"
     assert fresh_bridge.step(scene(), fresh_world, "WATER").verdict == "DENIED_HOST_STALE_SNAPSHOT"
     assert host.events.count("FAKE_EFFECT") == 1
 
@@ -505,7 +509,12 @@ def test_wait_exception_never_reserves_or_debits_permission():
     assert bridge.step(scene(), world, "WATER", fail).verdict == "DENIED_WAIT_FAILURE"
     assert host.events == []
     assert world.ledger.attempted_starts == 0
-    assert bridge.step(scene(), world, "WATER").verdict == "FAKE_WATER_VERIFIED"
+    # The independently reviewed planner rejects same-revision blind retries;
+    # a fresh synthetic observation is required before a new attempt.
+    assert bridge.step(scene(), world, "WATER").verdict == "WAIT_NEW_OBSERVATION"
+    assert host.events == []
+    world.crop = replace(world.crop, revision=2)
+    assert bridge.step(scene(revision=2), world, "WATER").verdict == "FAKE_WATER_VERIFIED"
 
 
 def test_before_b_exception_quarantines_reserved_operation_without_budget_debit():
