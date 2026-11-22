@@ -240,6 +240,19 @@ class FakeMixedDaytimeLoop:
             return tile
         return None
 
+    def _pending_operation_id(self):
+        """Identity of an unresolved fake chair OR fake Host WATER attempt.
+
+        This accessor is bookkeeping only: it does not authorize an action.
+        When the toy Game and Host have simultaneous pending work the Game
+        takes priority for the one-ID result shape; both still block in _gate.
+        """
+        if self.game.pending_attempt is not None:
+            return self.game.pending_attempt
+        if self.host.pending is not None:
+            return getattr(self.host.pending, "operation_id", None)
+        return None
+
     def _gate(self):
         if getattr(self.game, "_fake_mixed_quarantined", False) is not False:
             return "BLOCKED_UNRESOLVED"
@@ -371,14 +384,14 @@ class FakeMixedDaytimeLoop:
             steward, ledger, grant
         ) == "ALLOW_FAKE")
 
-    def _outer_read_block(self, status, choice=None, offered=()):
-        """Preserve the actual shared fake pending ID on early read exits.
+    def _pending_aware_result(self, status, choice=None, offered=()):
+        """Report actual pending identity on all pre-effect callback exits.
 
-        A synchronous fixture may run a nested coordinator while the first
-        or second outer read is active, before the chair adapter exists.
-        Read failure must never obscure the nested unresolved operation.
+        A nested fake action may be a P2 chair reservation in FakeGame or a
+        WATER reservation in FakeHostWaterFence. A blocked outer decision
+        must not hide that ID, even if its chooser/read threw or lied.
         """
-        pending = self.game.pending_attempt
+        pending = self._pending_operation_id()
         if pending is not None:
             return FakeMixedDayResult(
                 "BLOCKED_UNRESOLVED", choice, offered, pending
@@ -391,7 +404,7 @@ class FakeMixedDaytimeLoop:
         self.watering._ingest_fixture_revocation(self.water_world)
         gate = self._gate()
         if gate is not None:
-            return FakeMixedDayResult(gate)
+            return self._pending_aware_result(gate)
         try:
             try:
                 observed = self.game.observe()
@@ -402,18 +415,18 @@ class FakeMixedDaytimeLoop:
                 # just as it does for the chooser and second observation.
                 self.watering._ingest_fixture_revocation(self.water_world)
         except Exception:
-            return self._outer_read_block("BLOCKED_OBSERVATION_UNAVAILABLE")
+            return self._pending_aware_result("BLOCKED_OBSERVATION_UNAVAILABLE")
         # Re-evaluate STOP/pending/identity changed by the read itself,
         # even if the returned fake game snapshot looks otherwise valid.
         if self._gate() is not None:
-            return self._outer_read_block("BLOCKED_CHANGED_BEFORE_DISPATCH")
+            return self._pending_aware_result("BLOCKED_CHANGED_BEFORE_DISPATCH")
         # A fabricated high revision must NOT advance the shared replay
         # watermark. Check the direct canonical FakeGame observation before
         # planning or consuming this candidate's revision.
         if not self._valid_observation(observed):
-            return self._outer_read_block("BLOCKED_MALFORMED_OBSERVATION")
+            return self._pending_aware_result("BLOCKED_MALFORMED_OBSERVATION")
         if not self._water_game_matches(observed):
-            return self._outer_read_block("BLOCKED_CHANGED_BEFORE_DISPATCH")
+            return self._pending_aware_result("BLOCKED_CHANGED_BEFORE_DISPATCH")
         chair_target = self._chair_target()
         # Cross-coordinator shared replay fence for even voluntary STAY.
         last = getattr(self.game, "_fake_mixed_last_revision", -1)
@@ -448,7 +461,18 @@ class FakeMixedDaytimeLoop:
                 # chooser returning a valid interest or returning at all.
                 self.watering._ingest_fixture_revocation(self.water_world)
         except Exception:
-            return FakeMixedDayResult("BLOCKED_INTEREST_UNAVAILABLE", offered=choices)
+            return self._pending_aware_result(
+                "BLOCKED_INTEREST_UNAVAILABLE", offered=choices
+            )
+        # An arbitrary chooser is allowed to reenter the *same* synthetic
+        # Game/Host. Before interpreting even an invalid choice, surface any
+        # nested pending WATER or chair ID instead of hiding it as invalid.
+        gate = self._gate()
+        if gate is not None:
+            return self._pending_aware_result(
+                "BLOCKED_CHANGED_BEFORE_DISPATCH",
+                selected if type(selected) is str else None, choices
+            )
         if type(selected) is not str or selected not in choices:
             return FakeMixedDayResult("DENIED_NOT_GROUNDED", offered=choices)
         # FakeGame.observe() omits chair_tile: pin that destination separately
@@ -460,8 +484,9 @@ class FakeMixedDaytimeLoop:
                 or self.water_world.ledger is not ledger
                 or type(ledger) is not FakeWaterPermissionLedger
                 or ledger.grant is not grant):
-            return FakeMixedDayResult("BLOCKED_CHANGED_BEFORE_DISPATCH",
-                                      selected, choices)
+            return self._pending_aware_result(
+                "BLOCKED_CHANGED_BEFORE_DISPATCH", selected, choices
+            )
         try:
             try:
                 after_choice = self.game.observe()
@@ -470,18 +495,18 @@ class FakeMixedDaytimeLoop:
                 # no exception or stale reading may mask that Host tombstone.
                 self.watering._ingest_fixture_revocation(self.water_world)
         except Exception:
-            return self._outer_read_block(
+            return self._pending_aware_result(
                 "BLOCKED_OBSERVATION_UNAVAILABLE", selected, choices
             )
         if (not self._water_game_matches(after_choice)
                 or after_choice != observed):
-            return self._outer_read_block(
+            return self._pending_aware_result(
                 "BLOCKED_CHANGED_BEFORE_DISPATCH", selected, choices
             )
         # The observation callback itself can change Host STOP/pending without
         # changing any game field. Do NOT reuse the pre-read gate result.
         if self._gate() is not None:
-            return self._outer_read_block(
+            return self._pending_aware_result(
                 "BLOCKED_CHANGED_BEFORE_DISPATCH", selected, choices
             )
         if selected == "STAY":
@@ -540,11 +565,12 @@ class FakeMixedDaytimeLoop:
         # outer controller allocates an attempt). If L2 returns an absent
         # or different ID, report the actual shared Game pending identity,
         # never a misleading UNKNOWN/observation-error with no pending ID.
-        if (self.game.pending_attempt is not None
-                and self.game.pending_attempt != result.attempt):
+        # The L2 adapter may also stop for a concurrent nested WATER Host
+        # reservation without ever reporting its ID. Reconcile both ledgers.
+        pending = self._pending_operation_id()
+        if pending is not None and pending != result.attempt:
             return FakeMixedDayResult(
-                "BLOCKED_UNRESOLVED", selected, choices,
-                self.game.pending_attempt
+                "BLOCKED_UNRESOLVED", selected, choices, pending
             )
         # The guarded L2 adapter may already have downgraded the outcome
         # to UNKNOWN after a fake dispatch changed the chair target. Preserve
@@ -591,7 +617,9 @@ class FakeMixedDaytimeLoop:
                     # scene before raising. Do not resume it with a fresh
                     # coordinator until independently reconciled.
                     self.game._fake_mixed_quarantined = True
-                    results.append(FakeMixedDayResult("BLOCKED_OBSERVATION_UPDATE"))
+                    results.append(self._pending_aware_result(
+                        "BLOCKED_OBSERVATION_UPDATE"
+                    ))
                     break
                 finally:
                     # Even a callback on the LAST bounded decision may
