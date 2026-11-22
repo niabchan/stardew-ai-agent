@@ -25,6 +25,67 @@ class FakeMixedDayResult:
     claim_real_completion: bool = False
 
 
+
+class _HostGatedChairWorld:
+    """Toy L2 view: recheck shared fake Host immediately at admission.
+
+    The unchanged L2 OfflineController sees this proxy, while all attempts,
+    results and fake positions remain on the SAME underlying FakeGame. This
+    is sequential guard composition, NOT an atomic real game/Host boundary.
+    """
+
+    def __init__(self, game, allowed, expected_observation):
+        self._game = game
+        self._allowed = allowed
+        self._before = expected_observation
+        self._started = False
+        self._admitted_attempt = None
+
+    def __getattr__(self, attr):
+        return getattr(self._game, attr)
+
+    def observe(self):
+        snapshot = self._game.observe()
+        if not self._allowed(self._admitted_attempt):
+            raise RuntimeError("fake_host_not_ready_during_chair_observation")
+        if not self._started and snapshot != self._before:
+            raise RuntimeError("fake_chair_snapshot_changed_before_start")
+        return snapshot
+
+    def prepare(self, action, expected, attempt):
+        if not self._allowed(None):
+            return False
+        admitted = self._game.prepare(action, expected, attempt)
+        if not admitted:
+            return False
+        self._admitted_attempt = attempt
+        if not self._allowed(attempt):
+            # Nothing dispatched yet; explicitly retire the toy reservation.
+            self._game.finish_rejected(attempt)
+            self._admitted_attempt = None
+            return False
+        return True
+
+    def dispatch(self, action, expected, attempt):
+        if not self._allowed(attempt):
+            return "rejected_before_effect"
+        # Once this fake callback starts an effect may be possible. A STOP
+        # discovered AFTER invoking it cannot be described as pre-effect.
+        self._started = True
+        result = self._game.dispatch(action, expected, attempt)
+        if not self._allowed(attempt):
+            return "unknown_after_fake_host_change"
+        return result
+
+    def finish_observed_action(self, attempt):
+        if not self._allowed(attempt):
+            return False
+        return self._game.finish_observed_action(attempt)
+
+    def finish_rejected(self, attempt):
+        return self._game.finish_rejected(attempt)
+
+
 class FakeMixedDaytimeLoop:
     """One optional decision per fresh synthetic farm revision.
 
@@ -96,6 +157,24 @@ class FakeMixedDaytimeLoop:
                 or self.game.owner != self.expected_owner):
             return "BLOCKED_OWNER_OR_EPOCH"
         return None
+
+    def _chair_admitted(self, pinned_target, attempt=None):
+        """L2 adapter entry guard; this permits only its OWN fake pending ID."""
+        if self._chair_target() != pinned_target:
+            return False
+        if getattr(self.game, "_fake_mixed_quarantined", False) is not False:
+            return False
+        if (self.host.pending is not None or self.host.stopped
+                or self.host.epoch != self.expected_epoch
+                or self.host.owner != self.expected_owner
+                or self.game.epoch != self.expected_epoch
+                or self.game.owner != self.expected_owner
+                or self.game.p1_is_human is not True
+                or self.game.p2_is_ai is not True
+                or self.game.ready is not True):
+            return False
+        return (self.game.pending_attempt is None
+                or (attempt is not None and self.game.pending_attempt == attempt))
 
     def _scene(self, observation):
         # No invented P1 awake/distance/diary, TV reachability or seating state.
@@ -205,6 +284,11 @@ class FakeMixedDaytimeLoop:
         if not self._valid_observation(after_choice) or after_choice != observed:
             return FakeMixedDayResult("BLOCKED_CHANGED_BEFORE_DISPATCH",
                                       selected, choices)
+        # The observation callback itself can change Host STOP/pending without
+        # changing any game field. Do NOT reuse the pre-read gate result.
+        if self._gate() is not None:
+            return FakeMixedDayResult("BLOCKED_CHANGED_BEFORE_DISPATCH",
+                                      selected, choices)
         if selected == "STAY":
             return FakeMixedDayResult("STAY", selected, choices)
         if selected == "WATER":
@@ -215,12 +299,22 @@ class FakeMixedDaytimeLoop:
             return FakeMixedDayResult(result.verdict, selected, choices,
                                       result.operation_id)
         def choose_pinned_chair(_observation):
-            if self._chair_target() != chair_target:
-                raise RuntimeError("changed_fake_chair_target")
+            if (self._gate() is not None
+                    or not self._chair_admitted(chair_target)
+                    or _observation != observed):
+                raise RuntimeError("changed_fake_chair_admission")
             return "MOVE_TO_CHAIR"
 
+        # The reviewed L2 controller has no Host STOP input of its own.
+        # Its toy world adapter fences both the reservation and the actual
+        # dispatch call, including Host changes during its own observe/prepare.
+        guarded_game = _HostGatedChairWorld(
+            self.game,
+            lambda attempt: self._chair_admitted(chair_target, attempt),
+            observed,
+        )
         result = OfflineController(
-            self.game, choose_pinned_chair,
+            guarded_game, choose_pinned_chair,
             expected_epoch=self.expected_epoch,
             expected_owner=self.expected_owner,
         ).step()
