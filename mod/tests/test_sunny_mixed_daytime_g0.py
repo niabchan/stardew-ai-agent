@@ -1938,11 +1938,14 @@ def test_successful_final_publisher_reports_nested_pending_after_verified_water(
     """
     game, host, world, interest, loop = setup(choices=("WATER",))
     publisher_results = []
+    publisher_receipts = []
     nested_interest = Interest("MOVE_TO_CHAIR")
 
     def publish_then_nested_chair(verified, current_game, current_world, current_host):
-        assert verified.status == "FAKE_WATER_VERIFIED"
-        assert current_game is game and current_world is world and current_host is host
+        # Never assert inside a publisher callback caught by run_bounded().
+        publisher_receipts.append(
+            (verified, current_game, current_world, current_host)
+        )
         current_game.revision = 2
         current_world.crop = replace(current_world.crop, revision=2, soil_dry=False)
         current_game.delivery = "lost_reply"
@@ -1954,7 +1957,13 @@ def test_successful_final_publisher_reports_nested_pending_after_verified_water(
 
     results = loop.run_bounded(max_decisions=max_decisions,
                                after_verified=publish_then_nested_chair)
-    # The status assertions are deliberately outside the publisher callback.
+    # All assertions are AFTER the publisher callback has unwound: a
+    # regression cannot be swallowed by run_bounded's exception handler.
+    assert len(publisher_receipts) == 1
+    assert publisher_receipts[0][0].status == "FAKE_WATER_VERIFIED"
+    assert publisher_receipts[0][1] is game
+    assert publisher_receipts[0][2] is world
+    assert publisher_receipts[0][3] is host
     assert len(publisher_results) == 1
     assert publisher_results[0].status == "UNKNOWN"
     assert publisher_results[0].choice == "MOVE_TO_CHAIR"
