@@ -162,8 +162,9 @@ class FakeMixedDaytimeLoop:
             return FakeMixedDayResult("STAY", selected, choices)
         if selected == "WATER":
             result = self.watering.step(scene, self.water_world, "WATER")
-            if result.verdict == "FAKE_WATER_VERIFIED":
-                self.completed.add("WATER")
+            # Do not impose a one-WATER-per-day rule: the Host grant's
+            # per-tile spending and snapshot revision enforce the real toy
+            # bound. Another permitted dry tile may be considered later.
             return FakeMixedDayResult(result.verdict, selected, choices,
                                       result.operation_id)
         result = OfflineController(
