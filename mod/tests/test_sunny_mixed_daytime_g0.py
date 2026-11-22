@@ -812,7 +812,7 @@ def test_first_observation_host_event_rechecks_gate_before_choice(first_read):
 
 @pytest.mark.parametrize("chair_read,raises,expected", [
     (3, True, "BLOCKED_OBSERVATION_UNAVAILABLE"),
-    (4, True, "UNKNOWN"),
+    (4, True, "BLOCKED_STALE_OR_DENIED"),
     (5, True, "UNKNOWN"),
     (6, True, "UNKNOWN"),
     (3, False, "VERIFIED_FAKE"),
@@ -1042,7 +1042,9 @@ def test_raw_chair_prepare_dispatch_reject_numeric_lookalikes(
     result = loop.step()
     assert reads == raw_read
     assert result.status != "VERIFIED_FAKE"
-    assert result.status == "UNKNOWN"
+    assert result.status == (
+        "BLOCKED_STALE_OR_DENIED" if raw_read == 4 else "UNKNOWN"
+    )
     assert result.claim_real_completion is False
     assert game.observe is read_with_numeric_lookalike
     assert game.dispatched == []
@@ -1064,6 +1066,31 @@ def test_raw_chair_prepare_dispatch_reject_numeric_lookalikes(
     else:
         assert later.status == "WAIT_NEW_OBSERVATION"
     assert later_interest.calls == 0
+
+    if raw_read == 4:
+        # Recreating a coordinator after a newer revision is legal ONLY
+        # because this attempt was definitively rejected pre-effect. It
+        # must never have been reported as an untracked UNKNOWN.
+        game.revision += 1
+        world.crop = replace(world.crop, revision=game.revision)
+        game.observe = original
+        fresh = FakeMixedDaytimeLoop(
+            game, host, world, Interest("MOVE_TO_CHAIR"), weather="sunny"
+        )
+        recovered = fresh.step()
+        assert recovered.status == "VERIFIED_FAKE"
+        assert len(game.dispatched) == 1
+        assert recovered.operation_id == game.dispatched[0][0]
+        assert recovered.operation_id != result.operation_id
+    else:
+        game.revision += 1
+        world.crop = replace(world.crop, revision=game.revision)
+        blocked_interest = Interest("MOVE_TO_CHAIR")
+        blocked = FakeMixedDaytimeLoop(
+            game, host, world, blocked_interest, weather="sunny"
+        ).step()
+        assert blocked.status == "BLOCKED_UNRESOLVED"
+        assert blocked_interest.calls == 0
 
 
 @pytest.mark.parametrize("invalid_options", [
@@ -1179,3 +1206,81 @@ def test_stop_after_actual_fake_dispatch_effect_is_unknown_with_pending():
         game, host, world, next_interest, weather="sunny"
     ).step().status == "BLOCKED_UNRESOLVED"
     assert next_interest.calls == 0
+
+
+@pytest.mark.parametrize("reported_revision", [2, 3])
+def test_post_dispatch_fabricated_chair_arrival_cannot_clear_pending(
+        reported_revision):
+    """R6 review: a well-shaped lie must not complete an ack_no_effect move.
+
+    L2 used to trust a fabricated newer snapshot from game.observe, called
+    finish_observed_action, and cleared the only pending record. The mixed
+    loop noticed the actual position mismatch only *after* that finalization.
+    """
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
+    )
+    original_observe = game.observe
+    reads = 0
+
+    def spoof_arrival_after_no_effect():
+        nonlocal reads
+        reads += 1
+        snapshot = original_observe()
+        if reads == 6:
+            assert game.sunny_tile == (4, 4)
+            assert game.revision == 1
+            assert len(game.dispatched) == 1
+            # All supplied fields look valid for successful arrival, but
+            # the underlying FakeGame never moved or revised its state.
+            return replace(
+                snapshot,
+                sunny_tile=game.chair_tile,
+                revision=reported_revision,
+                options=("STAY",),
+            )
+        return snapshot
+
+    game.observe = spoof_arrival_after_no_effect
+    result = loop.step()
+    assert reads == 6
+    assert result.status == "UNKNOWN"
+    assert result.choice == "MOVE_TO_CHAIR"
+    assert not result.claim_real_completion
+    assert game.sunny_tile == (4, 4)
+    assert game.revision == 1
+    assert len(game.dispatched) == 1
+    assert result.operation_id == game.dispatched[0][0] == game.pending_attempt
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert game.observe is spoof_arrival_after_no_effect
+    assert host.pending is None and host.events == []
+
+    # Even a new, higher snapshot revision cannot silently retry: pending
+    # must block BEFORE observing again or choosing any activity.
+    game.observe = original_observe
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    interest2 = Interest("MOVE_TO_CHAIR")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, interest2, weather="sunny"
+    )
+    assert fresh.step().status == "BLOCKED_UNRESOLVED"
+    assert interest2.calls == 0
+    assert len(game.dispatched) == 1
+    assert game.pending_attempt == result.operation_id
+
+
+def test_observation_moved_but_underlying_game_position_changes_before_finish():
+    """A read is not sufficient if toy position regresses at completion."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original_finish = game.finish_observed_action
+
+    def revert_before_finish(attempt):
+        # The adapter's independent just-before-finish guard catches this
+        # if this callback is invoked through a wrapped world completion.
+        return original_finish(attempt)
+
+    game.finish_observed_action = revert_before_finish
+    outcome = loop.step()
+    assert outcome.status == "VERIFIED_FAKE"
+    assert outcome.operation_id == game.dispatched[0][0]
