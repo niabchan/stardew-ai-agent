@@ -58,6 +58,14 @@ class _HostGatedChairWorld:
             # authorize movement or confirm an effect.
             if not self._valid_observation(snapshot):
                 raise ValueError("malformed_fake_chair_observation")
+            # The injected observer can fabricate a well-shaped post-move
+            # snapshot even when ack_no_effect left the underlying FakeGame
+            # at its old tile/revision. Cross-check against FakeGame's own
+            # authoritative in-memory fields, without calling the injected
+            # observer again. L2 must NOT clear pending on a fictional move.
+            canonical = FakeGame.observe(self._game)
+            if snapshot != canonical:
+                raise ValueError("inconsistent_fake_chair_observation")
         finally:
             # A read may install an inactive P1 grant and then fail; retain
             # that shared-Host tombstone at EVERY underlying read exit.
@@ -95,12 +103,14 @@ class _HostGatedChairWorld:
                 self._game.prepare, action, expected, attempt
             )
         except Exception:
-            # A Host STOP or foreign pending operation detected during the
-            # raw prepare observation is still definitively pre-effect when
-            # this fake Game has not reserved an attempt. Retire as denied,
-            # not as an untracked UNKNOWN that permits blind reconstruction.
-            # Other observation errors remain UNKNOWN to the L2 controller.
-            if self._game.pending_attempt is None and not self._allowed(None):
+            # Strict input validation and Host STOP can raise INSIDE the
+            # raw FakeGame.prepare read. The toy game's prepare cannot apply
+            # movement: when it has NOT reserved this attempt, that failure
+            # is a known pre-effect denial, not UNKNOWN without a pending ID.
+            # A reservation or evidence of a dispatch instead stays UNKNOWN
+            # and must retain the same pending attempt for reconciliation.
+            if (self._game.pending_attempt is None
+                    and not any(row[0] == attempt for row in self._game.dispatched)):
                 return False
             raise
         if not admitted:
@@ -129,7 +139,16 @@ class _HostGatedChairWorld:
         return result
 
     def finish_observed_action(self, attempt):
-        if not self._allowed(attempt):
+        # The unchanged L2 controller calls this only after its observation
+        # checks. Revalidate the *underlying fake Game's* actual tile and
+        # revision BEFORE allowing L2 to release the attempt reservation.
+        # A plausible but untrue observation must remain UNKNOWN + pending.
+        if (not self._allowed(attempt)
+                or self._game.pending_attempt != attempt
+                or self._game.sunny_tile != self._game.chair_tile
+                or self._game.sunny_tile == self._before.sunny_tile
+                or type(self._game.revision) is not int
+                or self._game.revision <= self._before.revision):
             return False
         return self._game.finish_observed_action(attempt)
 
