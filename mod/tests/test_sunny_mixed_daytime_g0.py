@@ -448,7 +448,13 @@ def test_second_observation_can_change_host_gate_without_chair_dispatch(on_secon
     game.observe = observe_with_host_event
     first = loop.step()
     assert reads == 2
-    assert first.status == "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    assert first.status == (
+        "BLOCKED_UNRESOLVED" if on_second_read == "water_pending"
+        else "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    )
+    assert first.operation_id == (
+        "host-new-pending-1" if on_second_read == "water_pending" else None
+    )
     assert first.claim_real_completion is False
     assert interest.calls == 1
     assert not game.dispatched and game.pending_attempt is None
@@ -456,6 +462,7 @@ def test_second_observation_can_change_host_gate_without_chair_dispatch(on_secon
     assert "FAKE_EFFECT" not in host.events
     if on_second_read == "water_pending":
         assert host.pending is not None
+        assert first.operation_id == host.pending.operation_id
     else:
         assert host.stopped is True
 
@@ -463,9 +470,13 @@ def test_second_observation_can_change_host_gate_without_chair_dispatch(on_secon
     fresh = FakeMixedDaytimeLoop(
         game, host, world, fresh_interest, weather="sunny"
     )
-    assert fresh.step().status in {
+    fresh_result = fresh.step()
+    assert fresh_result.status in {
         "BLOCKED_STOP", "BLOCKED_UNRESOLVED", "BLOCKED_OWNER_OR_EPOCH"
     }
+    if on_second_read == "water_pending":
+        assert fresh_result.status == "BLOCKED_UNRESOLVED"
+        assert fresh_result.operation_id == host.pending.operation_id
     assert fresh_interest.calls == 0
     assert not game.dispatched
 
@@ -558,8 +569,9 @@ def test_host_pending_during_l2_prepare_is_not_ignored():
 
     game.prepare = prepare
     result = loop.step()
-    assert result.status == "BLOCKED_STALE_OR_DENIED"
+    assert result.status == "BLOCKED_UNRESOLVED"
     assert host.pending is not None
+    assert result.operation_id == host.pending.operation_id == "second-host-water-op"
     assert game.pending_attempt is None
     assert game.dispatched == []
     assert "MOVE_TO_CHAIR" not in loop.completed
@@ -801,13 +813,21 @@ def test_first_observation_host_event_rechecks_gate_before_choice(first_read):
 
     game.observe = add_host_event
     result = loop.step()
-    assert reads == 1 and result.status == "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    assert reads == 1
+    assert result.status == (
+        "BLOCKED_UNRESOLVED" if first_read == "host_pending"
+        else "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    )
+    assert result.operation_id == (
+        "first-read-pending" if first_read == "host_pending" else None
+    )
     assert interest.calls == 0 and game.dispatched == []
     assert game.pending_attempt is None
     if first_read == "stop":
         assert host.stopped
     else:
         assert host.pending is not None
+        assert result.operation_id == host.pending.operation_id
 
 
 @pytest.mark.parametrize("chair_read,raises,expected", [
