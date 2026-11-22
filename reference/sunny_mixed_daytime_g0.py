@@ -90,9 +90,19 @@ class _HostGatedChairWorld:
             return False
         # FakeGame.prepare performs its OWN read. Strictly validate that
         # read before its dataclass equality check can reserve an attempt.
-        admitted = self._run_with_checked_reads(
-            self._game.prepare, action, expected, attempt
-        )
+        try:
+            admitted = self._run_with_checked_reads(
+                self._game.prepare, action, expected, attempt
+            )
+        except Exception:
+            # A Host STOP or foreign pending operation detected during the
+            # raw prepare observation is still definitively pre-effect when
+            # this fake Game has not reserved an attempt. Retire as denied,
+            # not as an untracked UNKNOWN that permits blind reconstruction.
+            # Other observation errors remain UNKNOWN to the L2 controller.
+            if self._game.pending_attempt is None and not self._allowed(None):
+                return False
+            raise
         if not admitted:
             return False
         self._admitted_attempt = attempt
