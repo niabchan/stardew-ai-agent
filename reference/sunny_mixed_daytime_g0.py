@@ -291,10 +291,28 @@ class FakeMixedDaytimeLoop:
             unresolved_attempt=False,
         )
 
+    def _water_game_matches(self, observation):
+        """Compare a checked fake reading with STRICT actual toy Game state.
+
+        FakeGame.observe(self.game) reads the in-memory Game fields directly,
+        bypassing the injectable observer. Validate *both* sides before ==:
+        Python otherwise considers True/1.0 equal to integer 1, and a
+        float-coordinate tile equal to an integer-coordinate tile.
+        This is only an inert FakeGame consistency check, NOT real telemetry.
+        """
+        if not self._valid_observation(observation):
+            return False
+        try:
+            canonical = FakeGame.observe(self.game)
+        except Exception:
+            return False
+        return (self._valid_observation(canonical)
+                and canonical == observation)
+
     def _water_candidate(self, scene, observation):
         # Independent position evidence: do NOT trust only crop.adjacent=True.
         world = self.water_world
-        if not _crop_shape(world.crop):
+        if not self._water_game_matches(observation) or not _crop_shape(world.crop):
             return False
         crop = world.crop
         if (crop.epoch != observation.epoch or crop.revision != observation.revision
@@ -320,6 +338,10 @@ class FakeMixedDaytimeLoop:
         A reserved matching Host operation is permitted only for pre-B hooks.
         """
         self.watering._ingest_fixture_revocation(self.water_world)
+        # Recheck on initial admission AND on every pre-B fixture hook.
+        # Do not trust int/bool/float value equality from raw Game fields.
+        if not self._water_game_matches(observed):
+            return False
         if (self.host.stopped or self.host.epoch != self.expected_epoch
                 or self.host.owner != self.expected_owner
                 or (self.host.pending is not None
@@ -491,12 +513,12 @@ class FakeMixedDaytimeLoop:
             expected_epoch=self.expected_epoch,
             expected_owner=self.expected_owner,
         ).step()
-        # A reentrant fake observation can launch another coordinator that
-        # reserves a different chair ID while this outer prepare fails.
-        # L2 may name the denied OUTER ID; report the actual pending FOREIGN
-        # ID instead, and block further decisions until it is reconciled.
-        if (result.verdict == "BLOCKED_STALE_OR_DENIED"
-                and self.game.pending_attempt is not None
+        # Reentrant callbacks can create a foreign pending chair action on
+        # ANY L2 read, including its FIRST adapter observation (before the
+        # outer controller allocates an attempt). If L2 returns an absent
+        # or different ID, report the actual shared Game pending identity,
+        # never a misleading UNKNOWN/observation-error with no pending ID.
+        if (self.game.pending_attempt is not None
                 and self.game.pending_attempt != result.attempt):
             return FakeMixedDayResult(
                 "BLOCKED_UNRESOLVED", selected, choices,
