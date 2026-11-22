@@ -414,3 +414,147 @@ def test_observation_publisher_partial_mutation_and_failure_quarantines():
     ).step().status == "BLOCKED_UNRESOLVED"
     assert fresh_interest.calls == 0 and game.dispatched == []
     assert host.events.count("FAKE_EFFECT") == 1
+
+
+@pytest.mark.parametrize("on_second_read", ["stop", "water_pending", "epoch_rotation"])
+def test_second_observation_can_change_host_gate_without_chair_dispatch(on_second_read):
+    """Issue #96 R1 STOP bypass: last gate used to precede this callback."""
+    from reference.sunny_host_stop_fake import FakeWaterOperation
+
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original = game.observe
+    reads = 0
+
+    def observe_with_host_event():
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            if on_second_read == "stop":
+                host.latch_stop()
+            elif on_second_read == "epoch_rotation":
+                host.rotate_epoch()
+            else:
+                op = FakeWaterOperation(
+                    "host-new-pending-1", host.epoch, host.owner,
+                    "P2", "WATER", (4, 5)
+                )
+                assert host.reserve(op) == "B_LINEAGE_RESERVED"
+        return original()
+
+    game.observe = observe_with_host_event
+    first = loop.step()
+    assert reads == 2
+    assert first.status == "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    assert first.claim_real_completion is False
+    assert interest.calls == 1
+    assert not game.dispatched and game.pending_attempt is None
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert "FAKE_EFFECT" not in host.events
+    if on_second_read == "water_pending":
+        assert host.pending is not None
+    else:
+        assert host.stopped is True
+
+    fresh_interest = Interest("MOVE_TO_CHAIR")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, fresh_interest, weather="sunny"
+    )
+    assert fresh.step().status in {
+        "BLOCKED_STOP", "BLOCKED_UNRESOLVED", "BLOCKED_OWNER_OR_EPOCH"
+    }
+    assert fresh_interest.calls == 0
+    assert not game.dispatched
+
+
+def test_stop_during_l2_first_observation_denies_before_fake_chair_reservation():
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original = game.observe
+    reads = 0
+
+    def observe():
+        nonlocal reads
+        reads += 1
+        if reads == 3:
+            host.latch_stop()
+        return original()
+
+    game.observe = observe
+    result = loop.step()
+    assert reads == 3
+    assert result.status == "BLOCKED_OBSERVATION_UNAVAILABLE"
+    assert host.stopped and game.pending_attempt is None
+    assert game.dispatched == [] and host.events.count("FAKE_EFFECT") == 0
+    assert interest.calls == 1
+    assert "MOVE_TO_CHAIR" not in loop.completed
+
+
+def test_stop_during_l2_prepare_observation_retires_reservation_without_dispatch():
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original = game.observe
+    reads = 0
+
+    def observe():
+        nonlocal reads
+        reads += 1
+        if reads == 4:  # raw FakeGame.prepare calls observe inside itself
+            host.latch_stop()
+        return original()
+
+    game.observe = observe
+    result = loop.step()
+    assert reads == 4
+    assert result.status == "BLOCKED_STALE_OR_DENIED"
+    assert host.stopped
+    assert game.pending_attempt is None
+    assert game.dispatched == []
+    assert "MOVE_TO_CHAIR" not in loop.completed
+
+
+def test_stop_inside_started_fake_dispatch_quarantines_unknown_not_success():
+    """STOP during raw L2 dispatch cannot prove a *pre-effect* rejection."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original = game.observe
+    reads = 0
+
+    def observe():
+        nonlocal reads
+        reads += 1
+        if reads == 5:  # raw FakeGame.dispatch reads observation
+            host.latch_stop()
+        return original()
+
+    game.observe = observe
+    result = loop.step()
+    assert reads == 5
+    assert result.status == "UNKNOWN"
+    assert host.stopped
+    assert game.pending_attempt is not None
+    assert len(game.dispatched) == 1  # residual fake effect is possible
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    later = Interest("WATER")
+    assert FakeMixedDaytimeLoop(
+        game, host, world, later, weather="sunny"
+    ).step().status == "BLOCKED_UNRESOLVED"
+    assert later.calls == 0
+
+
+def test_host_pending_during_l2_prepare_is_not_ignored():
+    from reference.sunny_host_stop_fake import FakeWaterOperation
+
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original = game.prepare
+
+    def prepare(*args):
+        result = original(*args)
+        op = FakeWaterOperation("second-host-water-op",
+                                host.epoch, host.owner, "P2", "WATER", (4, 5))
+        assert host.reserve(op) == "B_LINEAGE_RESERVED"
+        return result
+
+    game.prepare = prepare
+    result = loop.step()
+    assert result.status == "BLOCKED_STALE_OR_DENIED"
+    assert host.pending is not None
+    assert game.pending_attempt is None
+    assert game.dispatched == []
+    assert "MOVE_TO_CHAIR" not in loop.completed
