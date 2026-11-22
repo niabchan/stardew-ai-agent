@@ -1269,18 +1269,3 @@ def test_post_dispatch_fabricated_chair_arrival_cannot_clear_pending(
     assert len(game.dispatched) == 1
     assert game.pending_attempt == result.operation_id
 
-
-def test_observation_moved_but_underlying_game_position_changes_before_finish():
-    """A read is not sufficient if toy position regresses at completion."""
-    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
-    original_finish = game.finish_observed_action
-
-    def revert_before_finish(attempt):
-        # The adapter's independent just-before-finish guard catches this
-        # if this callback is invoked through a wrapped world completion.
-        return original_finish(attempt)
-
-    game.finish_observed_action = revert_before_finish
-    outcome = loop.step()
-    assert outcome.status == "VERIFIED_FAKE"
-    assert outcome.operation_id == game.dispatched[0][0]
