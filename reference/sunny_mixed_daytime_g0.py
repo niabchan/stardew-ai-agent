@@ -64,7 +64,11 @@ class _HostGatedChairWorld:
             # authoritative in-memory fields, without calling the injected
             # observer again. L2 must NOT clear pending on a fictional move.
             canonical = FakeGame.observe(self._game)
-            if snapshot != canonical:
+            # Both sides MUST satisfy the same strict contract before
+            # Python dataclass equality: True == 1 and 1.0 == 1 would
+            # otherwise hide malformed authoritative toy revisions.
+            if (not self._valid_observation(canonical)
+                    or snapshot != canonical):
                 raise ValueError("inconsistent_fake_chair_observation")
         finally:
             # A read may install an inactive P1 grant and then fail; retain
@@ -109,8 +113,13 @@ class _HostGatedChairWorld:
             # is a known pre-effect denial, not UNKNOWN without a pending ID.
             # A reservation or evidence of a dispatch instead stays UNKNOWN
             # and must retain the same pending attempt for reconciliation.
-            if (self._game.pending_attempt is None
-                    and not any(row[0] == attempt for row in self._game.dispatched)):
+            if (self._game.pending_attempt != attempt
+                    and not any(row[0] == attempt
+                                for row in self._game.dispatched)):
+                # A reentrant fake callback can reserve a DIFFERENT
+                # operation. The outer prepare has not reserved/effected
+                # its own ID. Do not emit UNKNOWN for the *outer* ID:
+                # preserve the foreign pending in the shared FakeGame.
                 return False
             raise
         if not admitted:
@@ -482,6 +491,17 @@ class FakeMixedDaytimeLoop:
             expected_epoch=self.expected_epoch,
             expected_owner=self.expected_owner,
         ).step()
+        # A reentrant fake observation can launch another coordinator that
+        # reserves a different chair ID while this outer prepare fails.
+        # L2 may name the denied OUTER ID; report the actual pending FOREIGN
+        # ID instead, and block further decisions until it is reconciled.
+        if (result.verdict == "BLOCKED_STALE_OR_DENIED"
+                and self.game.pending_attempt is not None
+                and self.game.pending_attempt != result.attempt):
+            return FakeMixedDayResult(
+                "BLOCKED_UNRESOLVED", selected, choices,
+                self.game.pending_attempt
+            )
         # The guarded L2 adapter may already have downgraded the outcome
         # to UNKNOWN after a fake dispatch changed the chair target. Preserve
         # the more specific reason AND a shared-world quarantine.
