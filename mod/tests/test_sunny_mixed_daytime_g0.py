@@ -1939,6 +1939,7 @@ def test_successful_final_publisher_reports_nested_pending_after_verified_water(
     game, host, world, interest, loop = setup(choices=("WATER",))
     publisher_results = []
     publisher_receipts = []
+    published_normally = []
     nested_interest = Interest("MOVE_TO_CHAIR")
 
     def publish_then_nested_chair(verified, current_game, current_world, current_host):
@@ -1954,6 +1955,7 @@ def test_successful_final_publisher_reports_nested_pending_after_verified_water(
             weather="sunny"
         ).step()
         publisher_results.append(nested)
+        published_normally.append(True)
 
     results = loop.run_bounded(max_decisions=max_decisions,
                                after_verified=publish_then_nested_chair)
@@ -1964,6 +1966,8 @@ def test_successful_final_publisher_reports_nested_pending_after_verified_water(
     assert publisher_receipts[0][1] is game
     assert publisher_receipts[0][2] is world
     assert publisher_receipts[0][3] is host
+    assert published_normally == [True]
+    assert getattr(game, "_fake_mixed_quarantined", False) is False
     assert len(publisher_results) == 1
     assert publisher_results[0].status == "UNKNOWN"
     assert publisher_results[0].choice == "MOVE_TO_CHAIR"
@@ -1994,3 +1998,217 @@ def test_successful_final_publisher_reports_nested_pending_after_verified_water(
     assert fresh.operation_id == results[1].operation_id
     assert next_interest.calls == 0
     assert len(game.dispatched) == 1
+
+
+
+def test_raising_host_reserve_after_nested_water_reports_real_pending_id():
+    """R12 review: reserve callback raises AFTER nested WATER becomes pending."""
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    raw_reserve = host.reserve
+    nested_results = []
+    nested_interest = Interest("WATER")
+    injected_calls = []
+
+    def raise_after_nested_water(operation):
+        injected_calls.append(operation.operation_id)
+        game.revision = 2
+        world.crop = replace(world.crop, revision=2)
+        host.confirm_fake_observation = lambda _op: "UNKNOWN_PENDING"
+        host.reserve = raw_reserve
+        try:
+            nested_results.append(
+                FakeMixedDaytimeLoop(
+                    game, host, world, nested_interest, weather="sunny"
+                ).step()
+            )
+        finally:
+            host.reserve = raise_after_nested_water
+        raise RuntimeError("reserve failed after nested WATER pending")
+
+    host.reserve = raise_after_nested_water
+    outer = loop.step()  # MUST NOT raise: shared Host has pending ID.
+    assert len(injected_calls) == 1
+    assert len(nested_results) == 1
+    assert nested_results[0].status == "UNKNOWN_PENDING"
+    assert nested_results[0].choice == "WATER"
+    assert nested_results[0].operation_id is not None
+    assert outer.status == "BLOCKED_UNRESOLVED"
+    assert outer.choice == "WATER"
+    assert outer.operation_id == nested_results[0].operation_id
+    assert host.pending is not None
+    assert outer.operation_id == host.pending.operation_id
+    assert host.reserve is raise_after_nested_water
+    assert host.events.count("FAKE_EFFECT") == 1
+    assert len(host.used_ids) == 1
+    assert world.ledger.attempted_starts == 1
+    assert interest.calls == 1 and nested_interest.calls == 1
+    assert not getattr(game, "_fake_mixed_quarantined", False)
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    new_interest = Interest("STAY")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, new_interest, weather="sunny"
+    ).step()
+    assert fresh.status == "BLOCKED_UNRESOLVED"
+    assert fresh.operation_id == outer.operation_id
+    assert new_interest.calls == 0
+
+
+def test_nested_verified_water_cannot_roll_back_host_watermark_or_strand_outer():
+    """R12 review: nested verified rev2 invalidates an outer rev1 reserve."""
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    raw_reserve = host.reserve
+    nested_results = []
+    nested_interest = Interest("WATER")
+    reserve_calls = []
+
+    def reserve_after_nested_verified_water(operation):
+        reserve_calls.append(operation.operation_id)
+        game.revision = 2
+        world.crop = replace(world.crop, revision=2)
+        host.reserve = raw_reserve
+        try:
+            nested_results.append(
+                FakeMixedDaytimeLoop(
+                    game, host, world, nested_interest, weather="sunny"
+                ).step()
+            )
+        finally:
+            host.reserve = reserve_after_nested_verified_water
+        # Raw toy Host WOULD grant stale revision-1 outer operation here:
+        # its own reserve() validates owner/ID, not snapshot revision.
+        return raw_reserve(operation)
+
+    host.reserve = reserve_after_nested_verified_water
+    outer = loop.step()
+    assert reserve_calls and len(reserve_calls) == 1
+    assert len(nested_results) == 1
+    assert nested_results[0].status == "FAKE_WATER_VERIFIED"
+    assert nested_results[0].operation_id is not None
+    assert outer.status == "DENIED_HOST_RESERVATION"
+    assert outer.operation_id is None
+    assert not outer.claim_real_completion
+    assert host.pending is None
+    assert host._fake_daytime_water_last_revision == 2
+    assert getattr(game, "_fake_mixed_last_revision", -1) == 2
+    assert game.revision == 2 and world.crop.revision == 2
+    assert host.reserve is reserve_after_nested_verified_water
+    assert host.events.count("FAKE_STALE_PRE_A_RESERVATION_RETIRED") == 1
+    assert host.events.count("FAKE_EFFECT") == 1
+    assert world.ledger.attempted_starts == 1
+    assert len(host.used_ids) == 2  # nested + retired outer tombstone
+    assert not host.b_reserved and not host.a_entered and not host.b_entered
+    assert game.dispatched == [] and game.pending_attempt is None
+    assert interest.calls == 1 and nested_interest.calls == 1
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    next_interest = Interest("STAY")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, next_interest, weather="sunny"
+    ).step()
+    assert fresh.status == "STAY"
+    assert next_interest.calls == 1
+    assert host.pending is None
+    assert host._fake_daytime_water_last_revision == 2
+    assert host.events.count("FAKE_EFFECT") == 1
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_verified_water_receipt_survives_confirm_callback_nested_pending_chair(
+        bounded):
+    """R12 review: report verified WATER and foreign unresolved chair together."""
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    raw_confirm = host.confirm_fake_observation
+    confirmed = []
+    nested_results = []
+    nested_interest = Interest("MOVE_TO_CHAIR")
+    publisher_calls = []
+
+    def confirm_water_then_dispatch_nested_chair(operation):
+        receipt = raw_confirm(operation)  # real fake receipt, Host resolves.
+        confirmed.append((receipt, operation.operation_id))
+        game.revision = 2
+        world.crop = replace(world.crop, revision=2, soil_dry=False)
+        game.delivery = "lost_reply"
+        nested_results.append(
+            FakeMixedDaytimeLoop(
+                game, host, world, nested_interest, weather="sunny"
+            ).step()
+        )
+        return receipt
+
+    host.confirm_fake_observation = confirm_water_then_dispatch_nested_chair
+    if bounded:
+        def unexpected_publisher(*_args):
+            publisher_calls.append("CALLED_AFTER_NESTED_PENDING")
+
+        trace = loop.run_bounded(max_decisions=1,
+                                 after_verified=unexpected_publisher)
+        assert [r.status for r in trace] == [
+            "FAKE_WATER_VERIFIED", "BLOCKED_UNRESOLVED"
+        ]
+        result = trace[0]
+        assert trace[1].operation_id == result.pending_operation_id
+        assert trace[1].claim_real_completion is False
+        assert publisher_calls == []  # no next action or publisher while pending
+    else:
+        result = loop.step()
+    assert confirmed and len(confirmed) == 1
+    assert confirmed[0][0] == "FAKE_VERIFIED"
+    assert result.status == "FAKE_WATER_VERIFIED"
+    assert result.choice == "WATER"
+    assert result.operation_id == confirmed[0][1]
+    assert result.operation_id is not None
+    assert len(nested_results) == 1
+    assert nested_results[0].status == "UNKNOWN"
+    assert nested_results[0].operation_id == "offline-attempt-1"
+    assert result.pending_operation_id == nested_results[0].operation_id
+    assert result.pending_operation_id == game.pending_attempt
+    assert result.pending_operation_id == game.dispatched[0][0]
+    assert result.pending_operation_id != result.operation_id
+    assert host.events.count("FAKE_EFFECT") == 1
+    assert host.events.count("FAKE_OBSERVED_AND_RESOLVED") == 1
+    assert world.ledger.attempted_starts == 1
+    assert host.pending is None
+    assert len(game.dispatched) == 1
+    assert interest.calls == 1 and nested_interest.calls == 1
+    assert "MOVE_TO_CHAIR" not in loop.completed
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    next_interest = Interest("WATER")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, next_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert later.operation_id == result.pending_operation_id
+    assert next_interest.calls == 0
+
+
+def test_exceptional_publisher_trace_requires_quarantine_even_with_pending_id():
+    """R12 review: same statuses as success but exception MUST quarantine."""
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    nested_results = []
+
+    def publish_nested_then_raise(_verified, _game, _world, _host):
+        game.revision = 2
+        world.crop = replace(world.crop, revision=2, soil_dry=False)
+        game.delivery = "lost_reply"
+        nested_results.append(FakeMixedDaytimeLoop(
+            game, host, world, Interest("MOVE_TO_CHAIR"), weather="sunny"
+        ).step())
+        raise RuntimeError("publisher exception after nesting")
+
+    trace = loop.run_bounded(1, after_verified=publish_nested_then_raise)
+    assert len(nested_results) == 1
+    assert nested_results[0].status == "UNKNOWN"
+    assert [r.status for r in trace] == [
+        "FAKE_WATER_VERIFIED", "BLOCKED_UNRESOLVED"
+    ]
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert trace[1].operation_id == nested_results[0].operation_id
+    assert trace[1].operation_id == game.pending_attempt
+    assert trace[1].operation_id == game.dispatched[0][0]
+    assert host.events.count("FAKE_EFFECT") == 1
