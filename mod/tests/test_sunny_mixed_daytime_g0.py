@@ -1584,3 +1584,118 @@ def test_first_chair_adapter_read_reports_nested_pending_actual_id(
     assert next_interest.calls == 0
     assert len(game.dispatched) == 1
     assert game.pending_attempt == outer.operation_id
+
+
+@pytest.mark.parametrize("next_choice,next_status", [
+    ("STAY", "STAY"),
+    ("WATER", "FAKE_WATER_VERIFIED"),
+])
+def test_unverified_first_observation_cannot_poison_shared_replay_watermark(
+        next_choice, next_status):
+    """R9 review: valid-looking fabricated rev100 must not consume revision2."""
+    game, host, world, interest, loop = setup(choices=(next_choice,))
+    raw_observe = game.observe
+    reads = 0
+
+    def fabricated_future_revision():
+        nonlocal reads
+        reads += 1
+        canonical = raw_observe()
+        assert canonical.revision == 1
+        return replace(canonical, revision=100)
+
+    game.observe = fabricated_future_revision
+    rejected = loop.step()
+    assert rejected.status == "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    assert rejected.operation_id is None
+    assert reads == 1
+    assert interest.calls == 0 and interest.offers == []
+    assert getattr(game, "_fake_mixed_last_revision", -1) == -1
+    assert host.events == [] and host.pending is None
+    assert world.ledger.attempted_starts == 0
+    assert game.dispatched == [] and game.pending_attempt is None
+
+    # New *real fake* revision2 is later than rev1 even though the rejected
+    # injected observer claimed 100. A fresh coordinator must be usable.
+    game.observe = raw_observe
+    game.revision = 2
+    world.crop = replace(world.crop, revision=2)
+    next_interest = Interest(next_choice)
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, next_interest, weather="sunny"
+    )
+    next_result = fresh.step()
+    assert next_result.status == next_status
+    assert next_interest.calls == 1
+    assert getattr(game, "_fake_mixed_last_revision", -1) == 2
+    if next_choice == "WATER":
+        assert host.events.count("FAKE_EFFECT") == 1
+    else:
+        assert host.events == []
+
+
+@pytest.mark.parametrize("outer_read", [1, 2])
+@pytest.mark.parametrize("read_exit", ["malformed", "exception"])
+def test_outer_mixed_observation_returns_actual_nested_pending_id(
+        outer_read, read_exit):
+    """R9 review: pre-chair outer read must expose nested lost-reply ID.
+
+    Unlike L2's adapter read, these two observations happen inside the
+    mixed coordinator itself. Reentrant nested coordinator gets attempt-1;
+    outer read must never return BLOCKED_* with a missing operation ID.
+    """
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    raw_observe = game.observe
+    reads = 0
+    nested_outcomes = []
+
+    def nested_during_outer_read():
+        nonlocal reads
+        reads += 1
+        if reads == outer_read:
+            game.revision = 2
+            world.crop = replace(world.crop, revision=2)
+            game.delivery = "lost_reply"
+            game.observe = raw_observe
+            nested_interest = Interest("MOVE_TO_CHAIR")
+            nested_loop = FakeMixedDaytimeLoop(
+                game, host, world, nested_interest, weather="sunny"
+            )
+            nested = nested_loop.step()
+            nested_outcomes.append(nested)
+            assert nested.status == "UNKNOWN"
+            assert nested.operation_id == "offline-attempt-1"
+            assert game.pending_attempt == nested.operation_id
+            assert len(game.dispatched) == 1
+            assert game.dispatched[0][0] == nested.operation_id
+            if read_exit == "exception":
+                raise RuntimeError("synthetic outer read failed after nested move")
+            return replace(raw_observe(), revision="malformed_outer_revision")
+        return raw_observe()
+
+    game.observe = nested_during_outer_read
+    outer_result = loop.step()
+    assert reads == outer_read
+    assert len(nested_outcomes) == 1
+    assert outer_result.status == "BLOCKED_UNRESOLVED"
+    assert outer_result.claim_real_completion is False
+    assert outer_result.operation_id == nested_outcomes[0].operation_id
+    assert outer_result.operation_id == game.pending_attempt
+    assert outer_result.operation_id == game.dispatched[0][0]
+    assert game.seen_attempts == {"offline-attempt-1"}
+    assert game.attempt_serial == 1
+    assert len(game.dispatched) == 1
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert host.events == [] and host.pending is None
+
+    game.observe = raw_observe
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    later_interest = Interest("WATER")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, later_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert later_interest.calls == 0
+    assert game.pending_attempt == outer_result.operation_id
+    assert len(game.dispatched) == 1
