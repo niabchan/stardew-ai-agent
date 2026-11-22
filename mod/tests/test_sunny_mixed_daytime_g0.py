@@ -1416,3 +1416,171 @@ def test_reentrant_prepare_foreign_pending_does_not_report_outer_unknown():
     assert fresh_interest.calls == 0
     assert len(game.dispatched) == 1
     assert game.pending_attempt == nested[0].operation_id
+
+
+@pytest.mark.parametrize("authoritative_field,bad_value", [
+    ("revision", True),
+    ("revision", 1.0),
+    ("sunny_tile", (4.0, 4)),
+])
+def test_water_second_read_denies_malformed_authoritative_fake_game(
+        authoritative_field, bad_value):
+    """R8 review: clean supplied observation cannot mask bad raw Game fields."""
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    original_observe = game.observe
+    reads = 0
+
+    def clean_observation_but_mutate_authority():
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            setattr(game, authoritative_field, bad_value)
+            canonical = original_observe()
+            # The returned snapshot is a legitimate exact-type Observation,
+            # but the direct Game state contains a numeric lookalike.
+            returned = replace(
+                canonical, **{authoritative_field: (
+                    1 if authoritative_field == "revision" else (4, 4)
+                )}
+            )
+            assert returned == canonical  # dataclass's weak numeric equality
+            return returned
+        return original_observe()
+
+    game.observe = clean_observation_but_mutate_authority
+    result = loop.step()
+    assert reads == 2
+    assert result.status == "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    assert result.choice == "WATER"
+    assert not result.claim_real_completion
+    assert interest.calls == 1
+    assert game.observe is clean_observation_but_mutate_authority
+    assert game.dispatched == [] and game.pending_attempt is None
+    assert not host.events and not host.used_ids and host.pending is None
+    assert world.ledger.attempted_starts == 0
+    account = host._fake_water_permission_store.accounts[
+        world.ledger.grant.grant_id
+    ]
+    assert account.attempted_starts == 0 and account.started_tiles == set()
+    # Validating the authoritative state at a NEW revision must not mask
+    # any of the rejected malformed pre-B observations as verified WATER.
+    game.observe = original_observe
+    game.revision = 2
+    game.sunny_tile = (4, 4)
+    world.crop = replace(world.crop, revision=2)
+    assert host.events == [] and account.attempted_starts == 0
+
+
+@pytest.mark.parametrize("stage,expected", [
+    ("after_wait", "DENIED_WAIT_FAILURE"),
+    ("after_reserve", "UNKNOWN_PENDING"),
+    ("before_b", "UNKNOWN_PENDING"),
+])
+@pytest.mark.parametrize("authoritative_field,bad_value", [
+    ("revision", True),
+    ("revision", 1.0),
+    ("sunny_tile", (4.0, 4)),
+])
+def test_water_each_pre_b_guard_denies_malformed_authoritative_state(
+        stage, expected, authoritative_field, bad_value):
+    """All pre-B hooks must check strict raw Game types, not Python ==."""
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    original_hook = loop.watering._run_fixture_hook
+    touched = []
+
+    def mutate_during_stage(hook, current_stage, current_world, operation):
+        if current_stage == stage:
+            setattr(game, authoritative_field, bad_value)
+            touched.append(current_stage)
+        return original_hook(hook, current_stage, current_world, operation)
+
+    loop.watering._run_fixture_hook = mutate_during_stage
+    result = loop.step()
+    assert touched == [stage]
+    assert result.status == expected
+    assert not result.claim_real_completion
+    assert result.choice == "WATER"
+    assert "ENTER_B" not in host.events
+    assert "FAKE_EFFECT" not in host.events
+    assert game.dispatched == []
+    assert world.ledger.attempted_starts == 0
+    account = host._fake_water_permission_store.accounts[
+        world.ledger.grant.grant_id
+    ]
+    assert account.attempted_starts == 0 and account.started_tiles == set()
+    if stage == "after_wait":
+        assert host.pending is None and host.used_ids == set()
+    else:
+        assert host.pending is not None
+        fresh_interest = Interest("WATER")
+        fresh = FakeMixedDaytimeLoop(
+            game, host, world, fresh_interest, weather="sunny"
+        )
+        assert fresh.step().status == "BLOCKED_UNRESOLVED"
+        assert fresh_interest.calls == 0
+
+
+@pytest.mark.parametrize("first_adapter_read", ["malformed", "exception"])
+def test_first_chair_adapter_read_reports_nested_pending_actual_id(
+        first_adapter_read):
+    """R8 review: L2 first-read failure has no outer ID, but inner does.
+
+    Callback #3 occurs before the outer L2 calls new_attempt(). A nested
+    controller with a lost fake reply can reserve and dispatch attempt-1.
+    The mixed result must name THAT ID rather than omit it.
+    """
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original_observe = game.observe
+    calls = 0
+    inner_results = []
+
+    def nested_during_first_chair_read():
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            game.revision = 2
+            world.crop = replace(world.crop, revision=2)
+            game.delivery = "lost_reply"
+            game.observe = original_observe
+            nested_interest = Interest("MOVE_TO_CHAIR")
+            nested = FakeMixedDaytimeLoop(
+                game, host, world, nested_interest, weather="sunny"
+            ).step()
+            inner_results.append(nested)
+            assert nested.status == "UNKNOWN"
+            assert nested.operation_id == "offline-attempt-1"
+            assert game.pending_attempt == nested.operation_id
+            assert game.dispatched == [
+                ("offline-attempt-1", "MOVE_TO_CHAIR", "p2")
+            ]
+            if first_adapter_read == "exception":
+                raise RuntimeError("toy first chair read failed after nested action")
+            return replace(original_observe(), revision="malformed_outer_read")
+        return original_observe()
+
+    game.observe = nested_during_first_chair_read
+    outer = loop.step()
+    assert calls == 3
+    assert len(inner_results) == 1
+    assert outer.status == "BLOCKED_UNRESOLVED"
+    assert not outer.claim_real_completion
+    assert outer.operation_id == inner_results[0].operation_id
+    assert outer.operation_id == game.pending_attempt
+    assert game.dispatched[0][0] == outer.operation_id
+    assert game.attempt_serial == 1
+    assert game.seen_attempts == {outer.operation_id}
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert host.events == [] and host.pending is None
+
+    # A new scene cannot restart the original action while the nested
+    # operation remains unresolved, even across coordinator recreation.
+    game.observe = original_observe
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    next_interest = Interest("WATER")
+    assert FakeMixedDaytimeLoop(
+        game, host, world, next_interest, weather="sunny"
+    ).step().status == "BLOCKED_UNRESOLVED"
+    assert next_interest.calls == 0
+    assert len(game.dispatched) == 1
+    assert game.pending_attempt == outer.operation_id
