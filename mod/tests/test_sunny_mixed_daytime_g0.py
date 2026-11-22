@@ -838,7 +838,7 @@ def test_chair_reads_latch_p1_revocation_even_if_inner_game_read_raises(
 
     game.observe = revoke_during_chair_read
     result = loop.step()
-    assert calls == chair_read if raises else 6
+    assert calls == (chair_read if raises else 6)
     assert result.status == expected
     assert result.claim_real_completion is False
     assert interest.calls == 1 and host.events == []
