@@ -803,3 +803,145 @@ def test_first_observation_host_event_rechecks_gate_before_choice(first_read):
         assert host.stopped
     else:
         assert host.pending is not None
+
+
+@pytest.mark.parametrize("chair_read,raises,expected", [
+    (3, True, "BLOCKED_OBSERVATION_UNAVAILABLE"),
+    (4, True, "UNKNOWN"),
+    (5, True, "UNKNOWN"),
+    (6, True, "UNKNOWN"),
+    (3, False, "VERIFIED_FAKE"),
+    (4, False, "VERIFIED_FAKE"),
+    (5, False, "VERIFIED_FAKE"),
+    (6, False, "VERIFIED_FAKE"),
+])
+def test_chair_reads_latch_p1_revocation_even_if_inner_game_read_raises(
+        chair_read, raises, expected):
+    """R4 review: chair adapter and raw prepare/dispatch bypassed ingestion.
+
+    Read 3 is adapter.observe, 4 is FakeGame.prepare's own observe,
+    5 is FakeGame.dispatch's own observe, and 6 is adapter verification.
+    """
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    old = world.ledger.grant
+    original_observe = game.observe
+    calls = 0
+
+    def revoke_during_chair_read():
+        nonlocal calls
+        calls += 1
+        if calls == chair_read:
+            world.ledger.grant = replace(old, grant_revision=2, active=False)
+            if raises:
+                raise RuntimeError("synthetic chair fixture read failed after revoke")
+        return original_observe()
+
+    game.observe = revoke_during_chair_read
+    result = loop.step()
+    assert calls == chair_read if raises else 6
+    assert result.status == expected
+    assert result.claim_real_completion is False
+    assert interest.calls == 1 and host.events == []
+    account = host._fake_water_permission_store.accounts[old.grant_id]
+    assert account.revoked is True
+    assert account.grant.grant_revision == 2
+    assert FakePermissionedWaterBridge(host).provision_standing_grant(
+        old
+    ) == "DENIED_STALE_GRANT_REVISION"
+    assert account.attempted_starts == 0 and account.started_tiles == set()
+    assert host.pending is None and host.used_ids == set()
+
+    if raises and chair_read in (3, 4):
+        assert game.pending_attempt is None and game.dispatched == []
+    elif raises:
+        assert game.pending_attempt is not None
+        assert len(game.dispatched) == (1 if chair_read == 6 else 0)
+    else:
+        assert game.pending_attempt is None and len(game.dispatched) == 1
+
+    # On known pre-effect failure or verified chair completion, a new fake
+    # observation and ledger must NEVER revive the old grant for WATER.
+    game.observe = original_observe
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    world.ledger = FakeWaterPermissionLedger(old)
+    game.sunny_tile = (4, 4)
+    later_interest = Interest("WATER")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, later_interest, weather="sunny"
+    )
+    subsequent = fresh.step()
+    if game.pending_attempt is None:
+        assert subsequent.status == "DENIED_NOT_GROUNDED"
+        assert "WATER" not in subsequent.offered
+        assert later_interest.calls == 1
+    else:
+        assert subsequent.status == "BLOCKED_UNRESOLVED"
+        assert later_interest.calls == 0
+    assert account.attempted_starts == 0 and account.started_tiles == set()
+    assert host.events == [] and host.pending is None
+
+
+@pytest.mark.parametrize("corruption", ["string_revision", "unhashable_options"])
+def test_malformed_chair_verification_returns_unknown_not_python_exception(
+        corruption):
+    """Malformed *post-move* snapshot must preserve L2 pending quarantine."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original_observe = game.observe
+    calls = 0
+
+    def malformed_after_fake_move():
+        nonlocal calls
+        calls += 1
+        snapshot = original_observe()
+        if calls == 6:
+            if corruption == "string_revision":
+                return replace(snapshot, revision="unexpected-string")
+            return replace(snapshot, options=("STAY", []))
+        return snapshot
+
+    game.observe = malformed_after_fake_move
+    result = loop.step()
+    assert result.status == "UNKNOWN"
+    assert result.choice == "MOVE_TO_CHAIR"
+    assert result.claim_real_completion is False
+    assert calls == 6
+    assert len(game.dispatched) == 1
+    assert game.sunny_tile == game.chair_tile
+    assert game.pending_attempt is not None
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    fresh_interest = Interest("WATER")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, fresh_interest, weather="sunny"
+    )
+    assert fresh.step().status == "BLOCKED_UNRESOLVED"
+    assert fresh_interest.calls == 0 and host.events == []
+
+
+def test_chair_verification_error_after_p1_revocation_keeps_both_guards():
+    """One failing L2 read can also convey valid permission revocation."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    old = world.ledger.grant
+    original_observe = game.observe
+    calls = 0
+
+    def malformed_and_revoke():
+        nonlocal calls
+        calls += 1
+        snapshot = original_observe()
+        if calls == 6:
+            world.ledger.grant = replace(old, grant_revision=2, active=False)
+            return replace(snapshot, revision="bad_revision")
+        return snapshot
+
+    game.observe = malformed_and_revoke
+    result = loop.step()
+    assert result.status == "UNKNOWN"
+    assert game.pending_attempt is not None and len(game.dispatched) == 1
+    account = host._fake_water_permission_store.accounts[old.grant_id]
+    assert account.revoked and account.grant.grant_revision == 2
+    assert FakePermissionedWaterBridge(host).provision_standing_grant(
+        old
+    ) == "DENIED_STALE_GRANT_REVISION"
+    assert account.attempted_starts == 0
+    assert "FAKE_EFFECT" not in host.events
