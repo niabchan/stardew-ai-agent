@@ -1269,3 +1269,150 @@ def test_post_dispatch_fabricated_chair_arrival_cannot_clear_pending(
     assert len(game.dispatched) == 1
     assert game.pending_attempt == result.operation_id
 
+
+
+@pytest.mark.parametrize("raw_read,authoritative_revision", [
+    (4, True),
+    (4, 1.0),
+    (5, True),
+    (5, 1.0),
+])
+def test_authoritative_numeric_revision_must_be_strict_before_chair_action(
+        raw_read, authoritative_revision):
+    """R7 review: a *valid returned* revision must not mask bad raw Game data.
+
+    Dataclass comparison treats True/1.0 as equal to integer 1. The earlier
+    R6 tests only corrupted the supplied snapshot, not underlying FakeGame.
+    """
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original_observe = game.observe
+    reads = 0
+
+    def return_clean_snapshot_from_malformed_fake_game():
+        nonlocal reads
+        reads += 1
+        if reads == raw_read:
+            game.revision = authoritative_revision
+            canonical = original_observe()
+            # Shape-valid evidence, but authoritative in-memory Game's
+            # revision is *not* an exact int.
+            injected = replace(canonical, revision=1)
+            assert type(injected.revision) is int
+            assert injected == canonical
+            return injected
+        return original_observe()
+
+    game.observe = return_clean_snapshot_from_malformed_fake_game
+    result = loop.step()
+    assert reads == raw_read
+    assert result.status == (
+        "BLOCKED_STALE_OR_DENIED" if raw_read == 4 else "UNKNOWN"
+    )
+    assert result.claim_real_completion is False
+    assert game.revision is authoritative_revision or (
+        type(authoritative_revision) is float
+        and type(game.revision) is float
+        and game.revision == authoritative_revision
+    )
+    assert game.observe is return_clean_snapshot_from_malformed_fake_game
+    assert game.dispatched == []
+    assert game.sunny_tile == (4, 4)
+    assert not loop.completed and host.events == []
+    if raw_read == 4:
+        assert game.pending_attempt is None
+        assert result.operation_id == "offline-attempt-1"
+    else:
+        assert result.operation_id == "offline-attempt-1"
+        assert game.pending_attempt == result.operation_id
+
+    # A newer snapshot cannot overwrite the UNKNOWN pending for dispatch,
+    # but is fine after definite pre-effect preparation denial.
+    game.observe = original_observe
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    new_interest = Interest("MOVE_TO_CHAIR")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, new_interest, weather="sunny"
+    )
+    followup = fresh.step()
+    if raw_read == 4:
+        assert followup.status == "VERIFIED_FAKE"
+        assert len(game.dispatched) == 1
+        assert followup.operation_id == "offline-attempt-2"
+        assert followup.operation_id == game.dispatched[0][0]
+    else:
+        assert followup.status == "BLOCKED_UNRESOLVED"
+        assert new_interest.calls == 0
+        assert game.dispatched == []
+        assert game.pending_attempt == result.operation_id
+
+
+def test_reentrant_prepare_foreign_pending_does_not_report_outer_unknown():
+    """R7 review: nested attempt-2 pending is NOT outer attempt-1.
+
+    A synthetic callback can reenter using the same FakeGame/Host after the
+    outer raw prepare observer was temporarily installed. This is an inert
+    deterministic fixture, not a claim of safe actual game concurrency.
+    """
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original_observe = game.observe
+    raw_calls = 0
+    nested = []
+
+    def reenter_during_outer_prepare():
+        nonlocal raw_calls
+        raw_calls += 1
+        if raw_calls == 4:
+            # New fake observation for a distinct nested decision.
+            game.revision = 2
+            world.crop = replace(world.crop, revision=2)
+            game.delivery = "lost_reply"
+            # Nested coordinator must run on its own intended fake observer,
+            # not through the outer controller's temporary validation proxy.
+            game.observe = original_observe
+            nested_interest = Interest("MOVE_TO_CHAIR")
+            nested_loop = FakeMixedDaytimeLoop(
+                game, host, world, nested_interest, weather="sunny"
+            )
+            inner = nested_loop.step()
+            nested.append(inner)
+            assert inner.status == "UNKNOWN"
+            assert inner.operation_id == "offline-attempt-2"
+            assert game.pending_attempt == inner.operation_id
+            assert len(game.dispatched) == 1
+            assert game.dispatched[0][0] == inner.operation_id
+
+            # Make the OUTER raw prepare read malformed, as in the reviewed
+            # replay. Its new attempt-1 must be denied, not UNKNOWN.
+            return replace(original_observe(), revision="bad_outer_revision")
+        return original_observe()
+
+    game.observe = reenter_during_outer_prepare
+    outer = loop.step()
+    assert raw_calls == 4
+    assert len(nested) == 1 and nested[0].status == "UNKNOWN"
+    assert outer.status == "BLOCKED_UNRESOLVED"
+    assert outer.operation_id == nested[0].operation_id == "offline-attempt-2"
+    assert game.pending_attempt == "offline-attempt-2"
+    assert game.dispatched == [(
+        "offline-attempt-2", "MOVE_TO_CHAIR", "p2"
+    )]
+    assert game.seen_attempts == {"offline-attempt-2"}
+    assert game.attempt_serial == 2
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert host.events == [] and host.pending is None
+    assert game.observe is reenter_during_outer_prepare
+
+    # The real shared fake Game pending ID fences later decisions regardless
+    # of revision advancement or coordinator reconstruction.
+    game.observe = original_observe
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    fresh_interest = Interest("MOVE_TO_CHAIR")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, fresh_interest, weather="sunny"
+    )
+    assert fresh.step().status == "BLOCKED_UNRESOLVED"
+    assert fresh_interest.calls == 0
+    assert len(game.dispatched) == 1
+    assert game.pending_attempt == nested[0].operation_id
