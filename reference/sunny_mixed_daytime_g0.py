@@ -8,7 +8,7 @@ All observation and chooser inputs here are synthetic fixtures; no I/O or AI.
 from dataclasses import dataclass
 
 from reference.sunny_daytime_intents import Activity, FakeDaytimePlanner, FakeScene
-from reference.sunny_gameplay_slice import FakeGame, OfflineController
+from reference.sunny_gameplay_slice import FakeGame, OfflineController, Observation
 from reference.sunny_host_stop_fake import FakeHostWaterFence
 from reference.sunny_water_permission_g0 import (
     FakePermissionWorld, FakePermissionedWaterBridge, FakeWaterPermissionLedger,
@@ -57,7 +57,35 @@ class FakeMixedDaytimeLoop:
         self.watering = FakePermissionedWaterBridge(host)
         self.completed = set()
 
+    @staticmethod
+    def _valid_observation(observed):
+        """Strict toy observation shape before revision/position comparisons."""
+        return (type(observed) is Observation
+                and type(observed.epoch) is str and bool(observed.epoch)
+                and type(observed.owner) is str and bool(observed.owner)
+                and type(observed.revision) is int and observed.revision >= 0
+                and all(type(v) is bool for v in (
+                    observed.p1_is_human, observed.p2_is_ai, observed.ready))
+                and type(observed.sunny_tile) is tuple
+                and len(observed.sunny_tile) == 2
+                and all(type(n) is int and 0 <= n < 200
+                        for n in observed.sunny_tile)
+                and type(observed.options) is tuple
+                and len(observed.options) <= 12
+                and len(set(observed.options)) == len(observed.options)
+                and all(type(a) is str for a in observed.options))
+
+    def _chair_target(self):
+        """Pin toy chair destination outside the P2 observation contract."""
+        tile = self.game.chair_tile
+        if (type(tile) is tuple and len(tile) == 2
+                and all(type(n) is int and 0 <= n < 200 for n in tile)):
+            return tile
+        return None
+
     def _gate(self):
+        if getattr(self.game, "_fake_mixed_quarantined", False) is not False:
+            return "BLOCKED_UNRESOLVED"
         if self.game.pending_attempt is not None or self.host.pending is not None:
             return "BLOCKED_UNRESOLVED"
         if self.host.stopped:
@@ -118,6 +146,10 @@ class FakeMixedDaytimeLoop:
             observed = self.game.observe()
         except Exception:
             return FakeMixedDayResult("BLOCKED_OBSERVATION_UNAVAILABLE")
+        # Validate before using revision or tile in comparison/arithmetic.
+        if not self._valid_observation(observed):
+            return FakeMixedDayResult("BLOCKED_MALFORMED_OBSERVATION")
+        chair_target = self._chair_target()
         # Cross-coordinator shared replay fence for even voluntary STAY.
         last = getattr(self.game, "_fake_mixed_last_revision", -1)
         if type(last) is not int or last < -1:
@@ -129,7 +161,8 @@ class FakeMixedDaytimeLoop:
         if proposal.status != "PROPOSED_FAKE":
             return FakeMixedDayResult(proposal.status)
         offered = [a for a in proposal.candidates
-                   if a.action in ("STAY", "MOVE_TO_CHAIR")]
+                   if a.action == "STAY"
+                   or (a.action == "MOVE_TO_CHAIR" and chair_target is not None)]
         # WATER is *not* automatically authorized by the daytime planner.
         if self._water_candidate(scene, observed):
             offered.append(Activity(
@@ -143,19 +176,33 @@ class FakeMixedDaytimeLoop:
         ledger = self.water_world.ledger
         grant = ledger.grant if type(ledger) is FakeWaterPermissionLedger else None
         try:
-            selected = self.interest(tuple(offered))
+            try:
+                selected = self.interest(tuple(offered))
+            finally:
+                # P1 revocation is a fake Host event, not conditional on the
+                # chooser returning a valid interest or returning at all.
+                self.watering._ingest_fixture_revocation(self.water_world)
         except Exception:
             return FakeMixedDayResult("BLOCKED_INTEREST_UNAVAILABLE", offered=choices)
         if type(selected) is not str or selected not in choices:
             return FakeMixedDayResult("DENIED_NOT_GROUNDED", offered=choices)
-        # Revalidate before either fake action after an untrusted chooser.
-        self.watering._ingest_fixture_revocation(self.water_world)
-        if (self._gate() is not None or self.game.observe() != observed
+        # FakeGame.observe() omits chair_tile: pin that destination separately
+        # so an untrusted chooser cannot move the target but keep the same
+        # apparent scene revision/options and obtain a false VERIFIED_FAKE.
+        if (self._gate() is not None or self._chair_target() != chair_target
                 or self.water_world.crop is not crop
                 or self.water_world.stewardship is not steward
                 or self.water_world.ledger is not ledger
                 or type(ledger) is not FakeWaterPermissionLedger
                 or ledger.grant is not grant):
+            return FakeMixedDayResult("BLOCKED_CHANGED_BEFORE_DISPATCH",
+                                      selected, choices)
+        try:
+            after_choice = self.game.observe()
+        except Exception:
+            return FakeMixedDayResult("BLOCKED_OBSERVATION_UNAVAILABLE",
+                                      selected, choices)
+        if not self._valid_observation(after_choice) or after_choice != observed:
             return FakeMixedDayResult("BLOCKED_CHANGED_BEFORE_DISPATCH",
                                       selected, choices)
         if selected == "STAY":
@@ -168,10 +215,21 @@ class FakeMixedDaytimeLoop:
             return FakeMixedDayResult(result.verdict, selected, choices,
                                       result.operation_id)
         result = OfflineController(
-            self.game, lambda _: "MOVE_TO_CHAIR",
+            self.game, lambda _: "MOVE_TO_CHAIR"
+            if self._chair_target() == chair_target
+            else (_ for _ in ()).throw(RuntimeError("changed_fake_chair_target")),
             expected_epoch=self.expected_epoch,
             expected_owner=self.expected_owner,
         ).step()
+        # Existing L2 toy verifies against game.chair_tile (a mutable value).
+        # Independently compare the pinned proposal target after L2 execution.
+        # An unexpected change means its VERIFIED_FAKE cannot be trusted.
+        if result.verdict == "VERIFIED_FAKE" and (
+                self._chair_target() != chair_target
+                or self.game.sunny_tile != chair_target):
+            self.game._fake_mixed_quarantined = True
+            return FakeMixedDayResult("UNKNOWN_UNVERIFIED_CHAIR_TARGET",
+                                      selected, choices, result.attempt)
         if result.verdict == "VERIFIED_FAKE":
             self.completed.add("MOVE_TO_CHAIR")
         return FakeMixedDayResult(result.verdict, selected, choices,
@@ -197,6 +255,10 @@ class FakeMixedDaytimeLoop:
                 try:
                     after_verified(result, self.game, self.water_world, self.host)
                 except Exception:
+                    # A fixture publisher may have partially mutated the fake
+                    # scene before raising. Do not resume it with a fresh
+                    # coordinator until independently reconciled.
+                    self.game._fake_mixed_quarantined = True
                     results.append(FakeMixedDayResult("BLOCKED_OBSERVATION_UPDATE"))
                     break
         return tuple(results)
