@@ -741,7 +741,7 @@ def test_first_observation_revocation_survives_every_exit_and_stale_grant_restor
         else "DENIED_NOT_GROUNDED"
     )
     account = host._fake_water_permission_store.accounts[old.grant_id]
-    assert account.revoked is True and account.grant_revision == 2
+    assert account.revoked is True and account.grant.grant_revision == 2
     assert FakePermissionedWaterBridge(host).provision_standing_grant(
         old
     ) == "DENIED_STALE_GRANT_REVISION"
