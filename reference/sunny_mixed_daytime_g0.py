@@ -534,6 +534,17 @@ class FakeMixedDaytimeLoop:
             result = self.watering.step(
                 scene, self.water_world, "WATER", at_stage=water_pre_b_guard
             )
+            # A synthetic Host.reserve callback may reenter a DIFFERENT WATER
+            # coordinator and leave its own fake Host operation unresolved.
+            # The accepted WATER bridge can reject the OUTER reservation with
+            # no operation_id. Reconcile against both shared pending ledgers
+            # before returning, as the chair path already does. Do not mask
+            # an unresolved own-ID result such as UNKNOWN_PENDING.
+            pending = self._pending_operation_id()
+            if pending is not None and pending != result.operation_id:
+                return FakeMixedDayResult(
+                    "BLOCKED_UNRESOLVED", selected, choices, pending
+                )
             # Do not impose a one-WATER-per-day rule: the Host grant's
             # per-tile spending and snapshot revision enforce the toy bound.
             return FakeMixedDayResult(result.verdict, selected, choices,
@@ -626,4 +637,15 @@ class FakeMixedDaytimeLoop:
                     # deliver valid P1 revocation and then return or raise.
                     # Record its Host tombstone before any exit from this run.
                     self.watering._ingest_fixture_revocation(self.water_world)
+                # Successful fixture publication is NOT evidence that no
+                # other nested work became pending. Preserve the already
+                # verified effect receipt above, then explicitly report its
+                # shared pending ID before looping or returning (even at the
+                # final max_decisions=1 boundary).
+                pending = self._pending_operation_id()
+                if pending is not None:
+                    results.append(FakeMixedDayResult(
+                        "BLOCKED_UNRESOLVED", operation_id=pending
+                    ))
+                    break
         return tuple(results)
