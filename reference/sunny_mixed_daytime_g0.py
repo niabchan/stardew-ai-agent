@@ -37,6 +37,9 @@ class _HostGatedChairWorld:
     def __init__(self, game, allowed, expected_observation,
                  valid_observation, ingest_revocation):
         self._game = game
+        # Preserve the original observer before the toy Game's own prepare/
+        # dispatch calls are scoped through the validating adapter below.
+        self._raw_observe = game.observe
         self._allowed = allowed
         self._before = expected_observation
         self._valid_observation = valid_observation
@@ -49,15 +52,15 @@ class _HostGatedChairWorld:
 
     def observe(self):
         try:
-            snapshot = self._game.observe()
-            # Do not forward malformed post-effect observations to L2, whose
-            # verifier assumes comparable integer revisions. Raising here
-            # enters L2's UNKNOWN path and retains the already pending move.
+            snapshot = self._raw_observe()
+            # Strict shape AND the fake Game's own option-set contract. A
+            # dataclass's bool/int or float/int equality is NOT enough to
+            # authorize movement or confirm an effect.
             if not self._valid_observation(snapshot):
                 raise ValueError("malformed_fake_chair_observation")
         finally:
-            # A read may install a valid inactive P1 grant notice and then
-            # fail. Preserve it even when L2 catches the observation error.
+            # A read may install an inactive P1 grant and then fail; retain
+            # that shared-Host tombstone at EVERY underlying read exit.
             self._ingest_revocation()
         if not self._allowed(self._admitted_attempt):
             raise RuntimeError("fake_host_not_ready_during_chair_observation")
@@ -65,15 +68,31 @@ class _HostGatedChairWorld:
             raise RuntimeError("fake_chair_snapshot_changed_before_start")
         return snapshot
 
+    def _run_with_checked_reads(self, operation, *args):
+        """Temporarily route raw FakeGame's own reads through validation.
+
+        FakeGame.prepare/dispatch call self.observe() internally. Wrapping
+        only this bounded synchronous toy call prevents equality-based
+        authorization with bool/float revisions or inconsistent options.
+        Always restore the observer even if the raw operation fails. This
+        does not model concurrency, and must not be used on live objects.
+        """
+        original = self._game.observe
+        self._game.observe = self.observe
+        try:
+            return operation(*args)
+        finally:
+            self._game.observe = original
+            self._ingest_revocation()
+
     def prepare(self, action, expected, attempt):
         if not self._allowed(None):
             return False
-        try:
-            # FakeGame.prepare performs its OWN observation, bypassing the
-            # adapter's observe(). Its exception must not lose P1 revocation.
-            admitted = self._game.prepare(action, expected, attempt)
-        finally:
-            self._ingest_revocation()
+        # FakeGame.prepare performs its OWN read. Strictly validate that
+        # read before its dataclass equality check can reserve an attempt.
+        admitted = self._run_with_checked_reads(
+            self._game.prepare, action, expected, attempt
+        )
         if not admitted:
             return False
         self._admitted_attempt = attempt
@@ -90,11 +109,11 @@ class _HostGatedChairWorld:
         # Once this fake callback starts an effect may be possible. A STOP
         # discovered AFTER invoking it cannot be described as pre-effect.
         self._started = True
-        try:
-            # FakeGame.dispatch also observes independently of this proxy.
-            result = self._game.dispatch(action, expected, attempt)
-        finally:
-            self._ingest_revocation()
+        # FakeGame.dispatch also reads internally. A malformed read must
+        # never dispatch an effect based solely on Python value equality.
+        result = self._run_with_checked_reads(
+            self._game.dispatch, action, expected, attempt
+        )
         if not self._allowed(attempt):
             return "unknown_after_fake_host_change"
         return result
@@ -157,6 +176,23 @@ class FakeMixedDaytimeLoop:
                 and len(observed.options) <= 12
                 and all(type(a) is str for a in observed.options)
                 and len(set(observed.options)) == len(observed.options))
+
+    def _valid_chair_observation(self, observed, pinned_target):
+        """Validate options against FakeGame's *actual* option algorithm.
+
+        The synthetic Game always offers STAY and offers MOVE_TO_CHAIR
+        only while eligible and still away from the pinned destination.
+        A malformed post-move option set is not valid completion evidence.
+        """
+        if not self._valid_observation(observed):
+            return False
+        if pinned_target is None:
+            return False
+        eligible = observed.ready and observed.p1_is_human and observed.p2_is_ai
+        expected = (("STAY", "MOVE_TO_CHAIR") if (
+            eligible and observed.sunny_tile != pinned_target
+        ) else ("STAY",))
+        return observed.options == expected
 
     def _chair_target(self):
         """Pin toy chair destination outside the P2 observation contract."""
@@ -409,7 +445,7 @@ class FakeMixedDaytimeLoop:
             self.game,
             lambda attempt: self._chair_admitted(chair_target, attempt),
             observed,
-            self._valid_observation,
+            lambda snapshot: self._valid_chair_observation(snapshot, chair_target),
             lambda: self.watering._ingest_fixture_revocation(self.water_world),
         )
         result = OfflineController(
@@ -464,4 +500,9 @@ class FakeMixedDaytimeLoop:
                     self.game._fake_mixed_quarantined = True
                     results.append(FakeMixedDayResult("BLOCKED_OBSERVATION_UPDATE"))
                     break
+                finally:
+                    # Even a callback on the LAST bounded decision may
+                    # deliver valid P1 revocation and then return or raise.
+                    # Record its Host tombstone before any exit from this run.
+                    self.watering._ingest_fixture_revocation(self.water_world)
         return tuple(results)
