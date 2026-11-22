@@ -704,3 +704,102 @@ def test_second_read_exception_after_revocation_keeps_tombstone_no_water():
         old
     ) == "DENIED_STALE_GRANT_REVISION"
     assert world.ledger.attempted_starts == 0
+
+
+@pytest.mark.parametrize("first_read", ["raise", "malformed", "normal"])
+def test_first_observation_revocation_survives_every_exit_and_stale_grant_restore(
+        first_read):
+    """Issue #96 R3: first read was missing the revocation finally guard.
+
+    Reproduce valid inactive v2 delivered on the initial fake Game.observe
+    and exercise a raised, malformed, or valid returned observation. Even
+    after restoring an old active-v1 view on a *new* scene and coordinator,
+    the same fake Host must never authorize WATER or debit a start.
+    """
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    old = world.ledger.grant
+    original_observe = game.observe
+    reads = 0
+
+    def notify_revocation_on_first_read():
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            world.ledger.grant = replace(old, grant_revision=2, active=False)
+            if first_read == "raise":
+                raise RuntimeError("first fake observation failed after P1 revoked")
+            if first_read == "malformed":
+                return replace(original_observe(), revision="invalid-revision")
+        return original_observe()
+
+    game.observe = notify_revocation_on_first_read
+    first = loop.step()
+    assert reads == 1
+    assert first.status == (
+        "BLOCKED_OBSERVATION_UNAVAILABLE" if first_read == "raise"
+        else "BLOCKED_MALFORMED_OBSERVATION" if first_read == "malformed"
+        else "DENIED_NOT_GROUNDED"
+    )
+    account = host._fake_water_permission_store.accounts[old.grant_id]
+    assert account.revoked is True and account.grant_revision == 2
+    assert FakePermissionedWaterBridge(host).provision_standing_grant(
+        old
+    ) == "DENIED_STALE_GRANT_REVISION"
+    assert host.events == [] and host.pending is None and host.used_ids == set()
+    assert account.attempted_starts == 0 and account.started_tiles == set()
+    assert game.dispatched == []
+
+    # This is the exact escalation from the independent source review:
+    # recreate the old active ledger on the same fake Host after a new
+    # matching Game and crop revision, then try WATER from a fresh loop.
+    game.observe = original_observe
+    game.revision = 2
+    world.crop = replace(world.crop, revision=2)
+    world.ledger = FakeWaterPermissionLedger(old)
+    later_interest = Interest("WATER")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, later_interest, weather="sunny"
+    )
+    later = fresh.step()
+    assert later.status == "DENIED_NOT_GROUNDED"
+    assert "WATER" not in later.offered
+    assert "RESERVE_B_LINEAGE" not in host.events
+    assert "FAKE_EFFECT" not in host.events
+    assert host.pending is None and host.used_ids == set()
+    assert getattr(host, "_fake_daytime_water_last_revision", -1) == -1
+    assert account.attempted_starts == 0 and account.started_tiles == set()
+    assert world.ledger.attempted_starts == 0 and game.dispatched == []
+
+
+@pytest.mark.parametrize("first_read", ["stop", "host_pending"])
+def test_first_observation_host_event_rechecks_gate_before_choice(first_read):
+    """Even a normally returning first read must not evade a new fake gate."""
+    from reference.sunny_host_stop_fake import FakeWaterOperation
+
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original_observe = game.observe
+    reads = 0
+
+    def add_host_event():
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            if first_read == "stop":
+                host.latch_stop()
+            else:
+                op = FakeWaterOperation(
+                    "first-read-pending", host.epoch, host.owner,
+                    "P2", "WATER", (4, 5)
+                )
+                assert host.reserve(op) == "B_LINEAGE_RESERVED"
+        return original_observe()
+
+    game.observe = add_host_event
+    result = loop.step()
+    assert reads == 1 and result.status == "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    assert interest.calls == 0 and game.dispatched == []
+    assert game.pending_attempt is None
+    if first_read == "stop":
+        assert host.stopped
+    else:
+        assert host.pending is not None
