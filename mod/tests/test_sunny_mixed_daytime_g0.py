@@ -366,8 +366,12 @@ def test_chair_target_mutated_during_fake_dispatch_never_reports_verified():
     result = loop.step()
     assert result.status == "UNKNOWN_UNVERIFIED_CHAIR_TARGET"
     assert result.claim_real_completion is False
-    assert game.sunny_tile == (8, 4)  # synthetic changed destination
-    assert len(game.dispatched) == 1
+    # R6 checks the target during the raw dispatch's own observation.
+    # This earlier retarget no longer reaches the fake effect at all.
+    assert game.sunny_tile == (4, 4)
+    assert game.dispatched == []
+    assert game.pending_attempt is not None
+    assert result.operation_id == game.pending_attempt
     assert game._fake_mixed_quarantined is True
     assert "MOVE_TO_CHAIR" not in loop.completed
     next_interest = Interest("WATER")
@@ -510,8 +514,8 @@ def test_stop_during_l2_prepare_observation_retires_reservation_without_dispatch
     assert "MOVE_TO_CHAIR" not in loop.completed
 
 
-def test_stop_inside_started_fake_dispatch_quarantines_unknown_not_success():
-    """STOP during raw L2 dispatch cannot prove a *pre-effect* rejection."""
+def test_stop_during_raw_dispatch_observation_blocks_effect_and_keeps_pending():
+    """STOP during the raw read now blocks before effect, still unresolved."""
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original = game.observe
     reads = 0
@@ -529,7 +533,8 @@ def test_stop_inside_started_fake_dispatch_quarantines_unknown_not_success():
     assert result.status == "UNKNOWN"
     assert host.stopped
     assert game.pending_attempt is not None
-    assert len(game.dispatched) == 1  # residual fake effect is possible
+    assert game.dispatched == []  # strict checked read now prevents effect
+    assert result.operation_id == game.pending_attempt
     assert "MOVE_TO_CHAIR" not in loop.completed
     later = Interest("WATER")
     assert FakeMixedDaytimeLoop(
@@ -1119,3 +1124,58 @@ def test_successful_chair_dispatch_restores_original_observer():
     assert game.observe is observe
     assert game.pending_attempt is None and len(game.dispatched) == 1
     assert result.operation_id == game.dispatched[0][0]
+
+
+def test_retarget_after_actual_fake_chair_effect_is_unknown_and_quarantined():
+    """The already-started effect cannot be undone by a later retarget."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original_dispatch = game.dispatch
+
+    def effect_then_retarget(*args):
+        result = original_dispatch(*args)
+        assert len(game.dispatched) == 1
+        game.chair_tile = (8, 4)  # target changed *after* real fake effect
+        return result
+
+    game.dispatch = effect_then_retarget
+    outcome = loop.step()
+    assert outcome.status == "UNKNOWN_UNVERIFIED_CHAIR_TARGET"
+    assert outcome.claim_real_completion is False
+    assert game.sunny_tile == (7, 4)
+    assert game.chair_tile == (8, 4)
+    assert len(game.dispatched) == 1
+    assert outcome.operation_id == game.dispatched[0][0] == game.pending_attempt
+    assert game._fake_mixed_quarantined is True
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    next_interest = Interest("WATER")
+    assert FakeMixedDaytimeLoop(
+        game, host, world, next_interest, weather="sunny"
+    ).step().status == "BLOCKED_UNRESOLVED"
+    assert next_interest.calls == 0 and host.events == []
+
+
+def test_stop_after_actual_fake_dispatch_effect_is_unknown_with_pending():
+    """Host STOP after effect started must not be falsely reported as denied."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original_dispatch = game.dispatch
+
+    def effect_then_stop(*args):
+        result = original_dispatch(*args)
+        assert len(game.dispatched) == 1
+        host.latch_stop()
+        return result
+
+    game.dispatch = effect_then_stop
+    outcome = loop.step()
+    assert outcome.status == "UNKNOWN"
+    assert outcome.claim_real_completion is False
+    assert host.stopped
+    assert len(game.dispatched) == 1
+    assert game.sunny_tile == game.chair_tile
+    assert outcome.operation_id == game.dispatched[0][0] == game.pending_attempt
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    next_interest = Interest("WATER")
+    assert FakeMixedDaytimeLoop(
+        game, host, world, next_interest, weather="sunny"
+    ).step().status == "BLOCKED_UNRESOLVED"
+    assert next_interest.calls == 0
