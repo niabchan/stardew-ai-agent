@@ -1375,12 +1375,9 @@ def test_reentrant_prepare_foreign_pending_does_not_report_outer_unknown():
                 game, host, world, nested_interest, weather="sunny"
             )
             inner = nested_loop.step()
+            # Assertions inside an observer callback can be caught by the
+            # coordinator and silently downgraded; verify outside step().
             nested.append(inner)
-            assert inner.status == "UNKNOWN"
-            assert inner.operation_id == "offline-attempt-2"
-            assert game.pending_attempt == inner.operation_id
-            assert len(game.dispatched) == 1
-            assert game.dispatched[0][0] == inner.operation_id
 
             # Make the OUTER raw prepare read malformed, as in the reviewed
             # replay. Its new attempt-1 must be denied, not UNKNOWN.
@@ -1391,6 +1388,7 @@ def test_reentrant_prepare_foreign_pending_does_not_report_outer_unknown():
     outer = loop.step()
     assert raw_calls == 4
     assert len(nested) == 1 and nested[0].status == "UNKNOWN"
+    assert nested[0].operation_id == "offline-attempt-2"
     assert outer.status == "BLOCKED_UNRESOLVED"
     assert outer.operation_id == nested[0].operation_id == "offline-attempt-2"
     assert game.pending_attempt == "offline-attempt-2"
@@ -1547,12 +1545,6 @@ def test_first_chair_adapter_read_reports_nested_pending_actual_id(
                 game, host, world, nested_interest, weather="sunny"
             ).step()
             inner_results.append(nested)
-            assert nested.status == "UNKNOWN"
-            assert nested.operation_id == "offline-attempt-1"
-            assert game.pending_attempt == nested.operation_id
-            assert game.dispatched == [
-                ("offline-attempt-1", "MOVE_TO_CHAIR", "p2")
-            ]
             if first_adapter_read == "exception":
                 raise RuntimeError("toy first chair read failed after nested action")
             return replace(original_observe(), revision="malformed_outer_read")
@@ -1562,6 +1554,11 @@ def test_first_chair_adapter_read_reports_nested_pending_actual_id(
     outer = loop.step()
     assert calls == 3
     assert len(inner_results) == 1
+    assert inner_results[0].status == "UNKNOWN"
+    assert inner_results[0].operation_id == "offline-attempt-1"
+    assert game.dispatched == [
+        ("offline-attempt-1", "MOVE_TO_CHAIR", "p2")
+    ]
     assert outer.status == "BLOCKED_UNRESOLVED"
     assert not outer.claim_real_completion
     assert outer.operation_id == inner_results[0].operation_id
@@ -1663,11 +1660,6 @@ def test_outer_mixed_observation_returns_actual_nested_pending_id(
             )
             nested = nested_loop.step()
             nested_outcomes.append(nested)
-            assert nested.status == "UNKNOWN"
-            assert nested.operation_id == "offline-attempt-1"
-            assert game.pending_attempt == nested.operation_id
-            assert len(game.dispatched) == 1
-            assert game.dispatched[0][0] == nested.operation_id
             if read_exit == "exception":
                 raise RuntimeError("synthetic outer read failed after nested move")
             return replace(raw_observe(), revision="malformed_outer_revision")
@@ -1677,6 +1669,9 @@ def test_outer_mixed_observation_returns_actual_nested_pending_id(
     outer_result = loop.step()
     assert reads == outer_read
     assert len(nested_outcomes) == 1
+    assert nested_outcomes[0].status == "UNKNOWN"
+    assert nested_outcomes[0].operation_id == "offline-attempt-1"
+    assert len(game.dispatched) == 1
     assert outer_result.status == "BLOCKED_UNRESOLVED"
     assert outer_result.claim_real_completion is False
     assert outer_result.operation_id == nested_outcomes[0].operation_id
@@ -1699,3 +1694,144 @@ def test_outer_mixed_observation_returns_actual_nested_pending_id(
     assert later_interest.calls == 0
     assert game.pending_attempt == outer_result.operation_id
     assert len(game.dispatched) == 1
+
+
+@pytest.mark.parametrize("chooser_exit", ["valid", "invalid", "raise"])
+def test_nested_chair_chooser_reports_actual_pending_for_every_exit(chooser_exit):
+    """R10 review: pending ID survives chooser return/invalid/exception."""
+    game, host, world, _, loop = setup(choices=("STAY",))
+    nested_results = []
+    nested_interest = Interest("MOVE_TO_CHAIR")
+
+    def chooser_with_nested_lost_reply(_offered):
+        game.revision = 2
+        world.crop = replace(world.crop, revision=2)
+        game.delivery = "lost_reply"
+        nested_result = FakeMixedDaytimeLoop(
+            game, host, world, nested_interest, weather="sunny"
+        ).step()
+        nested_results.append(nested_result)
+        if chooser_exit == "raise":
+            raise RuntimeError("synthetic chooser failure after nested chair")
+        return "STAY" if chooser_exit == "valid" else "NEVER_OFFERED"
+
+    loop.interest = chooser_with_nested_lost_reply
+    result = loop.step()
+    # Assertions deliberately AFTER step: callback assertion exceptions
+    # could be swallowed as an interest-failure status.
+    assert len(nested_results) == 1
+    assert nested_results[0].status == "UNKNOWN"
+    assert nested_results[0].operation_id == "offline-attempt-1"
+    assert nested_interest.calls == 1
+    assert result.status == "BLOCKED_UNRESOLVED"
+    assert result.operation_id == nested_results[0].operation_id
+    assert result.operation_id == game.pending_attempt == game.dispatched[0][0]
+    assert len(game.dispatched) == 1
+    assert game.seen_attempts == {"offline-attempt-1"}
+    assert host.pending is None and host.events == []
+    assert "MOVE_TO_CHAIR" not in loop.completed
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    later_interest = Interest("STAY")
+    fresh_result = FakeMixedDaytimeLoop(
+        game, host, world, later_interest, weather="sunny"
+    ).step()
+    assert fresh_result.status == "BLOCKED_UNRESOLVED"
+    assert fresh_result.operation_id == result.operation_id
+    assert later_interest.calls == 0
+
+
+@pytest.mark.parametrize("outer_read", [1, 2])
+@pytest.mark.parametrize("read_exit", ["malformed", "exception", "valid"])
+def test_nested_water_on_outer_reads_reports_real_host_pending_id(
+        outer_read, read_exit):
+    """R10 review: nested WATER stays pending in fake Host, not FakeGame."""
+    game, host, world, _, loop = setup(choices=("STAY",))
+    original_observe = game.observe
+    host.confirm_fake_observation = lambda _operation: "UNKNOWN_PENDING"
+    reads = 0
+    nested_results = []
+    nested_interest = Interest("WATER")
+
+    def water_during_outer_read():
+        nonlocal reads
+        reads += 1
+        if reads == outer_read:
+            game.revision = 2
+            world.crop = replace(world.crop, revision=2)
+            game.observe = original_observe
+            nested_result = FakeMixedDaytimeLoop(
+                game, host, world, nested_interest, weather="sunny"
+            ).step()
+            nested_results.append(nested_result)
+            if read_exit == "exception":
+                raise RuntimeError("synthetic outer observation failure")
+            snapshot = original_observe()
+            if read_exit == "malformed":
+                return replace(snapshot, revision="invalid_outer_revision")
+            return snapshot
+        return original_observe()
+
+    game.observe = water_during_outer_read
+    outer_result = loop.step()
+    assert reads == outer_read
+    assert len(nested_results) == 1
+    assert nested_results[0].status == "UNKNOWN_PENDING"
+    assert nested_results[0].choice == "WATER"
+    assert nested_results[0].operation_id is not None
+    assert nested_interest.calls == 1
+    assert host.pending is not None
+    assert outer_result.status == "BLOCKED_UNRESOLVED"
+    assert outer_result.operation_id == nested_results[0].operation_id
+    assert outer_result.operation_id == host.pending.operation_id
+    assert game.pending_attempt is None and game.dispatched == []
+    assert host.events.count("FAKE_EFFECT") == 1
+    assert world.ledger.attempted_starts == 1
+
+    game.observe = original_observe
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    later_interest = Interest("MOVE_TO_CHAIR")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, later_interest, weather="sunny"
+    )
+    fresh_result = fresh.step()
+    assert fresh_result.status == "BLOCKED_UNRESOLVED"
+    assert fresh_result.operation_id == host.pending.operation_id
+    assert later_interest.calls == 0
+    assert len(game.dispatched) == 0
+
+
+@pytest.mark.parametrize("pending_action", ["chair", "water"])
+def test_entry_gate_reports_pending_id_from_both_fake_ledgers(pending_action):
+    """Reconstruct a coordinator: status AND pending identity must survive."""
+    game, host, world, _, loop = setup(
+        choices=("MOVE_TO_CHAIR",) if pending_action == "chair" else ("WATER",)
+    )
+    if pending_action == "chair":
+        game.delivery = "lost_reply"
+    else:
+        host.confirm_fake_observation = lambda _op: "UNKNOWN_PENDING"
+    first = loop.step()
+    assert first.status == (
+        "UNKNOWN" if pending_action == "chair" else "UNKNOWN_PENDING"
+    )
+    assert first.operation_id is not None
+    if pending_action == "chair":
+        assert first.operation_id == game.pending_attempt == game.dispatched[0][0]
+        assert host.pending is None
+    else:
+        assert first.operation_id == host.pending.operation_id
+        assert game.pending_attempt is None
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    next_interest = Interest("STAY")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, next_interest, weather="sunny"
+    )
+    blocked = fresh.step()
+    assert blocked.status == "BLOCKED_UNRESOLVED"
+    assert blocked.operation_id == first.operation_id
+    assert next_interest.calls == 0
