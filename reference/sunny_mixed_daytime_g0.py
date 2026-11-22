@@ -72,8 +72,8 @@ class FakeMixedDaytimeLoop:
                         for n in observed.sunny_tile)
                 and type(observed.options) is tuple
                 and len(observed.options) <= 12
-                and len(set(observed.options)) == len(observed.options)
-                and all(type(a) is str for a in observed.options))
+                and all(type(a) is str for a in observed.options)
+                and len(set(observed.options)) == len(observed.options))
 
     def _chair_target(self):
         """Pin toy chair destination outside the P2 observation contract."""
@@ -214,10 +214,13 @@ class FakeMixedDaytimeLoop:
             # bound. Another permitted dry tile may be considered later.
             return FakeMixedDayResult(result.verdict, selected, choices,
                                       result.operation_id)
+        def choose_pinned_chair(_observation):
+            if self._chair_target() != chair_target:
+                raise RuntimeError("changed_fake_chair_target")
+            return "MOVE_TO_CHAIR"
+
         result = OfflineController(
-            self.game, lambda _: "MOVE_TO_CHAIR"
-            if self._chair_target() == chair_target
-            else (_ for _ in ()).throw(RuntimeError("changed_fake_chair_target")),
+            self.game, choose_pinned_chair,
             expected_epoch=self.expected_epoch,
             expected_owner=self.expected_owner,
         ).step()
