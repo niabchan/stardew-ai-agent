@@ -558,3 +558,149 @@ def test_host_pending_during_l2_prepare_is_not_ignored():
     assert game.pending_attempt is None
     assert game.dispatched == []
     assert "MOVE_TO_CHAIR" not in loop.completed
+
+
+@pytest.mark.parametrize("replacement", ["granted_far_crop", "granted_adjacent_crop",
+                                         "same_crop_new_object"])
+def test_second_observation_crop_swap_never_bypasses_p2_adjacency(replacement):
+    """Issue #96 R2: two granted tiles alone do not imply P2 can reach both."""
+    grant = replace(
+        FakeStandingWaterGrant(),
+        tiles=((4, 5), (8, 4), (5, 4)),
+        max_distinct_tiles=3, max_attempted_starts=3
+    )
+    game, host, world, interest, loop = setup(
+        grant=grant, choices=("WATER",)
+    )
+    original = game.observe
+    reads = 0
+
+    def switch_crop_on_reread():
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            if replacement == "granted_far_crop":
+                world.crop = replace(
+                    world.crop, tile=(8, 4), crop_id="second-fake-crop"
+                )
+                world.stewardship = replace(
+                    world.stewardship, tile=(8, 4), crop_id="second-fake-crop"
+                )
+                assert abs(game.sunny_tile[0] - world.crop.tile[0]) + abs(
+                    game.sunny_tile[1] - world.crop.tile[1]
+                ) == 4
+            elif replacement == "granted_adjacent_crop":
+                world.crop = replace(
+                    world.crop, tile=(5, 4), crop_id="second-fake-crop"
+                )
+                world.stewardship = replace(
+                    world.stewardship, tile=(5, 4), crop_id="second-fake-crop"
+                )
+            else:
+                world.crop = replace(world.crop)
+        return original()
+
+    game.observe = switch_crop_on_reread
+    result = loop.step()
+    assert reads == 2
+    assert result.status == "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    assert result.choice == "WATER"
+    assert result.claim_real_completion is False
+    assert interest.offers[0] == ("STAY", "MOVE_TO_CHAIR", "WATER")
+    assert "RESERVE_B_LINEAGE" not in host.events
+    assert host.events.count("FAKE_EFFECT") == 0
+    assert host.used_ids == set() and host.pending is None
+    assert getattr(host, "_fake_daytime_water_last_revision", -1) == -1
+    account = host._fake_water_permission_store.accounts[grant.grant_id]
+    assert account.attempted_starts == 0 and account.started_tiles == set()
+    assert game.dispatched == [] and world.ledger.attempted_starts == 0
+
+
+@pytest.mark.parametrize("stage,expected", [
+    ("after_wait", "DENIED_WAIT_FAILURE"),
+    ("after_reserve", "UNKNOWN_PENDING"),
+    ("before_b", "UNKNOWN_PENDING"),
+])
+def test_water_rechecks_independent_p2_adjacency_before_fake_b(stage, expected):
+    """Stage injection emulates a changing P2 location without crop revision."""
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    original_run_hook = loop.watering._run_fixture_hook
+
+    def move_p2_during_stage(hook, current_stage, current_world, operation):
+        if current_stage == stage:
+            game.sunny_tile = (8, 8)
+        return original_run_hook(hook, current_stage, current_world, operation)
+
+    loop.watering._run_fixture_hook = move_p2_during_stage
+    result = loop.step()
+    assert result.status == expected
+    assert result.claim_real_completion is False
+    assert "ENTER_B" not in host.events
+    assert "FAKE_EFFECT" not in host.events
+    assert game.dispatched == [] and world.ledger.attempted_starts == 0
+    account = host._fake_water_permission_store.accounts[
+        world.ledger.grant.grant_id
+    ]
+    assert account.attempted_starts == 0 and account.started_tiles == set()
+    if stage == "after_wait":
+        assert host.pending is None and host.used_ids == set()
+    else:
+        assert host.pending is not None
+        followup = Interest("MOVE_TO_CHAIR")
+        assert FakeMixedDaytimeLoop(
+            game, host, world, followup, weather="sunny"
+        ).step().status == "BLOCKED_UNRESOLVED"
+        assert followup.calls == 0
+
+
+def test_revocation_delivered_during_second_read_is_latched_before_water_denial():
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    original_grant = world.ledger.grant
+    original_observe = game.observe
+    calls = 0
+
+    def revoke_during_read():
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            world.ledger.grant = replace(
+                original_grant, grant_revision=2, active=False
+            )
+        return original_observe()
+
+    game.observe = revoke_during_read
+    result = loop.step()
+    assert result.status == "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    assert calls == 2 and result.choice == "WATER"
+    assert host.events == [] and host.pending is None
+    assert FakePermissionedWaterBridge(host).provision_standing_grant(
+        original_grant
+    ) == "DENIED_STALE_GRANT_REVISION"
+    assert host._fake_water_permission_store.accounts[
+        original_grant.grant_id
+    ].revoked is True
+    assert world.ledger.attempted_starts == 0
+
+
+def test_second_read_exception_after_revocation_keeps_tombstone_no_water():
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    old = world.ledger.grant
+    original_observe = game.observe
+    calls = 0
+
+    def fail_with_revocation():
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            world.ledger.grant = replace(old, grant_revision=2, active=False)
+            raise RuntimeError("synthetic crop-read error after revoke")
+        return original_observe()
+
+    game.observe = fail_with_revocation
+    result = loop.step()
+    assert result.status == "BLOCKED_OBSERVATION_UNAVAILABLE"
+    assert host.events == [] and host.pending is None
+    assert FakePermissionedWaterBridge(host).provision_standing_grant(
+        old
+    ) == "DENIED_STALE_GRANT_REVISION"
+    assert world.ledger.attempted_starts == 0
