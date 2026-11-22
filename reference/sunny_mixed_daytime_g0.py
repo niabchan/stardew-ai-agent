@@ -23,6 +23,9 @@ class FakeMixedDayResult:
     offered: tuple[str, ...] = ()
     operation_id: str | None = None
     claim_real_completion: bool = False
+    # A verified fake effect may coexist with a DIFFERENT unresolved nested
+    # action. Keep the verified receipt AND expose the pending ID on step().
+    pending_operation_id: str | None = None
 
 
 
@@ -531,17 +534,83 @@ class FakeMixedDaytimeLoop:
                         # it leaves UNKNOWN_PENDING without entering B.
                         raise RuntimeError("mixed_fake_water_scope_changed")
 
-            result = self.watering.step(
-                scene, self.water_world, "WATER", at_stage=water_pre_b_guard
-            )
-            # A synthetic Host.reserve callback may reenter a DIFFERENT WATER
-            # coordinator and leave its own fake Host operation unresolved.
-            # The accepted WATER bridge can reject the OUTER reservation with
-            # no operation_id. Reconcile against both shared pending ledgers
-            # before returning, as the chair path already does. Do not mask
-            # an unresolved own-ID result such as UNKNOWN_PENDING.
+            # The accepted G0 bridge reads the Host revision watermark
+            # BEFORE invoking reserve(), then writes it AFTER reserve()
+            # succeeds. An injected reserve callback may run and fully
+            # confirm newer WATER in between. Fence that TOCTOU gap at
+            # the toy mixed layer; do not modify the accepted parent bridge.
+            raw_reserve = self.host.reserve
+
+            def reserve_with_pinned_revision(operation):
+                decision = raw_reserve(operation)
+                if decision != "B_LINEAGE_RESERVED":
+                    return decision
+                current_last = getattr(
+                    self.host, "_fake_daytime_water_last_revision", -1
+                )
+                stale = (
+                    type(current_last) is not int or current_last < -1
+                    or scene.revision <= current_last
+                    or not self._water_game_matches(observed)
+                    or self.water_world.crop is not crop
+                    or self.water_world.stewardship is not steward
+                    or self.water_world.ledger is not ledger
+                    or ledger.grant is not grant
+                )
+                if not stale:
+                    return decision
+                # Only the fake Host's exactly matching *pre-A/pre-B*
+                # reservation may be retired here. Keep its used-ID
+                # tombstone, all nested confirmed evidence, Host STOP and
+                # the NEWER watermark. If there is any sign A/B began,
+                # leave pending for reconciliation instead.
+                if (self.host.pending is operation
+                        and self.host.b_reserved is True
+                        and self.host.a_entered is False
+                        and self.host.a_finished is False
+                        and self.host.b_entered is False
+                        and self.host.b_finished is False):
+                    self.host.pending = None
+                    self.host.b_reserved = False
+                    self.host.events.append(
+                        "FAKE_STALE_PRE_A_RESERVATION_RETIRED"
+                    )
+                return "DENY_REENTRANT_STALE_FAKE"
+
+            self.host.reserve = reserve_with_pinned_revision
+            try:
+                result = self.watering.step(
+                    scene, self.water_world, "WATER", at_stage=water_pre_b_guard
+                )
+            except Exception:
+                # The parent bridge's reserve() is outside its own try/except.
+                # A raising fake callback can still leave nested WATER pending.
+                # Never leak the exception and lose its true operation ID.
+                pending = self._pending_operation_id()
+                if pending is not None:
+                    return FakeMixedDayResult(
+                        "BLOCKED_UNRESOLVED", selected, choices, pending
+                    )
+                # No pending evidence: a callback may have had side effects.
+                # Quarantine the shared fake Game rather than retry blindly.
+                self.game._fake_mixed_quarantined = True
+                return FakeMixedDayResult(
+                    "BLOCKED_WATER_BRIDGE_EXCEPTION", selected, choices
+                )
+            finally:
+                self.host.reserve = raw_reserve
+                self.watering._ingest_fixture_revocation(self.water_world)
             pending = self._pending_operation_id()
             if pending is not None and pending != result.operation_id:
+                if result.verdict == "FAKE_WATER_VERIFIED":
+                    # Do not discard verified WATER just because a nested
+                    # chair/Host action arose in confirm_fake_observation().
+                    # run_bounded will append the pending event separately
+                    # before any publication or next decision.
+                    return FakeMixedDayResult(
+                        result.verdict, selected, choices, result.operation_id,
+                        pending_operation_id=pending
+                    )
                 return FakeMixedDayResult(
                     "BLOCKED_UNRESOLVED", selected, choices, pending
                 )
@@ -618,6 +687,12 @@ class FakeMixedDaytimeLoop:
         for _ in range(max_decisions):
             result = self.step()
             results.append(result)
+            if result.pending_operation_id is not None:
+                results.append(FakeMixedDayResult(
+                    "BLOCKED_UNRESOLVED",
+                    operation_id=result.pending_operation_id
+                ))
+                break
             if result.status not in ("FAKE_WATER_VERIFIED", "VERIFIED_FAKE"):
                 break
             if after_verified is not None:
