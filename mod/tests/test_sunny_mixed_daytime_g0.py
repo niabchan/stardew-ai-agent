@@ -909,6 +909,7 @@ def test_malformed_chair_verification_returns_unknown_not_python_exception(
     assert len(game.dispatched) == 1
     assert game.sunny_tile == game.chair_tile
     assert game.pending_attempt is not None
+    assert result.operation_id == game.pending_attempt == game.dispatched[0][0]
     assert "MOVE_TO_CHAIR" not in loop.completed
     fresh_interest = Interest("WATER")
     fresh = FakeMixedDaytimeLoop(
@@ -945,3 +946,176 @@ def test_chair_verification_error_after_p1_revocation_keeps_both_guards():
     ) == "DENIED_STALE_GRANT_REVISION"
     assert account.attempted_starts == 0
     assert "FAKE_EFFECT" not in host.events
+
+
+@pytest.mark.parametrize("publisher_exit", ["return", "raise"])
+def test_verified_chair_publisher_always_ingests_valid_p1_revocation(
+        publisher_exit):
+    """R5 review: even the final publisher call can deliver inactive grant v2.
+
+    A fresh fake Game with the SAME Host must not recover v1 permission,
+    including when the original Game was quarantined after a publisher error.
+    """
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    old = world.ledger.grant
+    called = []
+
+    def publish(result, game, water_world, host):
+        called.append(result.status)
+        assert result.status == "VERIFIED_FAKE"
+        assert game.sunny_tile == game.chair_tile
+        water_world.ledger.grant = replace(
+            old, grant_revision=2, active=False
+        )
+        if publisher_exit == "raise":
+            raise RuntimeError("fake publisher error after valid P1 revocation")
+
+    outcomes = loop.run_bounded(max_decisions=1, after_verified=publish)
+    assert called == ["VERIFIED_FAKE"]
+    assert [item.status for item in outcomes] == (
+        ["VERIFIED_FAKE", "BLOCKED_OBSERVATION_UPDATE"]
+        if publisher_exit == "raise" else ["VERIFIED_FAKE"]
+    )
+    assert getattr(game, "_fake_mixed_quarantined", False) is (
+        publisher_exit == "raise"
+    )
+    account = host._fake_water_permission_store.accounts[old.grant_id]
+    assert account.revoked is True
+    assert account.grant.grant_revision == 2
+    assert FakePermissionedWaterBridge(host).provision_standing_grant(
+        old
+    ) == "DENIED_STALE_GRANT_REVISION"
+    assert host.events == [] and host.used_ids == set() and host.pending is None
+    assert account.attempted_starts == 0 and account.started_tiles == set()
+
+    # Do NOT rely on the first Game's quarantine or replay watermark. A
+    # completely new fake Game + old active ledger on the same Host still
+    # cannot offer or spend the already-revoked WATER grant.
+    fresh_game = FakeGame()
+    fresh_game.epoch = host.epoch
+    fresh_game.owner = host.owner
+    fresh_game.sunny_tile = (4, 4)
+    fresh_game.revision = 3
+    world.crop = replace(world.crop, revision=3)
+    world.ledger = FakeWaterPermissionLedger(old)
+    later_interest = Interest("WATER")
+    fresh_loop = FakeMixedDaytimeLoop(
+        fresh_game, host, world, later_interest, weather="sunny"
+    )
+    later = fresh_loop.step()
+    assert later.status == "DENIED_NOT_GROUNDED"
+    assert later_interest.offers == [("STAY", "MOVE_TO_CHAIR")]
+    assert not host.events and not host.used_ids and host.pending is None
+    assert account.attempted_starts == 0 and account.started_tiles == set()
+    assert not fresh_game.dispatched and world.ledger.attempted_starts == 0
+
+
+@pytest.mark.parametrize("raw_read,bad_revision", [
+    (4, True),
+    (4, 1.0),
+    (5, True),
+    (5, 1.0),
+])
+def test_raw_chair_prepare_dispatch_reject_numeric_lookalikes(
+        raw_read, bad_revision):
+    """Dataclass True == 1 and 1.0 == 1 must not authorize a fake move."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original = game.observe
+    reads = 0
+
+    def read_with_numeric_lookalike():
+        nonlocal reads
+        reads += 1
+        snapshot = original()
+        if reads == raw_read:
+            corrupt = replace(snapshot, revision=bad_revision)
+            assert corrupt == snapshot  # Python's weak dataclass equality
+            return corrupt
+        return snapshot
+
+    game.observe = read_with_numeric_lookalike
+    result = loop.step()
+    assert reads == raw_read
+    assert result.status != "VERIFIED_FAKE"
+    assert result.status == "UNKNOWN"
+    assert result.claim_real_completion is False
+    assert game.observe is read_with_numeric_lookalike
+    assert game.dispatched == []
+    assert game.sunny_tile == (4, 4)
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert host.events == []
+    assert result.operation_id is not None
+    if raw_read == 4:
+        assert game.pending_attempt is None
+    else:
+        assert result.operation_id == game.pending_attempt
+
+    later_interest = Interest("MOVE_TO_CHAIR")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, later_interest, weather="sunny"
+    ).step()
+    if game.pending_attempt is not None:
+        assert later.status == "BLOCKED_UNRESOLVED"
+    else:
+        assert later.status == "WAIT_NEW_OBSERVATION"
+    assert later_interest.calls == 0
+
+
+@pytest.mark.parametrize("invalid_options", [
+    (),
+    ("STAY", "MOVE_TO_CHAIR"),
+    ("MOVE_TO_CHAIR", "STAY"),
+])
+def test_chair_post_move_options_must_match_fake_game_contract(invalid_options):
+    """Even well-typed options can be invalid once P2 reached the chair."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original = game.observe
+    reads = 0
+
+    def bad_verified_options():
+        nonlocal reads
+        reads += 1
+        snapshot = original()
+        if reads == 6:
+            assert snapshot.sunny_tile == game.chair_tile
+            assert snapshot.options == ("STAY",)
+            return replace(snapshot, options=invalid_options)
+        return snapshot
+
+    game.observe = bad_verified_options
+    result = loop.step()
+    assert reads == 6
+    assert result.status == "UNKNOWN"
+    assert result.claim_real_completion is False
+    assert result.choice == "MOVE_TO_CHAIR"
+    assert game.observe is bad_verified_options
+    assert len(game.dispatched) == 1
+    assert game.sunny_tile == game.chair_tile
+    assert result.operation_id == game.dispatched[0][0] == game.pending_attempt
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert host.events == []
+
+    fresh_interest = Interest("WATER")
+    assert FakeMixedDaytimeLoop(
+        game, host, world, fresh_interest, weather="sunny"
+    ).step().status == "BLOCKED_UNRESOLVED"
+    assert fresh_interest.calls == 0
+
+
+def test_successful_chair_dispatch_restores_original_observer():
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original = game.observe
+    reads = 0
+
+    def observe():
+        nonlocal reads
+        reads += 1
+        return original()
+
+    game.observe = observe
+    result = loop.step()
+    assert result.status == "VERIFIED_FAKE"
+    assert reads == 6
+    assert game.observe is observe
+    assert game.pending_attempt is None and len(game.dispatched) == 1
+    assert result.operation_id == game.dispatched[0][0]
