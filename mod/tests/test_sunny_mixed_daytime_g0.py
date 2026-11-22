@@ -1855,3 +1855,133 @@ def test_entry_gate_reports_pending_id_from_both_fake_ledgers(pending_action):
     assert blocked.status == "BLOCKED_UNRESOLVED"
     assert blocked.operation_id == first.operation_id
     assert next_interest.calls == 0
+
+
+def test_water_host_reserve_callback_reports_nested_host_pending_identity():
+    """R11 review: outer WATER denial must not hide nested Host operation ID.
+
+    A nested WATER action is reserved first by a synchronous fake Host
+    reserve callback, then the OUTER reservation loses its race and the
+    accepted G0 water bridge returns DENIED_HOST_RESERVATION without an ID.
+    """
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    raw_reserve = host.reserve
+    nested_results = []
+    nested_interests = []
+    wrapper_calls = []
+
+    def reserve_after_nested_water(operation):
+        wrapper_calls.append(operation.operation_id)
+        if not nested_results:
+            # The nested coordinator must be able to use a newer independent
+            # observation and the unwrapped fake Host reservation.
+            game.revision = 2
+            world.crop = replace(world.crop, revision=2)
+            host.confirm_fake_observation = lambda _op: "UNKNOWN_PENDING"
+            host.reserve = raw_reserve
+            try:
+                nested_interest = Interest("WATER")
+                nested_interests.append(nested_interest)
+                nested_result = FakeMixedDaytimeLoop(
+                    game, host, world, nested_interest, weather="sunny"
+                ).step()
+                nested_results.append(nested_result)
+            finally:
+                host.reserve = reserve_after_nested_water
+        return raw_reserve(operation)
+
+    host.reserve = reserve_after_nested_water
+    outer = loop.step()
+    # Never assert nested status inside callbacks: bridge exception handling
+    # could otherwise swallow a failed pytest assertion.
+    assert len(wrapper_calls) == 1
+    assert len(nested_results) == 1
+    assert nested_results[0].status == "UNKNOWN_PENDING"
+    assert nested_results[0].choice == "WATER"
+    assert nested_results[0].operation_id is not None
+    assert nested_interests[0].calls == 1
+    assert outer.status == "BLOCKED_UNRESOLVED"
+    assert outer.choice == "WATER"
+    assert outer.claim_real_completion is False
+    assert outer.operation_id == nested_results[0].operation_id
+    assert host.pending is not None
+    assert outer.operation_id == host.pending.operation_id
+    assert host.events.count("FAKE_EFFECT") == 1
+    assert world.ledger.attempted_starts == 1
+    assert game.dispatched == [] and game.pending_attempt is None
+    assert interest.calls == 1
+    assert "FAKE_WATER_VERIFIED" not in (outer.status, nested_results[0].status)
+
+    # A new coordinator remains blocked by that exact fake Host ID, even
+    # after an independently advanced fake Game/soil revision.
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    later_interest = Interest("MOVE_TO_CHAIR")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, later_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert later.operation_id == outer.operation_id
+    assert later_interest.calls == 0
+    assert len(host.used_ids) == 1
+    assert game.dispatched == []
+
+
+@pytest.mark.parametrize("max_decisions", [1, 2])
+def test_successful_final_publisher_reports_nested_pending_after_verified_water(
+        max_decisions):
+    """R11 review: verified WATER must be retained AND nested pending listed.
+
+    Even max_decisions=1 has a publisher exit that can create a nested
+    lost-reply chair action. Returning successfully from the publisher must
+    not silently omit the already-pending chair from the bounded trace.
+    """
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    publisher_results = []
+    nested_interest = Interest("MOVE_TO_CHAIR")
+
+    def publish_then_nested_chair(verified, current_game, current_world, current_host):
+        assert verified.status == "FAKE_WATER_VERIFIED"
+        assert current_game is game and current_world is world and current_host is host
+        current_game.revision = 2
+        current_world.crop = replace(current_world.crop, revision=2, soil_dry=False)
+        current_game.delivery = "lost_reply"
+        nested = FakeMixedDaytimeLoop(
+            current_game, current_host, current_world, nested_interest,
+            weather="sunny"
+        ).step()
+        publisher_results.append(nested)
+
+    results = loop.run_bounded(max_decisions=max_decisions,
+                               after_verified=publish_then_nested_chair)
+    # The status assertions are deliberately outside the publisher callback.
+    assert len(publisher_results) == 1
+    assert publisher_results[0].status == "UNKNOWN"
+    assert publisher_results[0].choice == "MOVE_TO_CHAIR"
+    assert [r.status for r in results] == [
+        "FAKE_WATER_VERIFIED", "BLOCKED_UNRESOLVED"
+    ]
+    assert results[0].choice == "WATER"
+    assert results[0].operation_id is not None
+    assert results[1].operation_id == publisher_results[0].operation_id
+    assert results[1].operation_id == game.pending_attempt
+    assert results[1].operation_id == game.dispatched[0][0]
+    assert results[1].claim_real_completion is False
+    assert len(game.dispatched) == 1
+    assert host.pending is None and host.events.count("FAKE_EFFECT") == 1
+    assert world.ledger.attempted_starts == 1
+    assert interest.calls == 1 and nested_interest.calls == 1
+    assert "MOVE_TO_CHAIR" not in loop.completed
+
+    # Even the final bounded iteration reports pending work and prevents
+    # blind resumption by another mixed coordinator at a later revision.
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    next_interest = Interest("WATER")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, next_interest, weather="sunny"
+    ).step()
+    assert fresh.status == "BLOCKED_UNRESOLVED"
+    assert fresh.operation_id == results[1].operation_id
+    assert next_interest.calls == 0
+    assert len(game.dispatched) == 1
