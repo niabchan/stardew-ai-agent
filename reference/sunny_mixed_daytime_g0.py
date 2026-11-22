@@ -318,6 +318,13 @@ class FakeMixedDaytimeLoop:
             expected_epoch=self.expected_epoch,
             expected_owner=self.expected_owner,
         ).step()
+        # The guarded L2 adapter may already have downgraded the outcome
+        # to UNKNOWN after a fake dispatch changed the chair target. Preserve
+        # the more specific reason AND a shared-world quarantine.
+        if result.verdict == "UNKNOWN" and self._chair_target() != chair_target:
+            self.game._fake_mixed_quarantined = True
+            return FakeMixedDayResult("UNKNOWN_UNVERIFIED_CHAIR_TARGET",
+                                      selected, choices, result.attempt)
         # Existing L2 toy verifies against game.chair_tile (a mutable value).
         # Independently compare the pinned proposal target after L2 execution.
         # An unexpected change means its VERIFIED_FAKE cannot be trusted.
