@@ -261,9 +261,20 @@ class FakeMixedDaytimeLoop:
         if gate is not None:
             return FakeMixedDayResult(gate)
         try:
-            observed = self.game.observe()
+            try:
+                observed = self.game.observe()
+            finally:
+                # The very first fake observation may deliver a valid inactive
+                # P1 grant notice *then throw* or return a malformed scene.
+                # Its Host tombstone must survive EVERY observation exit,
+                # just as it does for the chooser and second observation.
+                self.watering._ingest_fixture_revocation(self.water_world)
         except Exception:
             return FakeMixedDayResult("BLOCKED_OBSERVATION_UNAVAILABLE")
+        # Re-evaluate STOP/pending/identity changed by the read itself,
+        # even if the returned fake game snapshot looks otherwise valid.
+        if self._gate() is not None:
+            return FakeMixedDayResult("BLOCKED_CHANGED_BEFORE_DISPATCH")
         # Validate before using revision or tile in comparison/arithmetic.
         if not self._valid_observation(observed):
             return FakeMixedDayResult("BLOCKED_MALFORMED_OBSERVATION")
