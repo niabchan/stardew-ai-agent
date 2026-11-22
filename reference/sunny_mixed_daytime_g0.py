@@ -371,6 +371,20 @@ class FakeMixedDaytimeLoop:
             steward, ledger, grant
         ) == "ALLOW_FAKE")
 
+    def _outer_read_block(self, status, choice=None, offered=()):
+        """Preserve the actual shared fake pending ID on early read exits.
+
+        A synchronous fixture may run a nested coordinator while the first
+        or second outer read is active, before the chair adapter exists.
+        Read failure must never obscure the nested unresolved operation.
+        """
+        pending = self.game.pending_attempt
+        if pending is not None:
+            return FakeMixedDayResult(
+                "BLOCKED_UNRESOLVED", choice, offered, pending
+            )
+        return FakeMixedDayResult(status, choice, offered)
+
     def step(self):
         # Revocation is a separate fake Host-side event, even if there is
         # already an unresolved action or another activity is selected.
@@ -388,14 +402,18 @@ class FakeMixedDaytimeLoop:
                 # just as it does for the chooser and second observation.
                 self.watering._ingest_fixture_revocation(self.water_world)
         except Exception:
-            return FakeMixedDayResult("BLOCKED_OBSERVATION_UNAVAILABLE")
+            return self._outer_read_block("BLOCKED_OBSERVATION_UNAVAILABLE")
         # Re-evaluate STOP/pending/identity changed by the read itself,
         # even if the returned fake game snapshot looks otherwise valid.
         if self._gate() is not None:
-            return FakeMixedDayResult("BLOCKED_CHANGED_BEFORE_DISPATCH")
-        # Validate before using revision or tile in comparison/arithmetic.
+            return self._outer_read_block("BLOCKED_CHANGED_BEFORE_DISPATCH")
+        # A fabricated high revision must NOT advance the shared replay
+        # watermark. Check the direct canonical FakeGame observation before
+        # planning or consuming this candidate's revision.
         if not self._valid_observation(observed):
-            return FakeMixedDayResult("BLOCKED_MALFORMED_OBSERVATION")
+            return self._outer_read_block("BLOCKED_MALFORMED_OBSERVATION")
+        if not self._water_game_matches(observed):
+            return self._outer_read_block("BLOCKED_CHANGED_BEFORE_DISPATCH")
         chair_target = self._chair_target()
         # Cross-coordinator shared replay fence for even voluntary STAY.
         last = getattr(self.game, "_fake_mixed_last_revision", -1)
@@ -452,16 +470,20 @@ class FakeMixedDaytimeLoop:
                 # no exception or stale reading may mask that Host tombstone.
                 self.watering._ingest_fixture_revocation(self.water_world)
         except Exception:
-            return FakeMixedDayResult("BLOCKED_OBSERVATION_UNAVAILABLE",
-                                      selected, choices)
-        if not self._valid_observation(after_choice) or after_choice != observed:
-            return FakeMixedDayResult("BLOCKED_CHANGED_BEFORE_DISPATCH",
-                                      selected, choices)
+            return self._outer_read_block(
+                "BLOCKED_OBSERVATION_UNAVAILABLE", selected, choices
+            )
+        if (not self._water_game_matches(after_choice)
+                or after_choice != observed):
+            return self._outer_read_block(
+                "BLOCKED_CHANGED_BEFORE_DISPATCH", selected, choices
+            )
         # The observation callback itself can change Host STOP/pending without
         # changing any game field. Do NOT reuse the pre-read gate result.
         if self._gate() is not None:
-            return FakeMixedDayResult("BLOCKED_CHANGED_BEFORE_DISPATCH",
-                                      selected, choices)
+            return self._outer_read_block(
+                "BLOCKED_CHANGED_BEFORE_DISPATCH", selected, choices
+            )
         if selected == "STAY":
             return FakeMixedDayResult("STAY", selected, choices)
         if selected == "WATER":
