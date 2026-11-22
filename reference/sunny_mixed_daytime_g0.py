@@ -214,6 +214,45 @@ class FakeMixedDaytimeLoop:
             ledger, ledger.grant
         ) == "ALLOW_FAKE")
 
+    def _water_still_admitted(self, scene, observed, crop, steward,
+                              ledger, grant, operation=None):
+        """Pin the P2 position AND the exact P1 crop through fake WATER start.
+
+        The accepted G0 water bridge checks its own crop.adjacent flag, not
+        P2's separate fake position. This synthetic mixed layer MUST recheck
+        independent Manhattan adjacency and selected object identities.
+        A reserved matching Host operation is permitted only for pre-B hooks.
+        """
+        self.watering._ingest_fixture_revocation(self.water_world)
+        if (self.host.stopped or self.host.epoch != self.expected_epoch
+                or self.host.owner != self.expected_owner
+                or (self.host.pending is not None
+                    and (operation is None or self.host.pending is not operation))
+                or self.game.pending_attempt is not None
+                or getattr(self.game, "_fake_mixed_quarantined", False) is not False
+                or self.game.epoch != observed.epoch
+                or self.game.owner != observed.owner
+                or self.game.revision != observed.revision
+                or self.game.sunny_tile != observed.sunny_tile
+                or self.game.p1_is_human is not True
+                or self.game.p2_is_ai is not True
+                or self.game.ready is not True
+                or self.water_world.crop is not crop
+                or self.water_world.stewardship is not steward
+                or self.water_world.ledger is not ledger
+                or type(ledger) is not FakeWaterPermissionLedger
+                or ledger.grant is not grant
+                or not _crop_shape(crop)
+                or crop.epoch != observed.epoch
+                or crop.revision != observed.revision
+                or (abs(observed.sunny_tile[0] - crop.tile[0])
+                    + abs(observed.sunny_tile[1] - crop.tile[1])) != 1):
+            return False
+        return (self.watering._preflight(
+            scene, self.water_world, _crop_identity(crop),
+            steward, ledger, grant
+        ) == "ALLOW_FAKE")
+
     def step(self):
         # Revocation is a separate fake Host-side event, even if there is
         # already an unresolved action or another activity is selected.
@@ -277,7 +316,12 @@ class FakeMixedDaytimeLoop:
             return FakeMixedDayResult("BLOCKED_CHANGED_BEFORE_DISPATCH",
                                       selected, choices)
         try:
-            after_choice = self.game.observe()
+            try:
+                after_choice = self.game.observe()
+            finally:
+                # Observation callbacks may also deliver a P1 revocation;
+                # no exception or stale reading may mask that Host tombstone.
+                self.watering._ingest_fixture_revocation(self.water_world)
         except Exception:
             return FakeMixedDayResult("BLOCKED_OBSERVATION_UNAVAILABLE",
                                       selected, choices)
@@ -292,10 +336,30 @@ class FakeMixedDaytimeLoop:
         if selected == "STAY":
             return FakeMixedDayResult("STAY", selected, choices)
         if selected == "WATER":
-            result = self.watering.step(scene, self.water_world, "WATER")
+            # Both crops may be inside the standing grant: permission alone
+            # does not preserve which one was offered or prove P2 adjacency.
+            # The second game observation can mutate water_world without
+            # changing FakeGame.observe()'s equality-visible fields.
+            if not self._water_still_admitted(
+                    scene, after_choice, crop, steward, ledger, grant):
+                return FakeMixedDayResult("BLOCKED_CHANGED_BEFORE_DISPATCH",
+                                          selected, choices)
+
+            def water_pre_b_guard(stage, _host, _world, operation):
+                if stage in ("after_wait", "after_reserve", "before_b"):
+                    if not self._water_still_admitted(
+                            scene, observed, crop, steward, ledger, grant,
+                            operation):
+                        # Accepted G0 bridge translates pre-reservation
+                        # hook failure to DENIED_WAIT_FAILURE; after reserve
+                        # it leaves UNKNOWN_PENDING without entering B.
+                        raise RuntimeError("mixed_fake_water_scope_changed")
+
+            result = self.watering.step(
+                scene, self.water_world, "WATER", at_stage=water_pre_b_guard
+            )
             # Do not impose a one-WATER-per-day rule: the Host grant's
-            # per-tile spending and snapshot revision enforce the real toy
-            # bound. Another permitted dry tile may be considered later.
+            # per-tile spending and snapshot revision enforce the toy bound.
             return FakeMixedDayResult(result.verdict, selected, choices,
                                       result.operation_id)
         def choose_pinned_chair(_observation):
