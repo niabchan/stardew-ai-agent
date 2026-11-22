@@ -266,3 +266,151 @@ def test_bounded_run_never_schedules_more_than_four_choices():
         with pytest.raises(ValueError):
             loop.run_bounded(invalid)
     assert interest.calls == 0
+
+
+def test_chooser_cannot_move_chair_target_without_changing_observation():
+    """Issue #96 counterexample: chair target was omitted from Observation."""
+    game, host, world, _, loop = setup()
+    assert game.chair_tile == (7, 4)
+
+    def change_chair(_activities):
+        game.chair_tile = (8, 4)
+        return "MOVE_TO_CHAIR"
+
+    loop.interest = change_chair
+    result = loop.step()
+    assert result.status == "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    assert result.choice == "MOVE_TO_CHAIR"
+    assert game.sunny_tile == (4, 4)
+    assert game.dispatched == [] and game.pending_attempt is None
+    assert host.events == [] and result.claim_real_completion is False
+
+
+@pytest.mark.parametrize("failure", ["raise", "unsupported", "invalid_type"])
+def test_chooser_revocation_is_latched_on_every_exit(failure):
+    """Issue #96: P1 revocation must survive all chooser exits."""
+    game, host, world, _, loop = setup()
+    original = world.ledger.grant
+
+    def revoke_and_exit(_offered):
+        world.ledger.grant = replace(
+            original, active=False, grant_revision=2
+        )
+        if failure == "raise":
+            raise RuntimeError("synthetic chooser failed after valid P1 revoke")
+        if failure == "unsupported":
+            return "HARVEST"
+        return ["WATER"]
+
+    loop.interest = revoke_and_exit
+    first = loop.step()
+    expected = ("BLOCKED_INTEREST_UNAVAILABLE" if failure == "raise"
+                else "DENIED_NOT_GROUNDED")
+    assert first.status == expected
+    assert first.claim_real_completion is False
+    assert game.dispatched == [] and host.events == []
+    assert host._fake_water_permission_store.accounts[original.grant_id].revoked
+    assert FakePermissionedWaterBridge(host).provision_standing_grant(
+        original
+    ) == "DENIED_STALE_GRANT_REVISION"
+
+    # A new chooser, game snapshot, and ledger cannot revive v1 on the Host.
+    game.revision = 2
+    world.crop = replace(world.crop, revision=2)
+    world.ledger = FakeWaterPermissionLedger(original)
+    new_interest = Interest("WATER")
+    new_loop = FakeMixedDaytimeLoop(
+        game, host, world, new_interest, weather="sunny"
+    )
+    rejected = new_loop.step()
+    assert rejected.status == "DENIED_NOT_GROUNDED"
+    assert "WATER" not in rejected.offered
+    assert host.events.count("FAKE_EFFECT") == 0
+
+
+def test_failed_second_observation_after_choice_does_not_dispatch():
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",)
+    )
+    original_observe = game.observe
+    reads = 0
+
+    def observe_then_fail():
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            raise RuntimeError("fake observation source unavailable")
+        return original_observe()
+
+    game.observe = observe_then_fail
+    result = loop.step()
+    assert result.status == "BLOCKED_OBSERVATION_UNAVAILABLE"
+    assert result.claim_real_completion is False
+    assert reads == 2 and interest.calls == 1
+    assert game.dispatched == [] and host.events == []
+    assert game.pending_attempt is None
+
+
+def test_chair_target_mutated_during_fake_dispatch_never_reports_verified():
+    """L2's mutable chair target can otherwise satisfy its own verifier."""
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",)
+    )
+    original_dispatch = game.dispatch
+
+    def retarget_during_dispatch(action, expected, attempt):
+        game.chair_tile = (8, 4)
+        return original_dispatch(action, expected, attempt)
+
+    game.dispatch = retarget_during_dispatch
+    result = loop.step()
+    assert result.status == "UNKNOWN_UNVERIFIED_CHAIR_TARGET"
+    assert result.claim_real_completion is False
+    assert game.sunny_tile == (8, 4)  # synthetic changed destination
+    assert len(game.dispatched) == 1
+    assert game._fake_mixed_quarantined is True
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    next_interest = Interest("WATER")
+    assert FakeMixedDaytimeLoop(
+        game, host, world, next_interest, weather="sunny"
+    ).step().status == "BLOCKED_UNRESOLVED"
+    assert next_interest.calls == 0 and host.events == []
+
+
+def test_malformed_observation_revision_and_options_fail_without_exception():
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    game.revision = "1"
+    assert loop.step().status == "BLOCKED_MALFORMED_OBSERVATION"
+    assert interest.calls == 0 and host.events == []
+    game.revision = 1
+    original_observe = game.observe
+
+    def unhashable_options():
+        return replace(original_observe(), options=("STAY", []))
+
+    game.observe = unhashable_options
+    assert loop.step().status == "BLOCKED_MALFORMED_OBSERVATION"
+    assert interest.calls == 0 and host.events == []
+
+
+def test_observation_publisher_partial_mutation_and_failure_quarantines():
+    game, host, world, interest, loop = setup(
+        choices=("WATER", "MOVE_TO_CHAIR")
+    )
+
+    def partial_then_fail(_result, game, world, _host):
+        game.revision = 2
+        world.crop = replace(world.crop, revision=2, soil_dry=False)
+        raise RuntimeError("publisher unavailable after partial update")
+
+    results = loop.run_bounded(3, partial_then_fail)
+    assert [r.status for r in results] == [
+        "FAKE_WATER_VERIFIED", "BLOCKED_OBSERVATION_UPDATE"
+    ]
+    assert game._fake_mixed_quarantined is True
+    fresh_interest = Interest("MOVE_TO_CHAIR")
+    assert FakeMixedDaytimeLoop(
+        game, host, world, fresh_interest, weather="sunny"
+    ).step().status == "BLOCKED_UNRESOLVED"
+    assert fresh_interest.calls == 0 and game.dispatched == []
+    assert host.events.count("FAKE_EFFECT") == 1
