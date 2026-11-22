@@ -34,10 +34,13 @@ class _HostGatedChairWorld:
     is sequential guard composition, NOT an atomic real game/Host boundary.
     """
 
-    def __init__(self, game, allowed, expected_observation):
+    def __init__(self, game, allowed, expected_observation,
+                 valid_observation, ingest_revocation):
         self._game = game
         self._allowed = allowed
         self._before = expected_observation
+        self._valid_observation = valid_observation
+        self._ingest_revocation = ingest_revocation
         self._started = False
         self._admitted_attempt = None
 
@@ -45,7 +48,17 @@ class _HostGatedChairWorld:
         return getattr(self._game, attr)
 
     def observe(self):
-        snapshot = self._game.observe()
+        try:
+            snapshot = self._game.observe()
+            # Do not forward malformed post-effect observations to L2, whose
+            # verifier assumes comparable integer revisions. Raising here
+            # enters L2's UNKNOWN path and retains the already pending move.
+            if not self._valid_observation(snapshot):
+                raise ValueError("malformed_fake_chair_observation")
+        finally:
+            # A read may install a valid inactive P1 grant notice and then
+            # fail. Preserve it even when L2 catches the observation error.
+            self._ingest_revocation()
         if not self._allowed(self._admitted_attempt):
             raise RuntimeError("fake_host_not_ready_during_chair_observation")
         if not self._started and snapshot != self._before:
@@ -55,7 +68,12 @@ class _HostGatedChairWorld:
     def prepare(self, action, expected, attempt):
         if not self._allowed(None):
             return False
-        admitted = self._game.prepare(action, expected, attempt)
+        try:
+            # FakeGame.prepare performs its OWN observation, bypassing the
+            # adapter's observe(). Its exception must not lose P1 revocation.
+            admitted = self._game.prepare(action, expected, attempt)
+        finally:
+            self._ingest_revocation()
         if not admitted:
             return False
         self._admitted_attempt = attempt
@@ -72,7 +90,11 @@ class _HostGatedChairWorld:
         # Once this fake callback starts an effect may be possible. A STOP
         # discovered AFTER invoking it cannot be described as pre-effect.
         self._started = True
-        result = self._game.dispatch(action, expected, attempt)
+        try:
+            # FakeGame.dispatch also observes independently of this proxy.
+            result = self._game.dispatch(action, expected, attempt)
+        finally:
+            self._ingest_revocation()
         if not self._allowed(attempt):
             return "unknown_after_fake_host_change"
         return result
@@ -387,6 +409,8 @@ class FakeMixedDaytimeLoop:
             self.game,
             lambda attempt: self._chair_admitted(chair_target, attempt),
             observed,
+            self._valid_observation,
+            lambda: self.watering._ingest_fixture_revocation(self.water_world),
         )
         result = OfflineController(
             guarded_game, choose_pinned_chair,
