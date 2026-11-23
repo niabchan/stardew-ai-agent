@@ -2595,51 +2595,50 @@ def test_chair_finalizer_latches_p1_revocation_on_both_exits(finalizer_exit):
     assert host.events.count("FAKE_EFFECT") == 0
 
 
-@pytest.mark.parametrize("cleanup_exit", ["return", "raise"])
-def test_chair_rejection_cleanup_latches_p1_revocation(cleanup_exit):
-    """Also ingest revocations from finish_rejected, not just finalization."""
-    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
-    initial = world.ledger.grant
-    original_rejected = game.finish_rejected
-    cleanup_calls = []
+@pytest.mark.parametrize("untrusted_exit", ["return", "raise"])
+def test_chair_rejection_cleanup_latches_p1_revocation(untrusted_exit):
+    """R20: P1 grant is a separate fixture; untrusted cleanup is never run.
 
-    def synthetic_pre_effect_denial(_action, _expected, _attempt):
+    Previously this G0 test delivered the revocation *from* an injected
+    Game.finish_rejected callback. That is no longer allowed to run with a
+    reserved chair operation: it can dispatch using a saved callable.
+    Deliver the higher inactive revision via the independent ledger instead.
+    """
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original = world.ledger.grant
+    # A revocation is a Host-side event, independent of a Game cleanup.
+    world.ledger.grant = replace(
+        original, active=False, grant_revision=2
+    )
+    intercepted = []
+
+    def rejected_without_effect(_action, _expected, _attempt):
         return "rejected_before_effect"
 
-    def reject_with_revocation(attempt):
-        cleared = original_rejected(attempt)
-        cleanup_calls.append((attempt, cleared))
-        world.ledger.grant = replace(
-            initial, active=False, grant_revision=2
-        )
-        if cleanup_exit == "raise":
-            raise RuntimeError("cleanup delivered revocation then raised")
-        return cleared
+    def untrusted_reject(attempt):
+        intercepted.append(attempt)
+        if untrusted_exit == "raise":
+            raise RuntimeError("unauthorized injected cleanup attempted")
+        return True
 
-    game.dispatch = synthetic_pre_effect_denial
-    game.finish_rejected = reject_with_revocation
-    outcome = loop.step()
-    assert cleanup_calls == [("offline-attempt-1", True)]
-    assert outcome.status == (
-        "BLOCKED_STALE_OR_DENIED" if cleanup_exit == "return"
-        else "UNKNOWN"
-    )
-    # A raising cleanup cannot prove that the attempt was safely retired.
-    # Preserve the original chair ID even after a callback has cleared
-    # pending, so the exact failed operation remains inspectable.
-    assert outcome.operation_id == "offline-attempt-1"
-    assert outcome.claim_real_completion is False
-    assert getattr(game, "_fake_mixed_quarantined", False) is (
-        cleanup_exit == "raise"
-    )
-    assert "MOVE_TO_CHAIR" not in loop.completed
+    game.dispatch = rejected_without_effect
+    game.finish_rejected = untrusted_reject
+    result = loop.step()
+    assert intercepted == []  # adapter invokes pinned baseline ONLY
+    assert result.status == "BLOCKED_STALE_OR_DENIED"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.claim_real_completion is False
+    assert getattr(game, "_fake_mixed_quarantined", False) is False
     assert game.pending_attempt is None
     assert game.dispatched == []
+    assert "MOVE_TO_CHAIR" not in loop.completed
     assert host.events == [] and host.pending is None
-    assert host._fake_water_permission_store.accounts[initial.grant_id].revoked
-    world.ledger.grant = initial
+    account = host._fake_water_permission_store.accounts[original.grant_id]
+    assert account.revoked is True
+    assert account.grant.grant_revision == 2
+    world.ledger.grant = original
     assert FakePermissionedWaterBridge(host).provision_standing_grant(
-        initial
+        original
     ) == "DENIED_STALE_GRANT_REVISION"
 
 
@@ -3223,391 +3222,211 @@ def test_host_stop_after_fake_chair_finalization_skips_publisher():
 
 
 @pytest.mark.parametrize("bounded", [False, True])
-@pytest.mark.parametrize("cleanup_exit", ["return", "raise"])
+@pytest.mark.parametrize("saved_kind", ["bound", "unbound"])
 @pytest.mark.parametrize("delivery", ["ack", "ack_no_effect"])
-def test_chair_rejection_cleanup_effect_must_not_be_clean_pre_effect_denial(
-        bounded, cleanup_exit, delivery, monkeypatch):
-    """R17 review: cleanup itself can dispatch an effect then clear reservation.
+def test_chair_rejection_cleanup_saved_dispatch_callback_never_runs(
+        bounded, saved_kind, delivery, monkeypatch):
+    """R19 finding: saved FakeGame.dispatch bypasses monkeypatch witnesses.
 
-    The original dispatch returns a truthful pre-effect rejection. Only the
-    later injectable finish_rejected applies a real FakeGame dispatch; L2
-    otherwise trusts its earlier denial and blindly retires this attempt.
-    The fake effect ROW matters even for ack_no_effect with unchanged tile.
+    The safe boundary is to NEVER invoke game.finish_rejected while an
+    attempt is reserved; the pinned base FakeGame method alone releases it.
+    Both saved-bound and saved-unbound callables would execute a real move
+    and erase its row if the malicious cleanup were ever called.
     """
     game, host, world, interest, loop = setup(
         choices=("MOVE_TO_CHAIR",), delivery=delivery
     )
-    original_reject = game.finish_rejected
-    l2_step = OfflineController.step
-    cleanup_calls = []
-    l2_outcomes = []
-    publisher_calls = []
+    saved = game.dispatch if saved_kind == "bound" else FakeGame.dispatch
+    raw_reject = game.finish_rejected
+    malicious_calls = []
+    l2_verdicts = []
+    published = []
+    original_step = OfflineController.step
 
-    def capture_actual_l2_outcome(controller):
-        try:
-            outcome = l2_step(controller)
-        except RuntimeError:
-            l2_outcomes.append("EXCEPTION:RuntimeError")
-            raise
-        l2_outcomes.append(outcome.verdict)
-        return outcome
+    def capture_l2(controller):
+        result = original_step(controller)
+        l2_verdicts.append(result.verdict)
+        return result
 
-    monkeypatch.setattr(OfflineController, "step", capture_actual_l2_outcome)
+    monkeypatch.setattr(OfflineController, "step", capture_l2)
 
-    def pre_effect_rejection(_action, _expected, _attempt):
-        assert game.pending_attempt == "offline-attempt-1"
+    def genuine_pre_effect_denial(action, expected, attempt):
+        assert game.pending_attempt == attempt
         assert game.dispatched == []
         return "rejected_before_effect"
 
-    def cleanup_applies_effect_then_releases(attempt):
-        assert attempt == "offline-attempt-1"
-        assert game.pending_attempt == attempt
-        # Bypass the injected pre-effect-denial callback to reproduce the
-        # authoritative FakeGame movement WHILE the old attempt is live.
-        original_reading = game.observe()
-        effect = FakeGame.dispatch(
-            game, "MOVE_TO_CHAIR", original_reading, attempt
+    def malicious_cleanup(attempt):
+        malicious_calls.append(attempt)
+        snapshot = FakeGame.observe(game)
+        if saved_kind == "bound":
+            result = saved("MOVE_TO_CHAIR", snapshot, attempt)
+        else:
+            result = saved(game, "MOVE_TO_CHAIR", snapshot, attempt)
+        assert result == "ack"
+        assert game.dispatched.pop() == (
+            attempt, "MOVE_TO_CHAIR", "p2"
         )
-        released = original_reject(attempt)
-        cleanup_calls.append((attempt, effect, released))
-        if cleanup_exit == "raise":
-            raise RuntimeError("rejection cleanup failed after fake effect")
-        return released
+        return raw_reject(attempt)
 
-    game.dispatch = pre_effect_rejection
-    game.finish_rejected = cleanup_applies_effect_then_releases
+    game.dispatch = genuine_pre_effect_denial
+    game.finish_rejected = malicious_cleanup
     if bounded:
-        def unexpected_publisher(*_args):
-            publisher_calls.append(True)
-
-        trace = loop.run_bounded(2, after_verified=unexpected_publisher)
-        assert [r.status for r in trace] == ["UNKNOWN"]
+        trace = loop.run_bounded(
+            1, after_verified=lambda *_args: published.append(True)
+        )
+        assert [result.status for result in trace] == [
+            "BLOCKED_STALE_OR_DENIED"
+        ]
         outcome = trace[0]
-        assert publisher_calls == []
     else:
         outcome = loop.step()
-    assert cleanup_calls == [("offline-attempt-1", "ack", True)]
-    assert l2_outcomes == [
-        "BLOCKED_STALE_OR_DENIED" if cleanup_exit == "return"
-        else "EXCEPTION:RuntimeError"
-    ]
-    assert outcome.status == "UNKNOWN"
-    assert outcome.choice == "MOVE_TO_CHAIR"
+    assert l2_verdicts == ["BLOCKED_STALE_OR_DENIED"]
+    assert malicious_calls == []
+    assert published == []
+    assert outcome.status == "BLOCKED_STALE_OR_DENIED"
     assert outcome.operation_id == "offline-attempt-1"
-    assert outcome.pending_operation_id is None
     assert outcome.claim_real_completion is False
-    assert "MOVE_TO_CHAIR" not in loop.completed
-    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert not loop.completed
+    assert game.dispatched == []
+    assert game.sunny_tile == (4, 4)
+    assert game.revision == 1
     assert game.pending_attempt is None
-    assert game.dispatched == [(
-        "offline-attempt-1", "MOVE_TO_CHAIR", "p2"
-    )]
-    assert game.sunny_tile == (
-        game.chair_tile if delivery == "ack" else (4, 4)
-    )
-    assert host.pending is None and host.events == []
+    assert getattr(game, "_fake_mixed_quarantined", False) is False
+    assert host.events == [] and host.pending is None
     assert interest.calls == 1
 
-    # Without post-cleanup reconciliation, the old effect row remains but a
-    # new coordinator at a higher revision would choose STAY again.
     game.revision = 9
     world.crop = replace(world.crop, revision=9)
     fresh_interest = Interest("STAY")
     subsequent = FakeMixedDaytimeLoop(
         game, host, world, fresh_interest, weather="sunny"
     ).step()
-    assert subsequent.status == "BLOCKED_UNRESOLVED"
-    assert subsequent.operation_id is None
-    assert fresh_interest.calls == 0
+    assert subsequent.status == "STAY"
+    assert fresh_interest.calls == 1
 
 
-def test_normal_chair_pre_effect_rejection_still_cleans_up_without_quarantine(
-        monkeypatch):
-    """R18 positive control: no movement/effect row allows truthful cleanup."""
+@pytest.mark.parametrize("bounded", [False, True])
+def test_chair_cleanup_saved_dispatch_cannot_mutate_log_or_hide_revocation(
+        bounded, monkeypatch):
+    """R20: untrusted callback cannot dispatch, malformed-log, or revoke.
+
+    Revocation remains independently accepted when supplied in the
+    permission fixture before the cleanup executes; no unsafe Game cleanup
+    callback must run just to publish such permission changes.
+    """
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
-    raw_reject = game.finish_rejected
-    raw_l2_step = OfflineController.step
-    rejected = []
-    actual_l2 = []
+    original = world.ledger.grant
+    saved_dispatch = FakeGame.dispatch
+    unsafe_called = []
+    published = []
+    real_l2 = OfflineController.step
+    l2_verdicts = []
+    world.ledger.grant = replace(
+        original, active=False, grant_revision=2
+    )
 
     def capture_l2(controller):
-        verdict = raw_l2_step(controller)
-        actual_l2.append(verdict.verdict)
-        return verdict
-
-    def genuine_rejection(_action, _expected, attempt):
-        assert game.pending_attempt == attempt
-        assert game.dispatched == []
-        return "rejected_before_effect"
-
-    def clean_rejection(attempt):
-        receipt = raw_reject(attempt)
-        rejected.append((attempt, receipt))
-        return receipt
+        result = real_l2(controller)
+        l2_verdicts.append(result.verdict)
+        return result
 
     monkeypatch.setattr(OfflineController, "step", capture_l2)
-    game.dispatch = genuine_rejection
-    game.finish_rejected = clean_rejection
-    result = loop.step()
-    assert rejected == [("offline-attempt-1", True)]
-    assert actual_l2 == ["BLOCKED_STALE_OR_DENIED"]
+    game.dispatch = lambda *_args: "rejected_before_effect"
+
+    def bad_cleanup(attempt):
+        unsafe_called.append(attempt)
+        snapshot = FakeGame.observe(game)
+        saved_dispatch(game, "MOVE_TO_CHAIR", snapshot, attempt)
+        game.dispatched = None
+        game.pending_attempt = None
+        raise RuntimeError("malformed fake log after dispatch")
+
+    game.finish_rejected = bad_cleanup
+    if bounded:
+        trace = loop.run_bounded(
+            1, after_verified=lambda *_args: published.append(True)
+        )
+        assert [x.status for x in trace] == [
+            "BLOCKED_STALE_OR_DENIED"
+        ]
+        result = trace[0]
+    else:
+        result = loop.step()
+
+    assert l2_verdicts == ["BLOCKED_STALE_OR_DENIED"]
+    assert unsafe_called == [] and published == []
     assert result.status == "BLOCKED_STALE_OR_DENIED"
     assert result.operation_id == "offline-attempt-1"
     assert result.claim_real_completion is False
     assert game.dispatched == []
     assert game.pending_attempt is None
     assert game.sunny_tile == (4, 4)
-    assert not loop.completed
     assert getattr(game, "_fake_mixed_quarantined", False) is False
-    assert host.pending is None and host.events == []
-
-    # After an actual known rejection (no fake effect), a fresh coordinator
-    # is permitted to choose STAY, unlike a cleanup that performed movement.
-    game.revision = 9
-    world.crop = replace(world.crop, revision=9)
-    fresh_interest = Interest("STAY")
-    fresh = FakeMixedDaytimeLoop(
-        game, host, world, fresh_interest, weather="sunny"
-    ).step()
-    assert fresh.status == "STAY"
-    assert fresh_interest.calls == 1
-
-
-
-@pytest.mark.parametrize("bounded", [False, True])
-def test_chair_cleanup_erased_real_dispatch_row_cannot_fake_clean_rejection(
-        bounded, monkeypatch):
-    """R18 finding 1: dispatch witness survives cleanup deleting its own row."""
-    game, host, world, interest, loop = setup(
-        choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
-    )
-    real_finish = game.finish_rejected
-    real_l2 = OfflineController.step
-    l2_verdicts = []
-    cleanup_events = []
-    publisher_calls = []
-
-    def spy_l2(controller):
-        result = real_l2(controller)
-        l2_verdicts.append(result.verdict)
-        return result
-
-    monkeypatch.setattr(OfflineController, "step", spy_l2)
-
-    def truthful_dispatch_denial(_action, _expected, attempt):
-        assert attempt == game.pending_attempt
-        assert not game.dispatched
-        return "rejected_before_effect"
-
-    def dispatch_erase_then_finish(attempt):
-        snap = FakeGame.observe(game)
-        receipt = FakeGame.dispatch(game, "MOVE_TO_CHAIR", snap, attempt)
-        assert receipt == "ack" and len(game.dispatched) == 1
-        removed = game.dispatched.pop()
-        assert removed == (attempt, "MOVE_TO_CHAIR", "p2")
-        assert game.dispatched == []
-        result = real_finish(attempt)
-        cleanup_events.append((attempt, receipt, result))
-        return result
-
-    game.dispatch = truthful_dispatch_denial
-    game.finish_rejected = dispatch_erase_then_finish
-    if bounded:
-        def unexpected_publisher(*_args):
-            publisher_calls.append(True)
-
-        trace = loop.run_bounded(2, after_verified=unexpected_publisher)
-        assert [x.status for x in trace] == ["UNKNOWN"]
-        outcome = trace[0]
-        assert publisher_calls == []
-    else:
-        outcome = loop.step()
-    assert cleanup_events == [("offline-attempt-1", "ack", True)]
-    assert l2_verdicts == ["BLOCKED_STALE_OR_DENIED"]
-    assert outcome.status == "UNKNOWN"
-    assert outcome.operation_id == "offline-attempt-1"
-    assert outcome.pending_operation_id is None
-    assert outcome.claim_real_completion is False
-    assert not loop.completed
-    assert game.dispatched == []  # intentionally erased by callback
-    assert game.sunny_tile == (4, 4) and game.revision == 1
-    assert game.pending_attempt is None
-    assert getattr(game, "_fake_mixed_quarantined", False) is True
-    assert host.pending is None and host.events == []
-
-    # The callback erased every usual effect artifact. Our synchronous
-    # dispatch witness, held outside Game's editable log, must still block.
-    game.revision = 9
-    world.crop = replace(world.crop, revision=9)
-    future = Interest("STAY")
-    fresh = FakeMixedDaytimeLoop(
-        game, host, world, future, weather="sunny"
-    ).step()
-    assert fresh.status == "BLOCKED_UNRESOLVED"
-    assert future.calls == 0
-
-
-@pytest.mark.parametrize("bounded", [False, True])
-def test_chair_cleanup_malformed_dispatch_log_cannot_lose_id_or_p1_revocation(
-        bounded, monkeypatch):
-    """R18 finding 2: evidence parsing fails AFTER valid P1 revocation."""
-    game, host, world, interest, loop = setup(
-        choices=("MOVE_TO_CHAIR",)
-    )
-    initial = world.ledger.grant
-    real_finish = game.finish_rejected
-    real_l2 = OfflineController.step
-    l2_exceptions = []
-    callback_events = []
-    publishers = []
-
-    def observe_l2_error(controller):
-        try:
-            return real_l2(controller)
-        except Exception as exc:
-            l2_exceptions.append(type(exc).__name__)
-            raise
-
-    monkeypatch.setattr(OfflineController, "step", observe_l2_error)
-
-    def true_denial(_action, _expected, _attempt):
-        return "rejected_before_effect"
-
-    def malformed_after_effect(attempt):
-        snap = FakeGame.observe(game)
-        receipt = FakeGame.dispatch(game, "MOVE_TO_CHAIR", snap, attempt)
-        assert receipt == "ack"
-        retired = real_finish(attempt)
-        world.ledger.grant = replace(
-            initial, active=False, grant_revision=2
-        )
-        game.dispatched = None  # tuple(None) must NOT mask revocation
-        callback_events.append((attempt, retired))
-        return retired
-
-    game.dispatch = true_denial
-    game.finish_rejected = malformed_after_effect
-    if bounded:
-        def unexpected_publisher(*_args):
-            publishers.append(True)
-
-        trace = loop.run_bounded(1, after_verified=unexpected_publisher)
-        assert [x.status for x in trace] == ["UNKNOWN"]
-        outcome = trace[0]
-        assert publishers == []
-    else:
-        outcome = loop.step()
-    assert callback_events == [("offline-attempt-1", True)]
-    assert l2_exceptions == ["TypeError"]
-    assert outcome.status == "UNKNOWN"
-    assert outcome.operation_id == "offline-attempt-1"
-    assert outcome.pending_operation_id is None
-    assert outcome.claim_real_completion is False
-    assert game.dispatched is None
-    assert game.pending_attempt is None
-    assert not loop.completed
-    assert getattr(game, "_fake_mixed_quarantined", False) is True
-    account = host._fake_water_permission_store.accounts[initial.grant_id]
+    account = host._fake_water_permission_store.accounts[original.grant_id]
     assert account.revoked is True
     assert account.grant.grant_revision == 2
-
-    world.ledger.grant = initial
+    world.ledger.grant = original
     assert FakePermissionedWaterBridge(host).provision_standing_grant(
-        initial
+        original
     ) == "DENIED_STALE_GRANT_REVISION"
-    assert host.pending is None and host.events == []
-
-    game.revision = 9
-    world.crop = replace(world.crop, revision=9)
-    new_interest = Interest("STAY")
-    later = FakeMixedDaytimeLoop(
-        game, host, world, new_interest, weather="sunny"
-    ).step()
-    assert later.status == "BLOCKED_UNRESOLVED"
-    assert new_interest.calls == 0
 
 
+@pytest.mark.parametrize("bad_return", [None, True, "fake-success"])
 @pytest.mark.parametrize("bounded", [False, True])
-@pytest.mark.parametrize("malformation", [
-    "missing_receipt", "retained_attempt", "changed_target",
-    "float_revision", "float_chair_target", "changed_owner"
-])
-def test_chair_cleanup_requires_strict_receipt_release_and_pinned_scene(
-        bounded, malformation, monkeypatch):
-    """R18 finding 3: no incomplete/changed cleanup may be known rejection."""
+def test_untrusted_cleanup_receipt_cannot_override_adapter_owned_release(
+        bad_return, bounded, monkeypatch):
+    """An injected cleanup's return value is not allowed as L2 evidence."""
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
-    raw_reject = game.finish_rejected
-    l2_step = OfflineController.step
-    cleanup_calls = []
-    l2_verdicts = []
-    publishers = []
+    calls = []
+    original_l2 = OfflineController.step
+    verdicts = []
 
     def watch_l2(controller):
-        result = l2_step(controller)
-        l2_verdicts.append(result.verdict)
+        result = original_l2(controller)
+        verdicts.append(result.verdict)
         return result
 
     monkeypatch.setattr(OfflineController, "step", watch_l2)
+    game.dispatch = lambda *_args: "rejected_before_effect"
 
-    def true_pre_effect_denial(_action, _expected, _attempt):
-        return "rejected_before_effect"
+    def bad_reject(attempt):
+        calls.append(attempt)
+        return bad_return
 
-    def malformed_cleanup(attempt):
-        if malformation == "retained_attempt":
-            receipt = True
-        else:
-            receipt = raw_reject(attempt)
-        if malformation == "missing_receipt":
-            receipt = None
-        elif malformation == "changed_target":
-            # Options are STAY,MOVE_TO_CHAIR before/after this mutation,
-            # so equality of FakeGame.observe does not expose target drift.
-            game.chair_tile = (8, 4)
-        elif malformation == "float_revision":
-            # Python equality alone considers 1.0 equal to integer 1.
-            game.revision = 1.0
-        elif malformation == "float_chair_target":
-            game.chair_tile = (7.0, 4)
-        elif malformation == "changed_owner":
-            game.owner = "other-load-owner"
-        cleanup_calls.append((attempt, receipt))
-        return receipt
-
-    game.dispatch = true_pre_effect_denial
-    game.finish_rejected = malformed_cleanup
+    game.finish_rejected = bad_reject
     if bounded:
-        def unexpected_publisher(*_args):
-            publishers.append(True)
-
-        trace = loop.run_bounded(2, after_verified=unexpected_publisher)
-        assert [x.status for x in trace] == ["UNKNOWN"]
-        outcome = trace[0]
-        assert publishers == []
+        result = loop.run_bounded(1)[0]
     else:
-        outcome = loop.step()
-    assert l2_verdicts == ["BLOCKED_STALE_OR_DENIED"]
-    assert cleanup_calls == [(
-        "offline-attempt-1",
-        None if malformation == "missing_receipt" else True
-    )]
-    assert outcome.status == "UNKNOWN"
-    assert outcome.operation_id == "offline-attempt-1"
-    assert outcome.pending_operation_id is None
-    assert outcome.claim_real_completion is False
-    assert not loop.completed
+        result = loop.step()
+    assert calls == []
+    assert verdicts == ["BLOCKED_STALE_OR_DENIED"]
+    assert result.status == "BLOCKED_STALE_OR_DENIED"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.claim_real_completion is False
+    assert game.pending_attempt is None
     assert game.dispatched == []
-    assert game.pending_attempt == (
-        "offline-attempt-1" if malformation == "retained_attempt"
-        else None
-    )
-    assert getattr(game, "_fake_mixed_quarantined", False) is True
-    assert host.pending is None and host.events == []
+    assert not loop.completed
+    assert getattr(game, "_fake_mixed_quarantined", False) is False
 
+
+def test_clean_rejection_without_injected_cleanup_is_replay_safe():
+    """Valid fake rejection remains optional; foreign callbacks are ignored."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    game.dispatch = lambda *_args: "rejected_before_effect"
+    game.finish_rejected = lambda *_args: (_ for _ in ()).throw(
+        AssertionError("must never execute untrusted cleanup")
+    )
+    outcome = loop.step()
+    assert outcome.status == "BLOCKED_STALE_OR_DENIED"
+    assert outcome.operation_id == "offline-attempt-1"
+    assert game.pending_attempt is None
+    assert game.dispatched == []
+    assert getattr(game, "_fake_mixed_quarantined", False) is False
     game.revision = 9
     world.crop = replace(world.crop, revision=9)
     new_interest = Interest("STAY")
-    later = FakeMixedDaytimeLoop(
+    again = FakeMixedDaytimeLoop(
         game, host, world, new_interest, weather="sunny"
     ).step()
-    assert later.status == "BLOCKED_UNRESOLVED"
-    assert new_interest.calls == 0
+    assert again.status == "STAY"
+    assert new_interest.calls == 1
