@@ -3371,3 +3371,243 @@ def test_normal_chair_pre_effect_rejection_still_cleans_up_without_quarantine(
     ).step()
     assert fresh.status == "STAY"
     assert fresh_interest.calls == 1
+
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_chair_cleanup_erased_real_dispatch_row_cannot_fake_clean_rejection(
+        bounded, monkeypatch):
+    """R18 finding 1: dispatch witness survives cleanup deleting its own row."""
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
+    )
+    real_finish = game.finish_rejected
+    real_l2 = OfflineController.step
+    l2_verdicts = []
+    cleanup_events = []
+    publisher_calls = []
+
+    def spy_l2(controller):
+        result = real_l2(controller)
+        l2_verdicts.append(result.verdict)
+        return result
+
+    monkeypatch.setattr(OfflineController, "step", spy_l2)
+
+    def truthful_dispatch_denial(_action, _expected, attempt):
+        assert attempt == game.pending_attempt
+        assert not game.dispatched
+        return "rejected_before_effect"
+
+    def dispatch_erase_then_finish(attempt):
+        snap = FakeGame.observe(game)
+        receipt = FakeGame.dispatch(game, "MOVE_TO_CHAIR", snap, attempt)
+        assert receipt == "ack" and len(game.dispatched) == 1
+        removed = game.dispatched.pop()
+        assert removed == (attempt, "MOVE_TO_CHAIR", "p2")
+        assert game.dispatched == []
+        result = real_finish(attempt)
+        cleanup_events.append((attempt, receipt, result))
+        return result
+
+    game.dispatch = truthful_dispatch_denial
+    game.finish_rejected = dispatch_erase_then_finish
+    if bounded:
+        def unexpected_publisher(*_args):
+            publisher_calls.append(True)
+
+        trace = loop.run_bounded(2, after_verified=unexpected_publisher)
+        assert [x.status for x in trace] == ["UNKNOWN"]
+        outcome = trace[0]
+        assert publisher_calls == []
+    else:
+        outcome = loop.step()
+    assert cleanup_events == [("offline-attempt-1", "ack", True)]
+    assert l2_verdicts == ["BLOCKED_STALE_OR_DENIED"]
+    assert outcome.status == "UNKNOWN"
+    assert outcome.operation_id == "offline-attempt-1"
+    assert outcome.pending_operation_id is None
+    assert outcome.claim_real_completion is False
+    assert not loop.completed
+    assert game.dispatched == []  # intentionally erased by callback
+    assert game.sunny_tile == (4, 4) and game.revision == 1
+    assert game.pending_attempt is None
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert host.pending is None and host.events == []
+
+    # The callback erased every usual effect artifact. Our synchronous
+    # dispatch witness, held outside Game's editable log, must still block.
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    future = Interest("STAY")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, future, weather="sunny"
+    ).step()
+    assert fresh.status == "BLOCKED_UNRESOLVED"
+    assert future.calls == 0
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_chair_cleanup_malformed_dispatch_log_cannot_lose_id_or_p1_revocation(
+        bounded, monkeypatch):
+    """R18 finding 2: evidence parsing fails AFTER valid P1 revocation."""
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",)
+    )
+    initial = world.ledger.grant
+    real_finish = game.finish_rejected
+    real_l2 = OfflineController.step
+    l2_exceptions = []
+    callback_events = []
+    publishers = []
+
+    def observe_l2_error(controller):
+        try:
+            return real_l2(controller)
+        except Exception as exc:
+            l2_exceptions.append(type(exc).__name__)
+            raise
+
+    monkeypatch.setattr(OfflineController, "step", observe_l2_error)
+
+    def true_denial(_action, _expected, _attempt):
+        return "rejected_before_effect"
+
+    def malformed_after_effect(attempt):
+        snap = FakeGame.observe(game)
+        receipt = FakeGame.dispatch(game, "MOVE_TO_CHAIR", snap, attempt)
+        assert receipt == "ack"
+        retired = real_finish(attempt)
+        world.ledger.grant = replace(
+            initial, active=False, grant_revision=2
+        )
+        game.dispatched = None  # tuple(None) must NOT mask revocation
+        callback_events.append((attempt, retired))
+        return retired
+
+    game.dispatch = true_denial
+    game.finish_rejected = malformed_after_effect
+    if bounded:
+        def unexpected_publisher(*_args):
+            publishers.append(True)
+
+        trace = loop.run_bounded(1, after_verified=unexpected_publisher)
+        assert [x.status for x in trace] == ["UNKNOWN"]
+        outcome = trace[0]
+        assert publishers == []
+    else:
+        outcome = loop.step()
+    assert callback_events == [("offline-attempt-1", True)]
+    assert l2_exceptions == ["TypeError"]
+    assert outcome.status == "UNKNOWN"
+    assert outcome.operation_id == "offline-attempt-1"
+    assert outcome.pending_operation_id is None
+    assert outcome.claim_real_completion is False
+    assert game.dispatched is None
+    assert game.pending_attempt is None
+    assert not loop.completed
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    account = host._fake_water_permission_store.accounts[initial.grant_id]
+    assert account.revoked is True
+    assert account.grant.grant_revision == 2
+
+    world.ledger.grant = initial
+    assert FakePermissionedWaterBridge(host).provision_standing_grant(
+        initial
+    ) == "DENIED_STALE_GRANT_REVISION"
+    assert host.pending is None and host.events == []
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    new_interest = Interest("STAY")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, new_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert new_interest.calls == 0
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("malformation", [
+    "missing_receipt", "retained_attempt", "changed_target",
+    "float_revision", "float_chair_target", "changed_owner"
+])
+def test_chair_cleanup_requires_strict_receipt_release_and_pinned_scene(
+        bounded, malformation, monkeypatch):
+    """R18 finding 3: no incomplete/changed cleanup may be known rejection."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    raw_reject = game.finish_rejected
+    l2_step = OfflineController.step
+    cleanup_calls = []
+    l2_verdicts = []
+    publishers = []
+
+    def watch_l2(controller):
+        result = l2_step(controller)
+        l2_verdicts.append(result.verdict)
+        return result
+
+    monkeypatch.setattr(OfflineController, "step", watch_l2)
+
+    def true_pre_effect_denial(_action, _expected, _attempt):
+        return "rejected_before_effect"
+
+    def malformed_cleanup(attempt):
+        if malformation == "retained_attempt":
+            receipt = True
+        else:
+            receipt = raw_reject(attempt)
+        if malformation == "missing_receipt":
+            receipt = None
+        elif malformation == "changed_target":
+            # Options are STAY,MOVE_TO_CHAIR before/after this mutation,
+            # so equality of FakeGame.observe does not expose target drift.
+            game.chair_tile = (8, 4)
+        elif malformation == "float_revision":
+            # Python equality alone considers 1.0 equal to integer 1.
+            game.revision = 1.0
+        elif malformation == "float_chair_target":
+            game.chair_tile = (7.0, 4)
+        elif malformation == "changed_owner":
+            game.owner = "other-load-owner"
+        cleanup_calls.append((attempt, receipt))
+        return receipt
+
+    game.dispatch = true_pre_effect_denial
+    game.finish_rejected = malformed_cleanup
+    if bounded:
+        def unexpected_publisher(*_args):
+            publishers.append(True)
+
+        trace = loop.run_bounded(2, after_verified=unexpected_publisher)
+        assert [x.status for x in trace] == ["UNKNOWN"]
+        outcome = trace[0]
+        assert publishers == []
+    else:
+        outcome = loop.step()
+    assert l2_verdicts == ["BLOCKED_STALE_OR_DENIED"]
+    assert cleanup_calls == [(
+        "offline-attempt-1",
+        None if malformation == "missing_receipt" else True
+    )]
+    assert outcome.status == "UNKNOWN"
+    assert outcome.operation_id == "offline-attempt-1"
+    assert outcome.pending_operation_id is None
+    assert outcome.claim_real_completion is False
+    assert not loop.completed
+    assert game.dispatched == []
+    assert game.pending_attempt == (
+        "offline-attempt-1" if malformation == "retained_attempt"
+        else None
+    )
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert host.pending is None and host.events == []
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    new_interest = Interest("STAY")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, new_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert new_interest.calls == 0
