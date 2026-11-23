@@ -3,7 +3,7 @@ from dataclasses import replace
 
 import pytest
 
-from reference.sunny_gameplay_slice import FakeGame
+from reference.sunny_gameplay_slice import FakeGame, OfflineController
 from reference.sunny_host_stop_fake import FakeHostWaterFence
 from reference.sunny_mixed_daytime_g0 import FakeMixedDaytimeLoop
 from reference.sunny_water_permission_g0 import (
@@ -2712,11 +2712,20 @@ def test_outer_water_wrapper_never_retires_valid_nested_second_tile():
 @pytest.mark.parametrize("bounded", [False, True])
 @pytest.mark.parametrize("malformed_receipt", ["fake-success", 1, object()])
 def test_chair_truthy_non_true_finalizer_never_verifies_or_publishes(
-        bounded, malformed_receipt):
-    """R15 finding 1: L2 truthiness cannot accept a fake finalizer value."""
+        bounded, malformed_receipt, monkeypatch):
+    """R15 finding 1: L2 MUST return UNKNOWN, not just mixed override."""
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     finalizer_calls = []
     publisher_calls = []
+    l2_verdicts = []
+    raw_l2_step = OfflineController.step
+
+    def capture_l2_verdict(controller):
+        decision = raw_l2_step(controller)
+        l2_verdicts.append(decision.verdict)
+        return decision
+
+    monkeypatch.setattr(OfflineController, "step", capture_l2_verdict)
 
     def fake_finalizer(attempt):
         finalizer_calls.append(attempt)
@@ -2738,6 +2747,7 @@ def test_chair_truthy_non_true_finalizer_never_verifies_or_publishes(
     else:
         result = loop.step()
     assert finalizer_calls == ["offline-attempt-1"]
+    assert l2_verdicts == ["UNKNOWN"]
     assert result.status == "UNKNOWN_UNVERIFIED_CHAIR_FINALIZATION"
     assert result.choice == "MOVE_TO_CHAIR"
     assert result.operation_id == "offline-attempt-1"
@@ -2764,12 +2774,23 @@ def test_chair_truthy_non_true_finalizer_never_verifies_or_publishes(
 
 
 @pytest.mark.parametrize("bounded", [False, True])
-def test_chair_dispatch_exception_cleared_attempt_still_quarantines(bounded):
-    """R15 finding 2: post-effect dispatch exception cannot clear the fence."""
+def test_chair_dispatch_exception_cleared_attempt_still_quarantines(
+        bounded, monkeypatch):
+    """R15 finding 2: require real exception AND L2 UNKNOWN branch."""
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     raw_dispatch = game.dispatch
     dispatch_receipts = []
+    dispatch_exceptions = []
+    l2_verdicts = []
     publisher_calls = []
+    raw_l2_step = OfflineController.step
+
+    def capture_l2_verdict(controller):
+        decision = raw_l2_step(controller)
+        l2_verdicts.append(decision.verdict)
+        return decision
+
+    monkeypatch.setattr(OfflineController, "step", capture_l2_verdict)
 
     def dispatch_then_lose_attempt_and_raise(action, expected, attempt):
         receipt = raw_dispatch(action, expected, attempt)
@@ -2779,7 +2800,16 @@ def test_chair_dispatch_exception_cleared_attempt_still_quarantines(bounded):
         game.pending_attempt = None
         raise RuntimeError("dispatch raised after fake chair movement")
 
-    game.dispatch = dispatch_then_lose_attempt_and_raise
+    def observe_dispatch_exception(action, expected, attempt):
+        try:
+            return dispatch_then_lose_attempt_and_raise(
+                action, expected, attempt
+            )
+        except RuntimeError as exc:
+            dispatch_exceptions.append(str(exc))
+            raise
+
+    game.dispatch = observe_dispatch_exception
     if bounded:
         def unexpected_publisher(*_args):
             publisher_calls.append(True)
@@ -2792,6 +2822,10 @@ def test_chair_dispatch_exception_cleared_attempt_still_quarantines(bounded):
     else:
         result = loop.step()
     assert dispatch_receipts == [("offline-attempt-1", "ack")]
+    assert dispatch_exceptions == [
+        "dispatch raised after fake chair movement"
+    ]
+    assert l2_verdicts == ["UNKNOWN"]
     assert result.status == "UNKNOWN"
     assert result.choice == "MOVE_TO_CHAIR"
     assert result.operation_id == "offline-attempt-1"
