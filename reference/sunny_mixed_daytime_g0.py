@@ -258,6 +258,9 @@ class _HostGatedChairWorld:
                     or before != self._before
                     or self._game.chair_tile != self._pinned_target
                     or type(self._game.chair_tile) is not tuple
+                    or len(self._game.chair_tile) != 2
+                    or any(type(v) is not int
+                           for v in self._game.chair_tile)
                     or type(self._game.pending_attempt) is not str
                     or self._game.pending_attempt != attempt
                     or attempt not in self._game.seen_attempts
@@ -274,6 +277,8 @@ class _HostGatedChairWorld:
                 and after == before
                 and self._game.chair_tile == self._pinned_target
                 and type(self._game.chair_tile) is tuple
+                and len(self._game.chair_tile) == 2
+                and all(type(v) is int for v in self._game.chair_tile)
                 and after_rows == before_rows
                 and not witnessed_dispatch
                 and not any(row[0] == attempt for row in after_rows)
