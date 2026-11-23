@@ -2226,6 +2226,7 @@ def test_chair_finalization_retains_verified_chair_and_nested_pending_water(boun
     world.stewardship = replace(world.stewardship, tile=(7, 5))
     raw_finish = game.finish_observed_action
     finish_calls = []
+    normal_callback_returned = []
     nested_results = []
     nested_interest = Interest("WATER")
     publisher_calls = []
@@ -2239,6 +2240,7 @@ def test_chair_finalization_retains_verified_chair_and_nested_pending_water(boun
         nested_results.append(FakeMixedDaytimeLoop(
             game, host, world, nested_interest, weather="sunny"
         ).step())
+        normal_callback_returned.append(True)
         return receipt
 
     game.finish_observed_action = finalize_then_nested_water
@@ -2257,6 +2259,8 @@ def test_chair_finalization_retains_verified_chair_and_nested_pending_water(boun
         outer = loop.step()
     # All assertions outside finalization callback (L2 may catch failures).
     assert finish_calls == [("offline-attempt-1", True)]
+    assert normal_callback_returned == [True]
+    assert getattr(game, "_fake_mixed_quarantined", False) is False
     assert len(nested_results) == 1
     assert nested_results[0].status == "UNKNOWN_PENDING"
     assert nested_results[0].choice == "WATER"
@@ -2307,19 +2311,21 @@ def test_chair_finalization_exception_after_real_completion_quarantines(bounded)
 
         trace = loop.run_bounded(2, after_verified=unexpected_publisher)
         assert [r.status for r in trace] == [
-            "VERIFIED_FAKE", "BLOCKED_CHAIR_FINALIZATION_CALLBACK"
+            "UNKNOWN_UNVERIFIED_CHAIR_FINALIZATION"
         ]
         outer = trace[0]
-        assert trace[1].operation_id == outer.operation_id
         assert not publishers
     else:
         outer = loop.step()
     assert finalizations == [("offline-attempt-1", True)]
-    assert outer.status == "VERIFIED_FAKE"
+    # The raw fake finalizer DID run, but the adapter cannot independently
+    # certify operation-bound finalization after a throwing callback. Safe
+    # G0 behavior is UNKNOWN + quarantine, NEVER invented VERIFIED_FAKE.
+    assert outer.status == "UNKNOWN_UNVERIFIED_CHAIR_FINALIZATION"
     assert outer.operation_id == finalizations[0][0]
     assert outer.pending_operation_id is None
-    assert outer.post_verification_block_status == "BLOCKED_CHAIR_FINALIZATION_CALLBACK"
-    assert "MOVE_TO_CHAIR" in loop.completed
+    assert outer.post_verification_block_status is None
+    assert "MOVE_TO_CHAIR" not in loop.completed
     assert game.dispatched == [("offline-attempt-1", "MOVE_TO_CHAIR", "p2")]
     assert game.sunny_tile == (7, 4) and game.pending_attempt is None
     assert getattr(game, "_fake_mixed_quarantined", False) is True
@@ -2350,6 +2356,7 @@ def test_confirmed_water_then_callback_raises_keeps_operation_matched_receipt(
     nested_results = []
     nested_interest = Interest("MOVE_TO_CHAIR")
     publisher_calls = []
+    observed_callback_exceptions = []
 
     def real_confirm_then_raise(operation):
         receipt = raw_confirm(operation)
@@ -2363,7 +2370,16 @@ def test_confirmed_water_then_callback_raises_keeps_operation_matched_receipt(
             ).step())
         raise RuntimeError("callback raised AFTER fake Host confirmation")
 
-    host.confirm_fake_observation = real_confirm_then_raise
+    def observe_exception_from_confirm(operation):
+        # A mutation that changes the intended raise into a normal return
+        # MUST fail the regression even when the final trace is identical.
+        try:
+            return real_confirm_then_raise(operation)
+        except RuntimeError as exc:
+            observed_callback_exceptions.append(str(exc))
+            raise
+
+    host.confirm_fake_observation = observe_exception_from_confirm
     if bounded:
         def publisher(*_args):
             publisher_calls.append(True)
@@ -2381,6 +2397,9 @@ def test_confirmed_water_then_callback_raises_keeps_operation_matched_receipt(
     else:
         result = loop.step()
 
+    assert observed_callback_exceptions == [
+        "callback raised AFTER fake Host confirmation"
+    ]
     assert confirmation and len(confirmation) == 1
     assert confirmation[0][0] == "FAKE_VERIFIED"
     assert result.status == "FAKE_WATER_VERIFIED"
