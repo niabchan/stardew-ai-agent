@@ -3214,3 +3214,155 @@ def test_host_stop_after_fake_chair_finalization_skips_publisher():
     ).step()
     assert fresh.status == "BLOCKED_STOP"
     assert later_interest.calls == 0
+
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("cleanup_exit", ["return", "raise"])
+@pytest.mark.parametrize("delivery", ["ack", "ack_no_effect"])
+def test_chair_rejection_cleanup_effect_must_not_be_clean_pre_effect_denial(
+        bounded, cleanup_exit, delivery, monkeypatch):
+    """R17 review: cleanup itself can dispatch an effect then clear reservation.
+
+    The original dispatch returns a truthful pre-effect rejection. Only the
+    later injectable finish_rejected applies a real FakeGame dispatch; L2
+    otherwise trusts its earlier denial and blindly retires this attempt.
+    The fake effect ROW matters even for ack_no_effect with unchanged tile.
+    """
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",), delivery=delivery
+    )
+    original_reject = game.finish_rejected
+    l2_step = OfflineController.step
+    cleanup_calls = []
+    l2_outcomes = []
+    publisher_calls = []
+
+    def capture_actual_l2_outcome(controller):
+        try:
+            outcome = l2_step(controller)
+        except RuntimeError:
+            l2_outcomes.append("EXCEPTION:RuntimeError")
+            raise
+        l2_outcomes.append(outcome.verdict)
+        return outcome
+
+    monkeypatch.setattr(OfflineController, "step", capture_actual_l2_outcome)
+
+    def pre_effect_rejection(_action, _expected, _attempt):
+        assert game.pending_attempt == "offline-attempt-1"
+        assert game.dispatched == []
+        return "rejected_before_effect"
+
+    def cleanup_applies_effect_then_releases(attempt):
+        assert attempt == "offline-attempt-1"
+        assert game.pending_attempt == attempt
+        # Bypass the injected pre-effect-denial callback to reproduce the
+        # authoritative FakeGame movement WHILE the old attempt is live.
+        original_reading = game.observe()
+        effect = FakeGame.dispatch(
+            game, "MOVE_TO_CHAIR", original_reading, attempt
+        )
+        released = original_reject(attempt)
+        cleanup_calls.append((attempt, effect, released))
+        if cleanup_exit == "raise":
+            raise RuntimeError("rejection cleanup failed after fake effect")
+        return released
+
+    game.dispatch = pre_effect_rejection
+    game.finish_rejected = cleanup_applies_effect_then_releases
+    if bounded:
+        def unexpected_publisher(*_args):
+            publisher_calls.append(True)
+
+        trace = loop.run_bounded(2, after_verified=unexpected_publisher)
+        assert [r.status for r in trace] == ["UNKNOWN"]
+        outcome = trace[0]
+        assert publisher_calls == []
+    else:
+        outcome = loop.step()
+    assert cleanup_calls == [("offline-attempt-1", "ack", True)]
+    assert l2_outcomes == [
+        "BLOCKED_STALE_OR_DENIED" if cleanup_exit == "return"
+        else "EXCEPTION:RuntimeError"
+    ]
+    assert outcome.status == "UNKNOWN"
+    assert outcome.choice == "MOVE_TO_CHAIR"
+    assert outcome.operation_id == "offline-attempt-1"
+    assert outcome.pending_operation_id is None
+    assert outcome.claim_real_completion is False
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert game.pending_attempt is None
+    assert game.dispatched == [(
+        "offline-attempt-1", "MOVE_TO_CHAIR", "p2"
+    )]
+    assert game.sunny_tile == (
+        game.chair_tile if delivery == "ack" else (4, 4)
+    )
+    assert host.pending is None and host.events == []
+    assert interest.calls == 1
+
+    # Without post-cleanup reconciliation, the old effect row remains but a
+    # new coordinator at a higher revision would choose STAY again.
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    fresh_interest = Interest("STAY")
+    subsequent = FakeMixedDaytimeLoop(
+        game, host, world, fresh_interest, weather="sunny"
+    ).step()
+    assert subsequent.status == "BLOCKED_UNRESOLVED"
+    assert subsequent.operation_id is None
+    assert fresh_interest.calls == 0
+
+
+def test_normal_chair_pre_effect_rejection_still_cleans_up_without_quarantine(
+        monkeypatch):
+    """R18 positive control: no movement/effect row allows truthful cleanup."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    raw_reject = game.finish_rejected
+    raw_l2_step = OfflineController.step
+    rejected = []
+    actual_l2 = []
+
+    def capture_l2(controller):
+        verdict = raw_l2_step(controller)
+        actual_l2.append(verdict.verdict)
+        return verdict
+
+    def genuine_rejection(_action, _expected, attempt):
+        assert game.pending_attempt == attempt
+        assert game.dispatched == []
+        return "rejected_before_effect"
+
+    def clean_rejection(attempt):
+        receipt = raw_reject(attempt)
+        rejected.append((attempt, receipt))
+        return receipt
+
+    monkeypatch.setattr(OfflineController, "step", capture_l2)
+    game.dispatch = genuine_rejection
+    game.finish_rejected = clean_rejection
+    result = loop.step()
+    assert rejected == [("offline-attempt-1", True)]
+    assert actual_l2 == ["BLOCKED_STALE_OR_DENIED"]
+    assert result.status == "BLOCKED_STALE_OR_DENIED"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.claim_real_completion is False
+    assert game.dispatched == []
+    assert game.pending_attempt is None
+    assert game.sunny_tile == (4, 4)
+    assert not loop.completed
+    assert getattr(game, "_fake_mixed_quarantined", False) is False
+    assert host.pending is None and host.events == []
+
+    # After an actual known rejection (no fake effect), a fresh coordinator
+    # is permitted to choose STAY, unlike a cleanup that performed movement.
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    fresh_interest = Interest("STAY")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, fresh_interest, weather="sunny"
+    ).step()
+    assert fresh.status == "STAY"
+    assert fresh_interest.calls == 1
