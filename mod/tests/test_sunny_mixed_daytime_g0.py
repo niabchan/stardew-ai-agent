@@ -2441,3 +2441,268 @@ def test_confirmed_water_then_callback_raises_keeps_operation_matched_receipt(
     else:
         assert fresh.status == "STAY"
         assert later_interest.calls == 1
+
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_forged_water_verified_callback_cannot_confirm_host_pending(bounded):
+    """R14 review: callback string is not an operation-matched Host receipt."""
+    game, host, world, interest, loop = setup(choices=("WATER",))
+    callback_calls = []
+
+    def lie_about_host_confirmation(op):
+        callback_calls.append(op.operation_id)
+        # Deliberately do NOT call the genuine fake Host finalizer.
+        return "FAKE_VERIFIED"
+
+    host.confirm_fake_observation = lie_about_host_confirmation
+    if bounded:
+        trace = loop.run_bounded(1)
+        assert len(trace) == 1
+        result = trace[0]
+    else:
+        result = loop.step()
+    assert len(callback_calls) == 1
+    assert result.status == "UNKNOWN_PENDING"
+    assert result.choice == "WATER"
+    assert result.operation_id == callback_calls[0]
+    assert host.pending is not None
+    assert result.operation_id == host.pending.operation_id
+    assert result.pending_operation_id is None
+    assert result.claim_real_completion is False
+    assert host.events.count("FAKE_EFFECT") == 1
+    assert host.events.count("FAKE_OBSERVED_AND_RESOLVED") == 0
+    assert world.ledger.attempted_starts == 1
+    assert not getattr(game, "_fake_mixed_quarantined", False)
+    assert interest.calls == 1
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    fresh_interest = Interest("STAY")
+    fresh_result = FakeMixedDaytimeLoop(
+        game, host, world, fresh_interest, weather="sunny"
+    ).step()
+    assert fresh_result.status == "BLOCKED_UNRESOLVED"
+    assert fresh_result.operation_id == result.operation_id
+    assert fresh_interest.calls == 0
+
+
+@pytest.mark.parametrize("finalizer_mode", [
+    "clear_without_finalizer", "finalize_then_rotate_load"
+])
+@pytest.mark.parametrize("bounded", [False, True])
+def test_exceptional_chair_finalizer_without_independent_receipt_never_verifies(
+        finalizer_mode, bounded):
+    """R14 review: cleared pending/tile is not operation-bound finalization."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original_finish = game.finish_observed_action
+    callback_records = []
+    publisher_called = []
+
+    def finish_then_raise(attempt):
+        if finalizer_mode == "clear_without_finalizer":
+            # Bypass original finalizer and erase the only pending record.
+            game.pending_attempt = None
+            callback_records.append((attempt, "manually-cleared"))
+        else:
+            done = original_finish(attempt)
+            callback_records.append((attempt, done))
+            host.rotate_epoch()
+            game.epoch = "fake-load-2"
+            game.owner = "different-fake-owner"
+        raise RuntimeError("injected finalizer exception")
+
+    game.finish_observed_action = finish_then_raise
+    if bounded:
+        def unexpected_publisher(*_args):
+            publisher_called.append(True)
+
+        trace = loop.run_bounded(2, after_verified=unexpected_publisher)
+        assert [r.status for r in trace] == [
+            "UNKNOWN_UNVERIFIED_CHAIR_FINALIZATION"
+        ]
+        result = trace[0]
+        assert publisher_called == []
+    else:
+        result = loop.step()
+    assert callback_records == [(
+        "offline-attempt-1",
+        "manually-cleared" if finalizer_mode == "clear_without_finalizer" else True
+    )]
+    assert result.status == "UNKNOWN_UNVERIFIED_CHAIR_FINALIZATION"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.pending_operation_id is None
+    assert result.claim_real_completion is False
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert game.pending_attempt is None
+    assert game.dispatched == [("offline-attempt-1", "MOVE_TO_CHAIR", "p2")]
+    assert game.sunny_tile == game.chair_tile
+    assert interest.calls == 1
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    fresh_interest = Interest("STAY")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, fresh_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert fresh_interest.calls == 0
+
+
+@pytest.mark.parametrize("finalizer_exit", ["return", "raise"])
+def test_chair_finalizer_latches_p1_revocation_on_both_exits(finalizer_exit):
+    """Higher inactive fake grant must survive restoring old fixture v1."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    initial = world.ledger.grant
+    original_finish = game.finish_observed_action
+    callback_outcomes = []
+
+    def finalize_with_revocation(attempt):
+        done = original_finish(attempt)
+        callback_outcomes.append((attempt, done))
+        world.ledger.grant = replace(
+            initial, active=False, grant_revision=2
+        )
+        if finalizer_exit == "raise":
+            raise RuntimeError("finalizer delivered revocation then raised")
+        return done
+
+    game.finish_observed_action = finalize_with_revocation
+    result = loop.step()
+    assert callback_outcomes == [("offline-attempt-1", True)]
+    assert result.status == (
+        "VERIFIED_FAKE" if finalizer_exit == "return"
+        else "UNKNOWN_UNVERIFIED_CHAIR_FINALIZATION"
+    )
+    assert getattr(game, "_fake_mixed_quarantined", False) is (
+        finalizer_exit == "raise"
+    )
+    assert ("MOVE_TO_CHAIR" in loop.completed) is (
+        finalizer_exit == "return"
+    )
+    assert result.operation_id == "offline-attempt-1"
+    assert host._fake_water_permission_store.accounts[initial.grant_id].revoked
+    assert host._fake_water_permission_store.accounts[
+        initial.grant_id
+    ].grant.grant_revision == 2
+    # The inactive notification is gone from the fixture, but Host's
+    # revocation tombstone cannot be undone by the old active revision.
+    world.ledger.grant = initial
+    assert FakePermissionedWaterBridge(host).provision_standing_grant(
+        initial
+    ) == "DENIED_STALE_GRANT_REVISION"
+    assert host.events.count("FAKE_EFFECT") == 0
+
+
+@pytest.mark.parametrize("cleanup_exit", ["return", "raise"])
+def test_chair_rejection_cleanup_latches_p1_revocation(cleanup_exit):
+    """Also ingest revocations from finish_rejected, not just finalization."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    initial = world.ledger.grant
+    original_rejected = game.finish_rejected
+    cleanup_calls = []
+
+    def synthetic_pre_effect_denial(_action, _expected, _attempt):
+        return "rejected_before_effect"
+
+    def reject_with_revocation(attempt):
+        cleared = original_rejected(attempt)
+        cleanup_calls.append((attempt, cleared))
+        world.ledger.grant = replace(
+            initial, active=False, grant_revision=2
+        )
+        if cleanup_exit == "raise":
+            raise RuntimeError("cleanup delivered revocation then raised")
+        return cleared
+
+    game.dispatch = synthetic_pre_effect_denial
+    game.finish_rejected = reject_with_revocation
+    outcome = loop.step()
+    assert cleanup_calls == [("offline-attempt-1", True)]
+    assert outcome.status == (
+        "BLOCKED_STALE_OR_DENIED" if cleanup_exit == "return"
+        else "UNKNOWN_CHAIR_CALLBACK_EXCEPTION"
+    )
+    assert getattr(game, "_fake_mixed_quarantined", False) is (
+        cleanup_exit == "raise"
+    )
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert game.pending_attempt is None
+    assert game.dispatched == []
+    assert host.events == [] and host.pending is None
+    assert host._fake_water_permission_store.accounts[initial.grant_id].revoked
+    world.ledger.grant = initial
+    assert FakePermissionedWaterBridge(host).provision_standing_grant(
+        initial
+    ) == "DENIED_STALE_GRANT_REVISION"
+
+
+def test_outer_water_wrapper_never_retires_valid_nested_second_tile():
+    """R14 review: each installed Host.reserve wrapper owns ONLY its op ID."""
+    grant = replace(
+        FakeStandingWaterGrant(),
+        tiles=((4, 5), (5, 4)),
+        max_distinct_tiles=2,
+        max_attempted_starts=2,
+    )
+    game, host, world, interest, loop = setup(
+        grant=grant, choices=("WATER",)
+    )
+    original_confirm = host.confirm_fake_observation
+    nested_results = []
+    nested_interest = Interest("WATER")
+    outer_confirm = []
+    host_pending_after_nested = []
+
+    def confirm_first_then_nested_second_crop(op):
+        first_receipt = original_confirm(op)
+        outer_confirm.append((first_receipt, op.operation_id))
+        game.revision = 2
+        world.crop = replace(
+            world.crop, revision=2, tile=(5, 4),
+            crop_id="second-fake-crop"
+        )
+        world.stewardship = replace(
+            world.stewardship, tile=(5, 4),
+            crop_id="second-fake-crop"
+        )
+        # The outer mixed coordinator's pinned reserve wrapper remains on
+        # host.reserve here. This nested revision-2 WATER must be handled by
+        # its OWN wrapper, never retired by revision-1 outer evidence.
+        host.confirm_fake_observation = original_confirm
+        try:
+            nested_results.append(FakeMixedDaytimeLoop(
+                game, host, world, nested_interest, weather="sunny"
+            ).step())
+        finally:
+            host.confirm_fake_observation = confirm_first_then_nested_second_crop
+        host_pending_after_nested.append(host.pending)
+        return first_receipt
+
+    host.confirm_fake_observation = confirm_first_then_nested_second_crop
+    outer = loop.step()
+    assert outer_confirm and outer_confirm[0][0] == "FAKE_VERIFIED"
+    assert len(nested_results) == 1
+    assert nested_results[0].status == "FAKE_WATER_VERIFIED"
+    assert nested_results[0].operation_id is not None
+    assert nested_results[0].operation_id != outer_confirm[0][1]
+    assert host_pending_after_nested == [None]
+    assert host.pending is None
+    assert host.events.count("FAKE_EFFECT") == 2
+    assert host.events.count("FAKE_OBSERVED_AND_RESOLVED") == 2
+    assert host.events.count("FAKE_STALE_PRE_A_RESERVATION_RETIRED") == 0
+    assert host._fake_daytime_water_last_revision == 2
+    assert world.ledger.attempted_starts == 2
+    assert host._fake_water_permission_store.accounts[
+        grant.grant_id
+    ].attempted_starts == 2
+    assert len(host.used_ids) == 2
+    assert outer.operation_id == outer_confirm[0][1]
+    # The toy Host exposes only the LATEST operation's last_effect_evidence.
+    # Without the original operation's retained receipt, R15 cannot safely
+    # claim the outer one is verified merely from a callback string. Its
+    # conservative quarantine does not invalidate nested WATER success.
+    assert outer.status == "UNKNOWN_UNVERIFIED_WATER_RECEIPT"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert interest.calls == 1 and nested_interest.calls == 1
