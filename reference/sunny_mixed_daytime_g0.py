@@ -152,6 +152,31 @@ class _HostGatedChairWorld:
         )
         if not self._allowed(attempt):
             return "unknown_after_fake_host_change"
+        # Accepted L2 compares dispatch tokens with ordinary Python ==.
+        # Do NOT accept a str subclass, object or other fabricated response
+        # as an exact ack/rejection. Any ambiguous callback after dispatch
+        # admission is UNKNOWN, not a new authorization to retry.
+        if (type(result) is not str
+                or result not in ("ack", "lost_reply", "rejected_before_effect")):
+            return "unknown_after_fake_host_change"
+        matched = self._game.dispatched.count(
+            (attempt, "MOVE_TO_CHAIR", "p2")
+        )
+        if result == "rejected_before_effect":
+            # A callback may execute the genuine toy move, then lie that no
+            # effect happened. Never let L2 finish_rejected clear that
+            # reservation: an effect row or changed canonical Game scene
+            # makes the pre-effect denial contradictory.
+            canonical = FakeGame.observe(self._game)
+            if (matched != 0
+                    or not self._valid_observation(canonical)
+                    or canonical != expected):
+                return "unknown_after_fake_host_change"
+            return result
+        # An ACK without the exact in-memory fake dispatch evidence is not
+        # proof of effect; even if a callback fabricated an arrived tile.
+        if result == "ack" and matched != 1:
+            return "unknown_after_fake_host_change"
         return result
 
     def finish_observed_action(self, attempt):
@@ -815,8 +840,20 @@ class FakeMixedDaytimeLoop:
                 and any(row[0] == result.attempt
                         for row in self.game.dispatched)):
             self.game._fake_mixed_quarantined = True
-        # Otherwise follow the original L2/Host pending-ID semantics.
+        # A dispatched chair can be UNKNOWN while an independent Host WATER
+        # reservation is pending. Report the OUTER chair's attempted ID as
+        # UNKNOWN, and place the foreign unresolved ID in its own field.
+        # Replacing UNKNOWN with only the Host ID loses the attempted move.
         pending = self._pending_operation_id()
+        if (result.verdict == "UNKNOWN" and result.attempt is not None
+                and any(row[0] == result.attempt
+                        for row in self.game.dispatched)
+                and pending is not None and pending != result.attempt):
+            return FakeMixedDayResult(
+                "UNKNOWN", selected, choices, result.attempt,
+                pending_operation_id=pending
+            )
+        # Otherwise follow the original L2/Host pending-ID semantics.
         if pending is not None and pending != result.attempt:
             return FakeMixedDayResult(
                 "BLOCKED_UNRESOLVED", selected, choices, pending
@@ -858,6 +895,14 @@ class FakeMixedDaytimeLoop:
                 ))
                 break
             if result.status not in ("FAKE_WATER_VERIFIED", "VERIFIED_FAKE"):
+                break
+            # The fake Host may latch STOP *inside* a finalization callback,
+            # after the chair movement has been genuinely observed. Keep the
+            # verified fake receipt but never publish/choose another activity
+            # after that STOP (including on the last bounded decision).
+            post_step_gate = self._gate()
+            if post_step_gate is not None:
+                results.append(self._pending_aware_result(post_step_gate))
                 break
             if after_verified is not None:
                 try:
