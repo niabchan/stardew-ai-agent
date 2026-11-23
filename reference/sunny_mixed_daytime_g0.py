@@ -53,6 +53,11 @@ class _HostGatedChairWorld:
         self._started = False
         self._admitted_attempt = None
         self._finalization_callback_failed = False
+        # The accepted L2 calls finish_rejected AFTER dispatch returns its
+        # pre-effect denial. That cleanup is itself injectable and may apply
+        # a fake effect. Keep operation-bound evidence for post-L2 review.
+        self._rejection_cleanup_attempt = None
+        self._rejection_cleanup_contradicted = False
 
     def __getattr__(self, attr):
         return getattr(self._game, attr)
@@ -221,11 +226,39 @@ class _HostGatedChairWorld:
             self._ingest_revocation()
 
     def finish_rejected(self, attempt):
+        self._rejection_cleanup_attempt = attempt
+        before = FakeGame.observe(self._game)
+        before_rows = tuple(self._game.dispatched)
+        completed = None
         try:
-            return self._game.finish_rejected(attempt)
+            try:
+                completed = self._game.finish_rejected(attempt)
+            except Exception:
+                # A throwing cleanup can have applied a chair effect and
+                # erased the only reservation. Keep the attempted ID and
+                # quarantine; the outer mixed exception fence will report it.
+                self._rejection_cleanup_contradicted = True
+                self._game._fake_mixed_quarantined = True
+                raise
+            return completed
         finally:
-            # L2 rejection cleanup is also a synchronous user-supplied fake
-            # callback boundary, including after a prepare admission denial.
+            # Inspect the canonical Game and effect log *after* cleanup,
+            # not only before the dispatch callback claimed pre-effect
+            # rejection. The test callback may run genuine FakeGame.dispatch
+            # under the still-reserved attempt, then clear that reservation.
+            # Snapshot/row differences cannot be called a clean rejection.
+            after = FakeGame.observe(self._game)
+            after_rows = tuple(self._game.dispatched)
+            if (after != before or after_rows != before_rows
+                    or any(row[0] == attempt
+                           for row in self._game.dispatched)
+                    or (completed is not None and completed is not True)):
+                # A normal successful cleanup clears pending_attempt, which
+                # is not included in FakeGame.observe. The changes tested
+                # above are therefore only scene/effect-log violations.
+                self._rejection_cleanup_contradicted = True
+                self._game._fake_mixed_quarantined = True
+            # Revocation must be ingested even after an exceptional cleanup.
             self._ingest_revocation()
 
 
@@ -769,10 +802,19 @@ class FakeMixedDaytimeLoop:
             ).step()
         except Exception:
             # No uncontrolled exception may escape once an effect could
-            # have occurred. Without definite verified evidence, quarantine
-            # this synthetic shared Game and report any actual pending ID.
+            # have occurred. A rejected-cleanup callback can apply a move
+            # and throw after erasing its original attempt reservation.
+            # Keep its own attempted ID plus any other pending WATER ID.
             self.game._fake_mixed_quarantined = True
             pending = self._pending_operation_id()
+            if guarded_game._rejection_cleanup_contradicted:
+                attempt = guarded_game._rejection_cleanup_attempt
+                return FakeMixedDayResult(
+                    "UNKNOWN", selected, choices, attempt,
+                    pending_operation_id=(
+                        pending if pending != attempt else None
+                    )
+                )
             if pending is not None:
                 return FakeMixedDayResult(
                     "BLOCKED_UNRESOLVED", selected, choices, pending
@@ -784,6 +826,23 @@ class FakeMixedDaytimeLoop:
         # foreign WATER Host pending. Verify the pinned chair independently
         # BEFORE reconciling the pending ID; never discard a real fake chair
         # completion, and never mark it complete based on an L2 claim alone.
+        if (guarded_game._rejection_cleanup_contradicted
+                and result.verdict == "BLOCKED_STALE_OR_DENIED"):
+            # L2 already decided the dispatch was a clean pre-effect
+            # rejection, but its later injectable finish_rejected callback
+            # applied new movement/dispatch evidence or returned malformed
+            # cleanup proof. A false denial must not release this attempt.
+            # Even when the cleanup cleared pending, keep the original ID
+            # as UNKNOWN and quarantine before another coordinator starts.
+            self.game._fake_mixed_quarantined = True
+            attempt = result.attempt or guarded_game._rejection_cleanup_attempt
+            pending = self._pending_operation_id()
+            return FakeMixedDayResult(
+                "UNKNOWN", selected, choices, attempt,
+                pending_operation_id=(
+                    pending if pending != attempt else None
+                )
+            )
         if guarded_game._finalization_callback_failed:
             # Neither an exception nor a malformed/truthy fake finalizer
             # value proves operation-matched completion. Keep the OUTER chair
