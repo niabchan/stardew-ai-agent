@@ -2622,8 +2622,13 @@ def test_chair_rejection_cleanup_latches_p1_revocation(cleanup_exit):
     assert cleanup_calls == [("offline-attempt-1", True)]
     assert outcome.status == (
         "BLOCKED_STALE_OR_DENIED" if cleanup_exit == "return"
-        else "UNKNOWN_CHAIR_CALLBACK_EXCEPTION"
+        else "UNKNOWN"
     )
+    # A raising cleanup cannot prove that the attempt was safely retired.
+    # Preserve the original chair ID even after a callback has cleared
+    # pending, so the exact failed operation remains inspectable.
+    assert outcome.operation_id == "offline-attempt-1"
+    assert outcome.claim_real_completion is False
     assert getattr(game, "_fake_mixed_quarantined", False) is (
         cleanup_exit == "raise"
     )
