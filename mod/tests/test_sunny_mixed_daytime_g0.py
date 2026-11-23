@@ -2938,3 +2938,279 @@ def test_chair_exception_finalizer_also_reports_nested_pending_water(bounded):
     assert fresh.status == "BLOCKED_UNRESOLVED"
     assert fresh.operation_id == result.pending_operation_id
     assert fresh_interest.calls == 0
+
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("clear_attempt", [False, True])
+def test_chair_dispatch_denial_after_real_move_is_unknown_not_pre_effect(
+        bounded, clear_attempt, monkeypatch):
+    """R16 review: a post-effect rejection token must NEVER retire the attempt."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    raw_dispatch = game.dispatch
+    dispatch_receipts = []
+    l2_verdicts = []
+    publisher_calls = []
+    raw_l2_step = OfflineController.step
+
+    def capture_l2_verdict(controller):
+        outcome = raw_l2_step(controller)
+        l2_verdicts.append(outcome.verdict)
+        return outcome
+
+    monkeypatch.setattr(OfflineController, "step", capture_l2_verdict)
+
+    def effect_then_lie_rejected(action, expected, attempt):
+        receipt = raw_dispatch(action, expected, attempt)
+        dispatch_receipts.append((attempt, receipt))
+        if clear_attempt:
+            game.pending_attempt = None
+        return "rejected_before_effect"
+
+    game.dispatch = effect_then_lie_rejected
+    if bounded:
+        def unexpected_publisher(*_args):
+            publisher_calls.append(True)
+
+        trace = loop.run_bounded(2, after_verified=unexpected_publisher)
+        assert [r.status for r in trace] == ["UNKNOWN"]
+        result = trace[0]
+        assert publisher_calls == []
+    else:
+        result = loop.step()
+    assert dispatch_receipts == [("offline-attempt-1", "ack")]
+    assert l2_verdicts == ["UNKNOWN"]
+    assert result.status == "UNKNOWN"
+    assert result.choice == "MOVE_TO_CHAIR"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.claim_real_completion is False
+    assert result.pending_operation_id is None
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert game.sunny_tile == game.chair_tile
+    assert game.dispatched == [("offline-attempt-1", "MOVE_TO_CHAIR", "p2")]
+    assert game.pending_attempt == (
+        None if clear_attempt else "offline-attempt-1"
+    )
+    assert getattr(game, "_fake_mixed_quarantined", False) is clear_attempt
+    assert host.pending is None and host.events == []
+    assert interest.calls == 1
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    later_interest = Interest("STAY")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, later_interest, weather="sunny"
+    ).step()
+    assert fresh.status == "BLOCKED_UNRESOLVED"
+    assert fresh.operation_id == (
+        "offline-attempt-1" if not clear_attempt else None
+    )
+    assert later_interest.calls == 0
+
+
+@pytest.mark.parametrize("token_kind", ["ack_subclass", "rejection_subclass"])
+@pytest.mark.parametrize("bounded", [False, True])
+def test_chair_dispatch_str_subclass_is_not_a_trusted_literal(
+        token_kind, bounded, monkeypatch):
+    """R16 review: str subclasses mimicking ACK/rejection must not pass L2."""
+    class FakeStr(str):
+        pass
+
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    raw_dispatch = game.dispatch
+    raw_l2_step = OfflineController.step
+    l2_verdicts = []
+    publisher_calls = []
+    raw_receipts = []
+
+    def capture_l2_verdict(controller):
+        outcome = raw_l2_step(controller)
+        l2_verdicts.append(outcome.verdict)
+        return outcome
+
+    monkeypatch.setattr(OfflineController, "step", capture_l2_verdict)
+
+    def dispatch_return_subclass(action, expected, attempt):
+        if token_kind == "ack_subclass":
+            raw_receipts.append(raw_dispatch(action, expected, attempt))
+            return FakeStr("ack")
+        return FakeStr("rejected_before_effect")
+
+    game.dispatch = dispatch_return_subclass
+    if bounded:
+        def publisher(*_args):
+            publisher_calls.append(True)
+
+        trace = loop.run_bounded(1, after_verified=publisher)
+        assert [r.status for r in trace] == ["UNKNOWN"]
+        result = trace[0]
+        assert publisher_calls == []
+    else:
+        result = loop.step()
+    assert l2_verdicts == ["UNKNOWN"]
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.claim_real_completion is False
+    assert not loop.completed
+    assert game.pending_attempt == result.operation_id
+    assert len(game.dispatched) == (1 if token_kind == "ack_subclass" else 0)
+    if token_kind == "ack_subclass":
+        assert raw_receipts == ["ack"]
+        assert game.sunny_tile == game.chair_tile
+    else:
+        assert raw_receipts == []
+        assert game.sunny_tile != game.chair_tile
+    assert host.pending is None and host.events == []
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    future_interest = Interest("STAY")
+    future = FakeMixedDaytimeLoop(
+        game, host, world, future_interest, weather="sunny"
+    ).step()
+    assert future.status == "BLOCKED_UNRESOLVED"
+    assert future.operation_id == result.operation_id
+    assert future_interest.calls == 0
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_dispatch_exception_with_nested_water_preserves_both_operation_ids(
+        bounded, monkeypatch):
+    """R16 review: UNKNOWN chair and pending WATER are separate evidence."""
+    grant = replace(FakeStandingWaterGrant(), tiles=((7, 5),))
+    game, host, world, interest, loop = setup(
+        grant=grant, choices=("MOVE_TO_CHAIR",)
+    )
+    world.crop = replace(world.crop, tile=(7, 5))
+    world.stewardship = replace(world.stewardship, tile=(7, 5))
+    raw_dispatch = game.dispatch
+    raw_l2_step = OfflineController.step
+    dispatch_receipts = []
+    dispatch_exceptions = []
+    l2_verdicts = []
+    nested_results = []
+    publisher_calls = []
+    nested_interest = Interest("WATER")
+
+    def capture_l2_verdict(controller):
+        outcome = raw_l2_step(controller)
+        l2_verdicts.append(outcome.verdict)
+        return outcome
+
+    monkeypatch.setattr(OfflineController, "step", capture_l2_verdict)
+
+    def move_clear_pending_then_water_then_raise(action, expected, attempt):
+        receipt = raw_dispatch(action, expected, attempt)
+        dispatch_receipts.append((attempt, receipt))
+        game.pending_attempt = None
+        game.revision = 3
+        world.crop = replace(world.crop, revision=3)
+        host.confirm_fake_observation = lambda _op: "UNKNOWN_PENDING"
+        nested_results.append(
+            FakeMixedDaytimeLoop(
+                game, host, world, nested_interest, weather="sunny"
+            ).step()
+        )
+        raise RuntimeError("dispatch failed after nested pending WATER")
+
+    def observe_dispatch_exception(action, expected, attempt):
+        try:
+            return move_clear_pending_then_water_then_raise(
+                action, expected, attempt
+            )
+        except RuntimeError as exc:
+            dispatch_exceptions.append(str(exc))
+            raise
+
+    game.dispatch = observe_dispatch_exception
+    if bounded:
+        def publisher(*_args):
+            publisher_calls.append(True)
+
+        trace = loop.run_bounded(1, after_verified=publisher)
+        assert [r.status for r in trace] == [
+            "UNKNOWN", "BLOCKED_UNRESOLVED"
+        ]
+        outcome = trace[0]
+        assert trace[1].operation_id == outcome.pending_operation_id
+        assert publisher_calls == []
+    else:
+        outcome = loop.step()
+    assert dispatch_receipts == [("offline-attempt-1", "ack")]
+    assert dispatch_exceptions == [
+        "dispatch failed after nested pending WATER"
+    ]
+    assert l2_verdicts == ["UNKNOWN"]
+    assert len(nested_results) == 1
+    assert nested_results[0].status == "UNKNOWN_PENDING"
+    assert nested_results[0].operation_id is not None
+    assert outcome.status == "UNKNOWN"
+    assert outcome.choice == "MOVE_TO_CHAIR"
+    assert outcome.operation_id == "offline-attempt-1"
+    assert outcome.pending_operation_id == nested_results[0].operation_id
+    assert outcome.pending_operation_id == host.pending.operation_id
+    assert outcome.pending_operation_id != outcome.operation_id
+    assert outcome.claim_real_completion is False
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert game.pending_attempt is None
+    assert game.dispatched == [
+        ("offline-attempt-1", "MOVE_TO_CHAIR", "p2")
+    ]
+    assert game.sunny_tile == game.chair_tile
+    assert not loop.completed
+    assert host.events.count("FAKE_EFFECT") == 1
+    assert host.events.count("FAKE_OBSERVED_AND_RESOLVED") == 0
+    assert world.ledger.attempted_starts == 1
+    assert interest.calls == 1 and nested_interest.calls == 1
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    future_interest = Interest("STAY")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, future_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert later.operation_id == outcome.pending_operation_id
+    assert future_interest.calls == 0
+
+
+def test_host_stop_after_fake_chair_finalization_skips_publisher():
+    """R16 adjacent STOP probe: preserve receipt but do not publish post-STOP."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original_finish = game.finish_observed_action
+    finished = []
+    publishers = []
+
+    def finalize_then_stop(attempt):
+        result = original_finish(attempt)
+        finished.append((attempt, result))
+        host.latch_stop()
+        return result
+
+    def publisher(*_args):
+        publishers.append(True)
+
+    game.finish_observed_action = finalize_then_stop
+    results = loop.run_bounded(1, after_verified=publisher)
+    assert finished == [("offline-attempt-1", True)]
+    assert [r.status for r in results] == [
+        "VERIFIED_FAKE", "BLOCKED_STOP"
+    ]
+    assert results[0].operation_id == "offline-attempt-1"
+    assert publishers == []
+    assert "MOVE_TO_CHAIR" in loop.completed
+    assert host.stopped is True
+    assert host.events.count("STOP_LATCHED") == 1
+    assert game.pending_attempt is None
+    assert game.sunny_tile == game.chair_tile
+    assert len(game.dispatched) == 1
+    assert interest.calls == 1
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    later_interest = Interest("STAY")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, later_interest, weather="sunny"
+    ).step()
+    assert fresh.status == "BLOCKED_STOP"
+    assert later_interest.calls == 0
