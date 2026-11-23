@@ -178,10 +178,18 @@ class _HostGatedChairWorld:
                 self._finalization_callback_failed = True
                 self._game._fake_mixed_quarantined = True
                 return False
-            if completed is not True and self._game.pending_attempt is None:
-                # Even a non-throwing callback may clear pending and lie.
-                self._game._fake_mixed_quarantined = True
-            return completed
+            # The parent L2 uses Python truthiness, not `is True`. Never
+            # forward a string/int/object standing in for the exact boolean
+            # finalization receipt. A false or malformed result after the
+            # attempted reservation VANISHED is also unknown, not a clean
+            # rejection: quarantine the shared Game before anyone can retry.
+            if completed is not True:
+                if (completed is not False
+                        or self._game.pending_attempt is None):
+                    self._finalization_callback_failed = True
+                    self._game._fake_mixed_quarantined = True
+                return False
+            return True
         finally:
             # A finalizer may publish an inactive P1 grant and then return or
             # throw. Ingest BEFORE a test later restores the old active grant.
@@ -752,13 +760,18 @@ class FakeMixedDaytimeLoop:
         # BEFORE reconciling the pending ID; never discard a real fake chair
         # completion, and never mark it complete based on an L2 claim alone.
         if guarded_game._finalization_callback_failed:
-            # Completion cannot be inferred from a cleared pending slot,
-            # dispatch row, tile or revision after an exceptional finalizer.
-            # The accepted FakeGame has no operation-matched finalize receipt.
+            # Neither an exception nor a malformed/truthy fake finalizer
+            # value proves operation-matched completion. Keep the OUTER chair
+            # attempted ID and report a DIFFERENT nested pending WATER/chair
+            # identity in its own field, so run_bounded can show both.
             self.game._fake_mixed_quarantined = True
+            pending = self._pending_operation_id()
             return FakeMixedDayResult(
                 "UNKNOWN_UNVERIFIED_CHAIR_FINALIZATION",
-                selected, choices, result.attempt
+                selected, choices, result.attempt,
+                pending_operation_id=(
+                    pending if pending != result.attempt else None
+                )
             )
         if result.verdict == "VERIFIED_FAKE":
             canonical = FakeGame.observe(self.game)
@@ -791,6 +804,17 @@ class FakeMixedDaytimeLoop:
                     pending if pending != result.attempt else None
                 ),
             )
+        # L2 catches dispatch exceptions and labels them UNKNOWN. An
+        # injected callback can first apply the chair effect and clear its
+        # pending marker before raising. Without an operation-bound finalizer
+        # receipt, that missing marker is NOT clearance to start another
+        # action. Quarantine even if the chair destination has not changed.
+        if (result.verdict == "UNKNOWN"
+                and result.attempt is not None
+                and self.game.pending_attempt is None
+                and any(row[0] == result.attempt
+                        for row in self.game.dispatched)):
+            self.game._fake_mixed_quarantined = True
         # Otherwise follow the original L2/Host pending-ID semantics.
         pending = self._pending_operation_id()
         if pending is not None and pending != result.attempt:
