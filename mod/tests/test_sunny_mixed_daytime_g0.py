@@ -2706,3 +2706,201 @@ def test_outer_water_wrapper_never_retires_valid_nested_second_tile():
     assert outer.status == "UNKNOWN_UNVERIFIED_WATER_RECEIPT"
     assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert interest.calls == 1 and nested_interest.calls == 1
+
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("malformed_receipt", ["fake-success", 1, object()])
+def test_chair_truthy_non_true_finalizer_never_verifies_or_publishes(
+        bounded, malformed_receipt):
+    """R15 finding 1: L2 truthiness cannot accept a fake finalizer value."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    finalizer_calls = []
+    publisher_calls = []
+
+    def fake_finalizer(attempt):
+        finalizer_calls.append(attempt)
+        # Deliberately release WITHOUT the real FakeGame finalizer.
+        game.pending_attempt = None
+        return malformed_receipt
+
+    game.finish_observed_action = fake_finalizer
+    if bounded:
+        def publisher(*_args):
+            publisher_calls.append(True)
+
+        trace = loop.run_bounded(max_decisions=2, after_verified=publisher)
+        assert [r.status for r in trace] == [
+            "UNKNOWN_UNVERIFIED_CHAIR_FINALIZATION"
+        ]
+        result = trace[0]
+        assert publisher_calls == []
+    else:
+        result = loop.step()
+    assert finalizer_calls == ["offline-attempt-1"]
+    assert result.status == "UNKNOWN_UNVERIFIED_CHAIR_FINALIZATION"
+    assert result.choice == "MOVE_TO_CHAIR"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.pending_operation_id is None
+    assert result.claim_real_completion is False
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert game.pending_attempt is None
+    assert game.dispatched == [
+        ("offline-attempt-1", "MOVE_TO_CHAIR", "p2")
+    ]
+    assert game.sunny_tile == game.chair_tile
+    assert interest.calls == 1
+    assert host.events == [] and host.pending is None
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    new_interest = Interest("STAY")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, new_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert new_interest.calls == 0
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_chair_dispatch_exception_cleared_attempt_still_quarantines(bounded):
+    """R15 finding 2: post-effect dispatch exception cannot clear the fence."""
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    raw_dispatch = game.dispatch
+    dispatch_receipts = []
+    publisher_calls = []
+
+    def dispatch_then_lose_attempt_and_raise(action, expected, attempt):
+        receipt = raw_dispatch(action, expected, attempt)
+        dispatch_receipts.append((attempt, receipt))
+        # The effect and dispatch row are real in the toy, but a callback
+        # unlawfully erases the only attempt reservation before failing.
+        game.pending_attempt = None
+        raise RuntimeError("dispatch raised after fake chair movement")
+
+    game.dispatch = dispatch_then_lose_attempt_and_raise
+    if bounded:
+        def unexpected_publisher(*_args):
+            publisher_calls.append(True)
+
+        trace = loop.run_bounded(max_decisions=2,
+                                 after_verified=unexpected_publisher)
+        assert [r.status for r in trace] == ["UNKNOWN"]
+        result = trace[0]
+        assert publisher_calls == []
+    else:
+        result = loop.step()
+    assert dispatch_receipts == [("offline-attempt-1", "ack")]
+    assert result.status == "UNKNOWN"
+    assert result.choice == "MOVE_TO_CHAIR"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.pending_operation_id is None
+    assert result.claim_real_completion is False
+    assert not loop.completed
+    assert game.dispatched == [("offline-attempt-1", "MOVE_TO_CHAIR", "p2")]
+    assert game.sunny_tile == game.chair_tile
+    assert game.pending_attempt is None
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert host.pending is None and host.events == []
+    assert interest.calls == 1
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    new_interest = Interest("STAY")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, new_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert new_interest.calls == 0
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_chair_exception_finalizer_also_reports_nested_pending_water(bounded):
+    """R15 finding 3: keep both unverified chair ID and foreign Host WATER ID."""
+    grant = replace(FakeStandingWaterGrant(), tiles=((7, 5),))
+    game, host, world, interest, loop = setup(
+        grant=grant, choices=("MOVE_TO_CHAIR",)
+    )
+    world.crop = replace(world.crop, tile=(7, 5))
+    world.stewardship = replace(world.stewardship, tile=(7, 5))
+    raw_finish = game.finish_observed_action
+    raw_confirm = host.confirm_fake_observation
+    finalized = []
+    nested_results = []
+    nested_interest = Interest("WATER")
+    publisher_calls = []
+    exception_observed = []
+
+    def pending_confirmation(_operation):
+        return "UNKNOWN_PENDING"
+
+    def finalize_nested_water_then_raise(attempt):
+        finalized.append((attempt, raw_finish(attempt)))
+        game.revision = 3
+        world.crop = replace(world.crop, revision=3)
+        host.confirm_fake_observation = pending_confirmation
+        nested_results.append(
+            FakeMixedDaytimeLoop(
+                game, host, world, nested_interest, weather="sunny"
+            ).step()
+        )
+        raise RuntimeError("chair finalizer raised after nested WATER")
+
+    def observe_finalizer_exception(attempt):
+        try:
+            return finalize_nested_water_then_raise(attempt)
+        except RuntimeError as exc:
+            exception_observed.append(str(exc))
+            raise
+
+    game.finish_observed_action = observe_finalizer_exception
+    if bounded:
+        def unwanted_publisher(*_args):
+            publisher_calls.append(True)
+
+        trace = loop.run_bounded(1, after_verified=unwanted_publisher)
+        assert [r.status for r in trace] == [
+            "UNKNOWN_UNVERIFIED_CHAIR_FINALIZATION",
+            "BLOCKED_UNRESOLVED",
+        ]
+        result = trace[0]
+        assert trace[1].operation_id == result.pending_operation_id
+        assert trace[1].claim_real_completion is False
+        assert publisher_calls == []
+    else:
+        result = loop.step()
+    assert finalized == [("offline-attempt-1", True)]
+    assert exception_observed == [
+        "chair finalizer raised after nested WATER"
+    ]
+    assert len(nested_results) == 1
+    assert nested_results[0].status == "UNKNOWN_PENDING"
+    assert nested_results[0].choice == "WATER"
+    assert result.status == "UNKNOWN_UNVERIFIED_CHAIR_FINALIZATION"
+    assert result.choice == "MOVE_TO_CHAIR"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.pending_operation_id == nested_results[0].operation_id
+    assert host.pending is not None
+    assert result.pending_operation_id == host.pending.operation_id
+    assert result.pending_operation_id != result.operation_id
+    assert not loop.completed
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert game.pending_attempt is None
+    assert game.sunny_tile == game.chair_tile
+    assert game.dispatched == [("offline-attempt-1", "MOVE_TO_CHAIR", "p2")]
+    assert host.events.count("FAKE_EFFECT") == 1
+    assert host.events.count("FAKE_OBSERVED_AND_RESOLVED") == 0
+    assert world.ledger.attempted_starts == 1
+    assert interest.calls == 1 and nested_interest.calls == 1
+    assert host.confirm_fake_observation is pending_confirmation
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    fresh_interest = Interest("STAY")
+    fresh = FakeMixedDaytimeLoop(
+        game, host, world, fresh_interest, weather="sunny"
+    ).step()
+    assert fresh.status == "BLOCKED_UNRESOLVED"
+    assert fresh.operation_id == result.pending_operation_id
+    assert fresh_interest.calls == 0
