@@ -41,7 +41,7 @@ class _HostGatedChairWorld:
     """
 
     def __init__(self, game, allowed, expected_observation,
-                 valid_observation, ingest_revocation):
+                 valid_observation, ingest_revocation, pinned_target):
         self._game = game
         # Preserve the original observer before the toy Game's own prepare/
         # dispatch calls are scoped through the validating adapter below.
@@ -50,6 +50,7 @@ class _HostGatedChairWorld:
         self._before = expected_observation
         self._valid_observation = valid_observation
         self._ingest_revocation = ingest_revocation
+        self._pinned_target = pinned_target
         self._started = False
         self._admitted_attempt = None
         self._finalization_callback_failed = False
@@ -226,40 +227,78 @@ class _HostGatedChairWorld:
             self._ingest_revocation()
 
     def finish_rejected(self, attempt):
+        # A cleanup callback can erase game.dispatched AFTER calling the
+        # authoritative FakeGame.dispatch. Capture that call in a closure
+        # OUTSIDE the editable fake Game fields before entering the callback.
+        # This temporary class hook is G0-only, synchronous and not a real
+        # thread-safe or tamper-proof dispatch journal.
         self._rejection_cleanup_attempt = attempt
-        before = FakeGame.observe(self._game)
-        before_rows = tuple(self._game.dispatched)
-        completed = None
+        self._rejection_cleanup_contradicted = True  # fail closed by default
+        original_dispatch = FakeGame.dispatch
+        witnessed_dispatch = []
+
+        def record_authoritative_dispatch(game, *args, **kwargs):
+            if game is self._game:
+                # Capture before the real method might append and a callback
+                # might erase the row, or even if the real dispatch raises.
+                witnessed_dispatch.append(args)
+            return original_dispatch(game, *args, **kwargs)
+
+        # Install before *any* cleanup evidence reads or user callback.
+        # Always restore in finally; nested adapters will restore the prior
+        # wrapper instead of clobbering an outer observer.
+        FakeGame.dispatch = record_authoritative_dispatch
         try:
-            try:
-                completed = self._game.finish_rejected(attempt)
-            except Exception:
-                # A throwing cleanup can have applied a chair effect and
-                # erased the only reservation. Keep the attempted ID and
-                # quarantine; the outer mixed exception fence will report it.
-                self._rejection_cleanup_contradicted = True
+            before = FakeGame.observe(self._game)
+            before_rows = tuple(self._game.dispatched)
+            # Compare ONLY strict, canonical fake observations. Dataclass
+            # equality alone accepts revision 1.0 as equal to 1.
+            if (not self._valid_observation(before)
+                    or not self._valid_observation(self._before)
+                    or before != self._before
+                    or self._game.chair_tile != self._pinned_target
+                    or type(self._game.chair_tile) is not tuple
+                    or type(self._game.pending_attempt) is not str
+                    or self._game.pending_attempt != attempt
+                    or attempt not in self._game.seen_attempts
+                    or any(row[0] == attempt for row in before_rows)):
                 self._game._fake_mixed_quarantined = True
-                raise
-            return completed
-        finally:
-            # Inspect the canonical Game and effect log *after* cleanup,
-            # not only before the dispatch callback claimed pre-effect
-            # rejection. The test callback may run genuine FakeGame.dispatch
-            # under the still-reserved attempt, then clear that reservation.
-            # Snapshot/row differences cannot be called a clean rejection.
+                return False
+            completed = self._game.finish_rejected(attempt)
             after = FakeGame.observe(self._game)
             after_rows = tuple(self._game.dispatched)
-            if (after != before or after_rows != before_rows
-                    or any(row[0] == attempt
-                           for row in self._game.dispatched)
-                    or (completed is not None and completed is not True)):
-                # A normal successful cleanup clears pending_attempt, which
-                # is not included in FakeGame.observe. The changes tested
-                # above are therefore only scene/effect-log violations.
-                self._rejection_cleanup_contradicted = True
-                self._game._fake_mixed_quarantined = True
-            # Revocation must be ingested even after an exceptional cleanup.
-            self._ingest_revocation()
+            clean = (
+                completed is True
+                and self._game.pending_attempt is None
+                and self._valid_observation(after)
+                and after == before
+                and self._game.chair_tile == self._pinned_target
+                and type(self._game.chair_tile) is tuple
+                and after_rows == before_rows
+                and not witnessed_dispatch
+                and not any(row[0] == attempt for row in after_rows)
+            )
+            if clean:
+                self._rejection_cleanup_contradicted = False
+                return True
+            self._game._fake_mixed_quarantined = True
+            return False
+        except Exception:
+            # Malformed/disappearing evidence is UNKNOWN under the saved chair
+            # operation ID, never a clean rejection. Never allow the exception
+            # to prevent independent Host P1 revocation ingestion below.
+            self._game._fake_mixed_quarantined = True
+            raise
+        finally:
+            FakeGame.dispatch = original_dispatch
+            try:
+                # This must run even if tuple(dispatched), row indexing or
+                # FakeGame.observe failed after the callback delivered a
+                # valid higher-revision inactive P1 grant.
+                self._ingest_revocation()
+            finally:
+                if self._rejection_cleanup_contradicted:
+                    self._game._fake_mixed_quarantined = True
 
 
 class FakeMixedDaytimeLoop:
@@ -793,6 +832,7 @@ class FakeMixedDaytimeLoop:
             observed,
             lambda snapshot: self._valid_chair_observation(snapshot, chair_target),
             lambda: self.watering._ingest_fixture_revocation(self.water_world),
+            chair_target,
         )
         try:
             result = OfflineController(
