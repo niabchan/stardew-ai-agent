@@ -134,7 +134,7 @@ class _HostGatedChairWorld:
         self._admitted_attempt = attempt
         if not self._allowed(attempt):
             # Nothing dispatched yet; explicitly retire the toy reservation.
-            self._game.finish_rejected(attempt)
+            self.finish_rejected(attempt)
             self._admitted_attempt = None
             return False
         return True
@@ -167,36 +167,33 @@ class _HostGatedChairWorld:
                 or self._game.revision <= self._before.revision):
             return False
         try:
-            completed = self._game.finish_observed_action(attempt)
-        except Exception:
-            # A test callback may call the *real* FakeGame finalizer, which
-            # clears the pending chair ID, THEN raise. L2 itself does not
-            # catch finalizer exceptions. Recover VERIFIED_FAKE only when the
-            # original operation has exact dispatch + post-move evidence;
-            # quarantine because arbitrary callback side effects are unknown.
-            self._game._fake_mixed_quarantined = True
-            canonical = FakeGame.observe(self._game)
-            if (self._started
-                    and self._game.pending_attempt is None
-                    and attempt in self._game.seen_attempts
-                    and self._game.dispatched.count((
-                        attempt, "MOVE_TO_CHAIR", "p2"
-                    )) == 1
-                    and self._valid_observation(canonical)
-                    and canonical.sunny_tile == self._game.chair_tile
-                    and canonical.revision > self._before.revision):
+            try:
+                completed = self._game.finish_observed_action(attempt)
+            except Exception:
+                # A callback can clear pending without ever calling the
+                # authoritative fake finalizer. Dispatch/tile/revision show
+                # movement, NOT operation-matched finalization. The accepted
+                # FakeGame has no durable completion record. Therefore NEVER
+                # convert any exceptional finalizer to VERIFIED_FAKE.
                 self._finalization_callback_failed = True
-                return True
-            # Fail closed: no proof that the finalizer resolved this attempt.
-            # Keep the original pending if it still exists, and never retry
-            # after a callback exception if it has disappeared.
-            return False
-        if completed is not True and self._game.pending_attempt is None:
-            self._game._fake_mixed_quarantined = True
-        return completed
+                self._game._fake_mixed_quarantined = True
+                return False
+            if completed is not True and self._game.pending_attempt is None:
+                # Even a non-throwing callback may clear pending and lie.
+                self._game._fake_mixed_quarantined = True
+            return completed
+        finally:
+            # A finalizer may publish an inactive P1 grant and then return or
+            # throw. Ingest BEFORE a test later restores the old active grant.
+            self._ingest_revocation()
 
     def finish_rejected(self, attempt):
-        return self._game.finish_rejected(attempt)
+        try:
+            return self._game.finish_rejected(attempt)
+        finally:
+            # L2 rejection cleanup is also a synchronous user-supplied fake
+            # callback boundary, including after a prepare admission denial.
+            self._ingest_revocation()
 
 
 class FakeMixedDaytimeLoop:
@@ -571,8 +568,17 @@ class FakeMixedDaytimeLoop:
             # confirm newer WATER in between. Fence that TOCTOU gap at
             # the toy mixed layer; do not modify the accepted parent bridge.
             raw_reserve = self.host.reserve
+            own_water_id = self.watering.base._snapshot_operation_id(
+                scene, crop
+            )
 
             def reserve_with_pinned_revision(operation):
+                # Nested coordinators share the fake Host and can encounter
+                # this installed wrapper as their own raw_reserve. Never
+                # apply OUTER revision/crop cleanup to another operation.
+                # The nested coordinator's own wrapper owns its validation.
+                if operation.operation_id != own_water_id:
+                    return raw_reserve(operation)
                 decision = raw_reserve(operation)
                 if decision != "B_LINEAGE_RESERVED":
                     return decision
@@ -640,17 +646,16 @@ class FakeMixedDaytimeLoop:
                 self.host.reserve = raw_reserve
                 self.watering._ingest_fixture_revocation(self.water_world)
             pending = self._pending_operation_id()
-            # Reconcile an exception AFTER real fake Host confirmation.
-            # Do not trust the bridge's UNKNOWN_PENDING label as proof of
-            # pending, nor trust a stale/other-op wet evidence receipt.
-            if result.verdict == "UNKNOWN_PENDING" and result.operation_id:
-                expected_id = self.watering.base._snapshot_operation_id(
-                    scene, crop
-                )
+            # FAKE_VERIFIED may be a forged callback return. Verify BOTH
+            # bridge verdict paths against a real matching fake Host receipt,
+            # not merely the callback string. The accepted parent remains
+            # untouched, and nested unrelated receipts must not count.
+            if (result.verdict in ("UNKNOWN_PENDING", "FAKE_WATER_VERIFIED")
+                    and result.operation_id is not None):
                 evidence = self.host.last_effect_evidence
                 host_confirmed_this_op = (
                     type(evidence) is FakeEffectEvidence
-                    and result.operation_id == expected_id
+                    and result.operation_id == own_water_id
                     and evidence == FakeEffectEvidence(
                         result.operation_id, scene.epoch,
                         self.expected_owner, crop.tile
@@ -673,24 +678,32 @@ class FakeMixedDaytimeLoop:
                             pending if pending != result.operation_id else None
                         )
                     )
-                if self.host.pending is None:
-                    # The alleged pending WATER operation has vanished, but
-                    # there is no operation-matched verified receipt. Never
-                    # report it as still pending or permit an unguarded retry.
-                    self.game._fake_mixed_quarantined = True
-                    if pending is None:
-                        return FakeMixedDayResult(
-                            "UNKNOWN_UNVERIFIED_WATER_RECEIPT", selected,
-                            choices, result.operation_id
-                        )
-            if pending is not None and pending != result.operation_id:
-                if result.verdict == "FAKE_WATER_VERIFIED":
-                    # Do not discard verified WATER just because a nested
-                    # chair/Host action arose in confirm_fake_observation().
+                # If Host still holds THIS operation, the effect is not
+                # verified. Its original ID must remain explicitly pending
+                # whether the bridge said verified or unknown.
+                if (self.host.pending is not None
+                        and self.host.pending.operation_id
+                            == result.operation_id):
                     return FakeMixedDayResult(
-                        result.verdict, selected, choices, result.operation_id,
-                        pending_operation_id=pending
+                        "UNKNOWN_PENDING", selected, choices,
+                        result.operation_id,
+                        pending_operation_id=(
+                            pending if pending != result.operation_id else None
+                        )
                     )
+                # No matching Host confirmation and the supposed pending
+                # operation vanished or changed identity: quarantine rather
+                # than fabricate verified or pending evidence.
+                self.game._fake_mixed_quarantined = True
+                if pending is not None and pending != result.operation_id:
+                    return FakeMixedDayResult(
+                        "BLOCKED_UNRESOLVED", selected, choices, pending
+                    )
+                return FakeMixedDayResult(
+                    "UNKNOWN_UNVERIFIED_WATER_RECEIPT",
+                    selected, choices, result.operation_id
+                )
+            if pending is not None and pending != result.operation_id:
                 return FakeMixedDayResult(
                     "BLOCKED_UNRESOLVED", selected, choices, pending
                 )
@@ -738,12 +751,32 @@ class FakeMixedDaytimeLoop:
         # foreign WATER Host pending. Verify the pinned chair independently
         # BEFORE reconciling the pending ID; never discard a real fake chair
         # completion, and never mark it complete based on an L2 claim alone.
+        if guarded_game._finalization_callback_failed:
+            # Completion cannot be inferred from a cleared pending slot,
+            # dispatch row, tile or revision after an exceptional finalizer.
+            # The accepted FakeGame has no operation-matched finalize receipt.
+            self.game._fake_mixed_quarantined = True
+            return FakeMixedDayResult(
+                "UNKNOWN_UNVERIFIED_CHAIR_FINALIZATION",
+                selected, choices, result.attempt
+            )
         if result.verdict == "VERIFIED_FAKE":
+            canonical = FakeGame.observe(self.game)
             if (self._chair_target() != chair_target
                     or self.game.sunny_tile != chair_target
-                    or self.game.pending_attempt == result.attempt
+                    or self.game.pending_attempt is not None
+                    or canonical.epoch != observed.epoch
+                    or canonical.owner != observed.owner
+                    or canonical.p1_is_human is not True
+                    or canonical.p2_is_ai is not True
+                    or canonical.ready is not True
+                    or canonical.revision <= observed.revision
+                    or self.game.dispatched.count((
+                        result.attempt, "MOVE_TO_CHAIR", "p2"
+                    )) != 1
+                    or result.attempt not in self.game.seen_attempts
                     or not self._valid_chair_observation(
-                        FakeGame.observe(self.game), chair_target
+                        canonical, chair_target
                     )):
                 self.game._fake_mixed_quarantined = True
                 return FakeMixedDayResult(
@@ -757,10 +790,6 @@ class FakeMixedDaytimeLoop:
                 pending_operation_id=(
                     pending if pending != result.attempt else None
                 ),
-                post_verification_block_status=(
-                    "BLOCKED_CHAIR_FINALIZATION_CALLBACK"
-                    if guarded_game._finalization_callback_failed else None
-                )
             )
         # Otherwise follow the original L2/Host pending-ID semantics.
         pending = self._pending_operation_id()
