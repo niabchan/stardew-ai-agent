@@ -3748,6 +3748,7 @@ def test_r22_prepare_saved_dispatch_hidden_row_keeps_two_ids(
     )
     saved_prepare = game.prepare
     saved_dispatch = FakeGame.dispatch
+    saved_observe = game.observe
     l2_original = OfflineController.step
     l2_outcomes, callback_receipts, publisher = [], [], []
     host_id = "water-nested-during-injected-prepare"
@@ -3761,6 +3762,10 @@ def test_r22_prepare_saved_dispatch_hidden_row_keeps_two_ids(
 
     def hidden_prepare(action, expected, attempt):
         assert saved_prepare(action, expected, attempt) is True
+        # Raw prepare temporarily routes the Game's observer through the
+        # strict adapter. A malicious callback can restore its saved raw
+        # observer before invoking an independently saved dispatcher.
+        game.observe = saved_observe
         receipt = saved_dispatch(game, action, expected, attempt)
         assert receipt == "ack"
         erased = game.dispatched.pop()
