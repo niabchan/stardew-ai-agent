@@ -938,81 +938,77 @@ def test_first_observation_host_event_rechecks_gate_before_choice(first_read):
     (6, False, "VERIFIED_FAKE"),
 ])
 def test_chair_reads_latch_p1_revocation_even_if_inner_game_read_raises(
-        chair_read, raises, expected):
-    """R23 observer boundary: only reads #1–4 can execute, not #5–6.
+        chair_read, raises, expected, monkeypatch):
+    """R24: isolate P1 revocation at each actual chair read #3–#6.
 
-    The old test trusted read-only callbacks to support toy positive chair
-    verification. R23 deliberately treats injected callbacks in the
-    operation boundary as potentially effectful; after read #4 the attempted
-    chair remains UNKNOWN even if the observer merely returns canonical
-    data. A revocation already delivered at #3/#4 MUST still be ingested,
-    while a future #5/#6 notification cannot be fabricated.
+    Initial two mixed observations use the original trusted FakeGame method.
+    Inject only at the specified L2/prepare/dispatch/post-dispatch read;
+    a valid revision-2 P1 revocation must be delivered even on exception.
+    All injected observations are effect-capable and cannot certify chair.
     """
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     old = world.ledger.grant
     original_observe = game.observe
-    calls = 0
+    calls = chair_read - 1
+    witnessed_l2 = []
+    saved_l2 = OfflineController.step
+
+    def watch_l2(controller):
+        outcome = saved_l2(controller)
+        witnessed_l2.append(outcome.verdict)
+        return outcome
+
+    monkeypatch.setattr(OfflineController, "step", watch_l2)
 
     def revoke_during_chair_read():
         nonlocal calls
         calls += 1
-        if calls == chair_read:
-            world.ledger.grant = replace(old, grant_revision=2, active=False)
-            if raises:
-                raise RuntimeError("synthetic chair fixture read failed after revoke")
+        assert calls == chair_read
+        world.ledger.grant = replace(old, grant_revision=2, active=False)
+        if raises:
+            raise RuntimeError("inactive grant delivered then injected read failed")
         return original_observe()
 
-    game.observe = revoke_during_chair_read
-    result = loop.step()
-    assert calls == (3 if raises and chair_read == 3 else 4)
-    assert result.status == (
-        "BLOCKED_OBSERVATION_UNAVAILABLE"
-        if raises and chair_read == 3 else "UNKNOWN"
+    inject_observer_at_phase(
+        game, loop, revoke_during_chair_read, chair_read, monkeypatch
     )
+    result = loop.step()
+    assert calls == chair_read
+    assert witnessed_l2 == [
+        "BLOCKED_OBSERVATION_UNAVAILABLE" if chair_read == 3 else "UNKNOWN"
+    ]
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
     assert result.claim_real_completion is False
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert interest.calls == 1 and host.events == []
     account = host._fake_water_permission_store.accounts[old.grant_id]
-    revocation_delivered = chair_read <= calls
-    if revocation_delivered:
-        assert account.revoked is True
-        assert account.grant.grant_revision == 2
-        assert FakePermissionedWaterBridge(host).provision_standing_grant(
-            old
-        ) == "DENIED_STALE_GRANT_REVISION"
-    else:
-        assert account.revoked is False
-        assert account.grant.grant_revision == old.grant_revision
+    assert account.revoked is True
+    assert account.grant.grant_revision == 2
+    assert FakePermissionedWaterBridge(host).provision_standing_grant(
+        old
+    ) == "DENIED_STALE_GRANT_REVISION"
     assert account.attempted_starts == 0 and account.started_tiles == set()
     assert host.pending is None and host.used_ids == set()
-
-    if raises and chair_read == 3:
-        assert game.pending_attempt is None and game.dispatched == []
-        assert getattr(game, "_fake_mixed_quarantined", False) is False
-    else:
-        assert result.operation_id == "offline-attempt-1"
-        assert game.pending_attempt == (
-            None if raises and chair_read == 4
-            else "offline-attempt-1"
-        )
-        assert game.dispatched == []
-        assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert game.pending_attempt == (
+        "offline-attempt-1" if chair_read in (5, 6) else None
+    )
+    assert game.dispatched == (
+        [("offline-attempt-1", "MOVE_TO_CHAIR", "p2")]
+        if chair_read == 6 else []
+    )
+    assert "MOVE_TO_CHAIR" not in loop.completed
 
     game.observe = original_observe
     game.revision = 9
     world.crop = replace(world.crop, revision=9)
     world.ledger = FakeWaterPermissionLedger(old)
-    game.sunny_tile = (4, 4)
     later_interest = Interest("WATER")
     subsequent = FakeMixedDaytimeLoop(
         game, host, world, later_interest, weather="sunny"
     ).step()
-    if raises and chair_read == 3:
-        assert subsequent.status == "DENIED_NOT_GROUNDED"
-        assert "WATER" not in subsequent.offered
-        assert later_interest.calls == 1
-    else:
-        assert subsequent.status == "BLOCKED_UNRESOLVED"
-        assert later_interest.calls == 0
+    assert subsequent.status == "BLOCKED_UNRESOLVED"
+    assert later_interest.calls == 0
     assert account.attempted_starts == 0 and account.started_tiles == set()
     assert host.events == [] and host.pending is None
 
@@ -1238,13 +1234,9 @@ def test_malformed_options_from_untrusted_prepare_observer_fail_closed(invalid_o
     assert game.observe is bad_verified_options
     assert game.dispatched == []
     assert game.sunny_tile == (4, 4)
-    # One case has valid-looking original options and the toy prepare
-    # reserves before the boundary rejects this injected observer. The
-    # malformed alternatives raise before reservation. Both are UNKNOWN.
-    assert game.pending_attempt == (
-        "offline-attempt-1"
-        if invalid_options == ("STAY", "MOVE_TO_CHAIR") else None
-    )
+    # The read callback is fenced before FakeGame.prepare can reserve,
+    # including when it returns apparently canonical options.
+    assert game.pending_attempt is None
     assert result.operation_id == "offline-attempt-1"
     assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert "MOVE_TO_CHAIR" not in loop.completed
@@ -1435,14 +1427,11 @@ def test_authoritative_numeric_revision_must_be_strict_before_chair_action(
     assert reads == raw_read  # precise later-stage fault injection
     assert result.status == "UNKNOWN"
     assert result.claim_real_completion is False
-    if raw_read == 4:
-        assert game.revision is authoritative_revision or (
-            type(authoritative_revision) is float
-            and type(game.revision) is float
-            and game.revision == authoritative_revision
-        )
-    else:
-        assert game.revision == 1 and type(game.revision) is int
+    assert game.revision is authoritative_revision or (
+        type(authoritative_revision) is float
+        and type(game.revision) is float
+        and game.revision == authoritative_revision
+    )
     assert game.observe is return_clean_snapshot_from_malformed_fake_game
     assert game.dispatched == []
     assert game.sunny_tile == (4, 4)
