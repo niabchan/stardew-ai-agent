@@ -3673,3 +3673,239 @@ def test_adapter_owned_rejection_release_failure_is_quarantined_and_ingests_p1(
     assert FakePermissionedWaterBridge(host).provision_standing_grant(
         original_grant
     ) == "DENIED_STALE_GRANT_REVISION"
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("corrupt", ["none_log", "none_revision", "fake_count"])
+def test_r22_finalizer_true_with_malformed_effect_evidence_fails_closed(
+        bounded, corrupt, monkeypatch):
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original = game.finish_observed_action
+    l2_original = OfflineController.step
+    l2_outcomes, executed, publisher = [], [], []
+
+    class ForgedLog:
+        def count(self, row):
+            return 1
+
+    def watch_l2(controller):
+        outcome = l2_original(controller)
+        l2_outcomes.append(outcome.verdict)
+        return outcome
+
+    monkeypatch.setattr(OfflineController, "step", watch_l2)
+
+    def finalize_and_corrupt(attempt):
+        value = original(attempt)
+        executed.append((attempt, value))
+        if corrupt == "none_log":
+            game.dispatched = None
+        elif corrupt == "none_revision":
+            game.revision = None
+        else:
+            game.dispatched = ForgedLog()
+        return True
+
+    game.finish_observed_action = finalize_and_corrupt
+    if bounded:
+        trace = loop.run_bounded(
+            1, after_verified=lambda *_args: publisher.append(True)
+        )
+        assert [x.status for x in trace] == [
+            "UNKNOWN_UNVERIFIED_CHAIR_TARGET"
+        ]
+        result = trace[0]
+        assert publisher == []
+    else:
+        result = loop.step()
+    assert executed == [("offline-attempt-1", True)]
+    assert l2_outcomes == ["VERIFIED_FAKE"]
+    assert result.status == "UNKNOWN_UNVERIFIED_CHAIR_TARGET"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.claim_real_completion is False
+    assert game.pending_attempt is None
+    assert game.sunny_tile == game.chair_tile
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    later_interest = Interest("STAY")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, later_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert later_interest.calls == 0
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("prepare_return", [True, False])
+def test_r22_prepare_saved_dispatch_hidden_row_keeps_two_ids(
+        bounded, prepare_return, monkeypatch):
+    from reference.sunny_host_stop_fake import FakeWaterOperation
+
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
+    )
+    saved_prepare = game.prepare
+    saved_dispatch = FakeGame.dispatch
+    l2_original = OfflineController.step
+    l2_outcomes, callback_receipts, publisher = [], [], []
+    host_id = "water-nested-during-injected-prepare"
+
+    def watch_l2(controller):
+        result = l2_original(controller)
+        l2_outcomes.append(result.verdict)
+        return result
+
+    monkeypatch.setattr(OfflineController, "step", watch_l2)
+
+    def hidden_prepare(action, expected, attempt):
+        assert saved_prepare(action, expected, attempt) is True
+        receipt = saved_dispatch(game, action, expected, attempt)
+        assert receipt == "ack"
+        erased = game.dispatched.pop()
+        assert erased == (attempt, "MOVE_TO_CHAIR", "p2")
+        water = FakeWaterOperation(
+            host_id, host.epoch, host.owner, "P2", "WATER", (4, 5)
+        )
+        assert host.reserve(water) == "B_LINEAGE_RESERVED"
+        callback_receipts.append((attempt, receipt, erased))
+        return prepare_return
+
+    game.prepare = hidden_prepare
+    if bounded:
+        trace = loop.run_bounded(
+            1, after_verified=lambda *_args: publisher.append(True)
+        )
+        assert [x.status for x in trace] == [
+            "UNKNOWN", "BLOCKED_UNRESOLVED"
+        ]
+        assert trace[1].operation_id == host_id
+        result = trace[0]
+        assert publisher == []
+    else:
+        result = loop.step()
+    assert callback_receipts == [
+        ("offline-attempt-1", "ack",
+         ("offline-attempt-1", "MOVE_TO_CHAIR", "p2"))
+    ]
+    assert l2_outcomes == ["UNKNOWN"]
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.pending_operation_id == host_id
+    assert host.pending.operation_id == host_id
+    assert game.pending_attempt == "offline-attempt-1"
+    assert game.dispatched == []
+    assert game.sunny_tile == (4, 4)
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert result.claim_real_completion is False
+    assert not loop.completed
+    future_interest = Interest("STAY")
+    future = FakeMixedDaytimeLoop(
+        game, host, world, future_interest, weather="sunny"
+    ).step()
+    assert future.status == "BLOCKED_UNRESOLVED"
+    assert future_interest.calls == 0
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_r22_dispatch_retained_chair_and_nested_water_both_reported(
+        bounded, monkeypatch):
+    from reference.sunny_host_stop_fake import FakeWaterOperation
+
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
+    )
+    saved_dispatch = game.dispatch
+    l2_original = OfflineController.step
+    l2_outcomes, publisher = [], []
+    host_id = "water-nested-after-chair-dispatch"
+
+    def watch_l2(controller):
+        outcome = l2_original(controller)
+        l2_outcomes.append(outcome.verdict)
+        return outcome
+
+    monkeypatch.setattr(OfflineController, "step", watch_l2)
+
+    def mixed_dispatch(action, expected, attempt):
+        assert saved_dispatch(action, expected, attempt) == "ack"
+        op = FakeWaterOperation(host_id, host.epoch, host.owner,
+                                "P2", "WATER", (4, 5))
+        assert host.reserve(op) == "B_LINEAGE_RESERVED"
+        return "ack"
+
+    game.dispatch = mixed_dispatch
+    if bounded:
+        trace = loop.run_bounded(
+            1, after_verified=lambda *_args: publisher.append(True)
+        )
+        assert [r.status for r in trace] == [
+            "UNKNOWN", "BLOCKED_UNRESOLVED"
+        ]
+        assert trace[1].operation_id == host_id
+        outcome = trace[0]
+        assert publisher == []
+    else:
+        outcome = loop.step()
+    assert l2_outcomes == ["UNKNOWN"]
+    assert outcome.status == "UNKNOWN"
+    assert outcome.operation_id == game.pending_attempt == "offline-attempt-1"
+    assert outcome.pending_operation_id == host.pending.operation_id == host_id
+    assert outcome.claim_real_completion is False
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert "MOVE_TO_CHAIR" not in loop.completed
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_r22_failed_owned_release_retains_chair_and_foreign_water_ids(
+        bounded, monkeypatch):
+    from reference.sunny_host_stop_fake import FakeWaterOperation
+
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    l2_original = OfflineController.step
+    l2_outcomes, release_calls, publisher = [], [], []
+    host_id = "water-from-failed-chair-release"
+
+    def watch_l2(controller):
+        outcome = l2_original(controller)
+        l2_outcomes.append(outcome.verdict)
+        return outcome
+
+    def pinned_pre_effect_rejection(world_obj, action, expected, attempt):
+        assert world_obj is game and game.pending_attempt == attempt
+        return "rejected_before_effect"
+
+    def faulty_owned_release(world_obj, attempt):
+        assert world_obj is game and game.pending_attempt == attempt
+        release_calls.append(attempt)
+        op = FakeWaterOperation(host_id, host.epoch, host.owner,
+                                "P2", "WATER", (4, 5))
+        assert host.reserve(op) == "B_LINEAGE_RESERVED"
+        return True  # reservation is intentionally NOT cleared
+
+    monkeypatch.setattr(OfflineController, "step", watch_l2)
+    monkeypatch.setattr(mixed_module, "_ORIGINAL_FAKE_DISPATCH",
+                        pinned_pre_effect_rejection)
+    monkeypatch.setattr(mixed_module, "_ORIGINAL_FAKE_REJECT",
+                        faulty_owned_release)
+    if bounded:
+        trace = loop.run_bounded(
+            1, after_verified=lambda *_args: publisher.append(True)
+        )
+        assert [r.status for r in trace] == [
+            "UNKNOWN", "BLOCKED_UNRESOLVED"
+        ]
+        assert trace[1].operation_id == host_id
+        outcome = trace[0]
+        assert publisher == []
+    else:
+        outcome = loop.step()
+    assert release_calls == ["offline-attempt-1"]
+    assert l2_outcomes == ["BLOCKED_STALE_OR_DENIED"]
+    assert outcome.status == "UNKNOWN"
+    assert outcome.operation_id == game.pending_attempt == "offline-attempt-1"
+    assert outcome.pending_operation_id == host.pending.operation_id == host_id
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert outcome.claim_real_completion is False
+    assert "MOVE_TO_CHAIR" not in loop.completed
