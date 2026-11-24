@@ -4449,8 +4449,9 @@ def test_r24_l2_first_observer_hidden_send_then_raise_keeps_chair_id(
 
 
 @pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("game_marker_spoof", [False, True])
 def test_r24_reentrant_read_four_cannot_publish_before_outer_quarantine(
-        bounded, monkeypatch):
+        bounded, game_marker_spoof, monkeypatch):
     """R23 independent finding 2: nested ACK must be blocked at callback ENTRY.
 
     Start with trusted initial reads and L2 read #3, then inject only the
@@ -4469,6 +4470,12 @@ def test_r24_reentrant_read_four_cannot_publish_before_outer_quarantine(
     outer_publications = []
 
     def nested_during_prepare_observation():
+        if game_marker_spoof:
+            # Attempt to erase the old callback-active Game field. The new
+            # per-Game callback registry is owned by this G0 module, not the
+            # callback-writable Game object. Nested publication still blocks.
+            game._fake_mixed_callback_active = False
+            game._fake_mixed_quarantined = False
         game.observe = raw
         game.revision = 2
         world.crop = replace(world.crop, revision=2)
