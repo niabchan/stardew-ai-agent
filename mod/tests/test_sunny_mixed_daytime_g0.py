@@ -571,10 +571,15 @@ def test_host_pending_during_l2_prepare_is_not_ignored():
 
     game.prepare = prepare
     result = loop.step()
-    assert result.status == "BLOCKED_UNRESOLVED"
+    # R22: injectable prepare has write authority over the reserved chair.
+    # It is not proof of a clean pre-effect denial, even when no movement is
+    # visible. Preserve the original chair ID and the DIFFERENT Host WATER ID.
+    assert result.status == "UNKNOWN"
     assert host.pending is not None
-    assert result.operation_id == host.pending.operation_id == "second-host-water-op"
-    assert game.pending_attempt is None
+    assert result.operation_id == game.pending_attempt == "offline-attempt-1"
+    assert result.pending_operation_id == host.pending.operation_id
+    assert result.pending_operation_id == "second-host-water-op"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert game.dispatched == []
     assert "MOVE_TO_CHAIR" not in loop.completed
 
