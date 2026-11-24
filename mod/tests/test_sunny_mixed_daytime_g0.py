@@ -1536,11 +1536,11 @@ def test_reentrant_prepare_observer_retains_outer_and_nested_attempt_ids(monkeyp
     ("sunny_tile", (4.0, 4)),
 ])
 def test_water_second_read_denies_malformed_authoritative_fake_game(
-        authoritative_field, bad_value):
+        authoritative_field, bad_value, monkeypatch):
     """R8 review: clean supplied observation cannot mask bad raw Game fields."""
     game, host, world, interest, loop = setup(choices=("WATER",))
     original_observe = game.observe
-    reads = 0
+    reads = 1
 
     def clean_observation_but_mutate_authority():
         nonlocal reads
@@ -1559,10 +1559,12 @@ def test_water_second_read_denies_malformed_authoritative_fake_game(
             return returned
         return original_observe()
 
-    game.observe = clean_observation_but_mutate_authority
+    inject_observer_at_phase(game, loop, clean_observation_but_mutate_authority, 2, monkeypatch)
     result = loop.step()
     assert reads == 2
-    assert result.status == "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert result.choice == "WATER"
     assert not result.claim_real_completion
     assert interest.calls == 1
@@ -1634,68 +1636,58 @@ def test_water_each_pre_b_guard_denies_malformed_authoritative_state(
 
 @pytest.mark.parametrize("first_adapter_read", ["malformed", "exception"])
 def test_first_chair_adapter_read_reports_nested_pending_actual_id(
-        first_adapter_read):
-    """R8 review: L2 first-read failure has no outer ID, but inner does.
+        first_adapter_read, monkeypatch):
+    """R24 fences reentrancy at adapter read #3, preserving outer chair ID.
 
-    Callback #3 occurs before the outer L2 calls new_attempt(). A nested
-    controller with a lost fake reply can reserve and dispatch attempt-1.
-    The mixed result must name THAT ID rather than omit it.
+    Previously a nested fresh coordinator could reserve a different chair
+    attempt during this callback. The new shared in-callback gate blocks its
+    chooser before it can reserve or dispatch anything.
     """
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
-    original_observe = game.observe
-    calls = 0
-    inner_results = []
+    raw = game.observe
+    reads = 2
+    nested = []
+    nested_calls = []
 
-    def nested_during_first_chair_read():
-        nonlocal calls
-        calls += 1
-        if calls == 3:
-            game.revision = 2
-            world.crop = replace(world.crop, revision=2)
-            game.delivery = "lost_reply"
-            game.observe = original_observe
-            nested_interest = Interest("MOVE_TO_CHAIR")
-            nested = FakeMixedDaytimeLoop(
-                game, host, world, nested_interest, weather="sunny"
-            ).step()
-            inner_results.append(nested)
-            if first_adapter_read == "exception":
-                raise RuntimeError("toy first chair read failed after nested action")
-            return replace(original_observe(), revision="malformed_outer_read")
-        return original_observe()
+    def first_l2_callback():
+        nonlocal reads
+        reads += 1
+        assert reads == 3
+        game.revision = 2
+        world.crop = replace(world.crop, revision=2)
+        game.observe = raw
+        chooser = Interest("MOVE_TO_CHAIR")
+        nested.append(FakeMixedDaytimeLoop(
+            game, host, world, chooser, weather="sunny"
+        ).step())
+        nested_calls.append(chooser.calls)
+        if first_adapter_read == "exception":
+            raise RuntimeError("nested coordinator blocked before L2 read")
+        return replace(raw(), revision="malformed_outer_read")
 
-    game.observe = nested_during_first_chair_read
+    inject_observer_at_phase(game, loop, first_l2_callback, 3, monkeypatch)
     outer = loop.step()
-    assert calls == 3
-    assert len(inner_results) == 1
-    assert inner_results[0].status == "UNKNOWN"
-    assert inner_results[0].operation_id == "offline-attempt-1"
-    assert game.dispatched == [
-        ("offline-attempt-1", "MOVE_TO_CHAIR", "p2")
-    ]
-    assert outer.status == "BLOCKED_UNRESOLVED"
-    assert not outer.claim_real_completion
-    assert outer.operation_id == inner_results[0].operation_id
-    assert outer.operation_id == game.pending_attempt
-    assert game.dispatched[0][0] == outer.operation_id
-    assert game.attempt_serial == 1
-    assert game.seen_attempts == {outer.operation_id}
-    assert "MOVE_TO_CHAIR" not in loop.completed
-    assert host.events == [] and host.pending is None
+    assert reads == 3
+    assert len(nested) == 1
+    assert nested[0].status == "BLOCKED_UNRESOLVED"
+    assert nested_calls == [0]
+    assert outer.status == "UNKNOWN"
+    assert outer.operation_id == "offline-attempt-1"
+    assert outer.pending_operation_id is None
+    assert outer.claim_real_completion is False
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert game.pending_attempt is None and game.dispatched == []
+    assert game.attempt_serial == 0 and game.seen_attempts == set()
+    assert not loop.completed and host.events == []
 
-    # A new scene cannot restart the original action while the nested
-    # operation remains unresolved, even across coordinator recreation.
-    game.observe = original_observe
+    game.observe = raw
     game.revision = 9
     world.crop = replace(world.crop, revision=9)
-    next_interest = Interest("WATER")
+    following = Interest("WATER")
     assert FakeMixedDaytimeLoop(
-        game, host, world, next_interest, weather="sunny"
+        game, host, world, following, weather="sunny"
     ).step().status == "BLOCKED_UNRESOLVED"
-    assert next_interest.calls == 0
-    assert len(game.dispatched) == 1
-    assert game.pending_attempt == outer.operation_id
-
+    assert following.calls == 0
 
 @pytest.mark.parametrize("next_choice,next_status", [
     ("STAY", "STAY"),
@@ -1717,8 +1709,9 @@ def test_unverified_first_observation_cannot_poison_shared_replay_watermark(
 
     game.observe = fabricated_future_revision
     rejected = loop.step()
-    assert rejected.status == "BLOCKED_CHANGED_BEFORE_DISPATCH"
-    assert rejected.operation_id is None
+    assert rejected.status == "UNKNOWN"
+    assert rejected.operation_id == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert reads == 1
     assert interest.calls == 0 and interest.offers == []
     assert getattr(game, "_fake_mixed_last_revision", -1) == -1
@@ -1726,8 +1719,9 @@ def test_unverified_first_observation_cannot_poison_shared_replay_watermark(
     assert world.ledger.attempted_starts == 0
     assert game.dispatched == [] and game.pending_attempt is None
 
-    # New *real fake* revision2 is later than rev1 even though the rejected
-    # injected observer claimed 100. A fresh coordinator must be usable.
+    # A fabricated high revision cannot consume the replay watermark, but
+    # a potentially effectful observer makes the shared Game unresolved.
+    # A newer revision MUST NOT clear that quarantine without reconciliation.
     game.observe = raw_observe
     game.revision = 2
     world.crop = replace(world.crop, revision=2)
@@ -1736,68 +1730,55 @@ def test_unverified_first_observation_cannot_poison_shared_replay_watermark(
         game, host, world, next_interest, weather="sunny"
     )
     next_result = fresh.step()
-    assert next_result.status == next_status
-    assert next_interest.calls == 1
-    assert getattr(game, "_fake_mixed_last_revision", -1) == 2
-    if next_choice == "WATER":
-        assert host.events.count("FAKE_EFFECT") == 1
-    else:
-        assert host.events == []
+    assert next_result.status == "BLOCKED_UNRESOLVED"
+    assert next_interest.calls == 0
+    assert getattr(game, "_fake_mixed_last_revision", -1) == -1
+    assert host.events == []
 
 
 @pytest.mark.parametrize("outer_read", [1, 2])
 @pytest.mark.parametrize("read_exit", ["malformed", "exception"])
 def test_outer_mixed_observation_returns_actual_nested_pending_id(
-        outer_read, read_exit):
-    """R9 review: pre-chair outer read must expose nested lost-reply ID.
-
-    Unlike L2's adapter read, these two observations happen inside the
-    mixed coordinator itself. Reentrant nested coordinator gets attempt-1;
-    outer read must never return BLOCKED_* with a missing operation ID.
-    """
+        outer_read, read_exit, monkeypatch):
+    """R24 prevents reentrant lost-reply chairs during reads 1 and 2."""
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
-    raw_observe = game.observe
-    reads = 0
-    nested_outcomes = []
+    raw = game.observe
+    reads = outer_read - 1
+    nested = []
+    nested_choices = []
 
-    def nested_during_outer_read():
+    def observer():
         nonlocal reads
         reads += 1
-        if reads == outer_read:
-            game.revision = 2
-            world.crop = replace(world.crop, revision=2)
-            game.delivery = "lost_reply"
-            game.observe = raw_observe
-            nested_interest = Interest("MOVE_TO_CHAIR")
-            nested_loop = FakeMixedDaytimeLoop(
-                game, host, world, nested_interest, weather="sunny"
-            )
-            nested = nested_loop.step()
-            nested_outcomes.append(nested)
-            if read_exit == "exception":
-                raise RuntimeError("synthetic outer read failed after nested move")
-            return replace(raw_observe(), revision="malformed_outer_revision")
-        return raw_observe()
+        assert reads == outer_read
+        game.revision = 2
+        world.crop = replace(world.crop, revision=2)
+        game.observe = raw
+        chooser = Interest("MOVE_TO_CHAIR")
+        nested.append(FakeMixedDaytimeLoop(
+            game, host, world, chooser, weather="sunny"
+        ).step())
+        nested_choices.append(chooser.calls)
+        if read_exit == "exception":
+            raise RuntimeError("effect-capable outer observation failed")
+        return replace(raw(), revision="malformed_outer_revision")
 
-    game.observe = nested_during_outer_read
-    outer_result = loop.step()
+    inject_observer_at_phase(game, loop, observer, outer_read, monkeypatch)
+    result = loop.step()
     assert reads == outer_read
-    assert len(nested_outcomes) == 1
-    assert nested_outcomes[0].status == "UNKNOWN"
-    assert nested_outcomes[0].operation_id == "offline-attempt-1"
-    assert len(game.dispatched) == 1
-    assert outer_result.status == "BLOCKED_UNRESOLVED"
-    assert outer_result.claim_real_completion is False
-    assert outer_result.operation_id == nested_outcomes[0].operation_id
-    assert outer_result.operation_id == game.pending_attempt
-    assert outer_result.operation_id == game.dispatched[0][0]
-    assert game.seen_attempts == {"offline-attempt-1"}
-    assert game.attempt_serial == 1
-    assert len(game.dispatched) == 1
-    assert "MOVE_TO_CHAIR" not in loop.completed
-    assert host.events == [] and host.pending is None
+    assert len(nested) == 1
+    assert nested[0].status == "BLOCKED_UNRESOLVED"
+    assert nested_choices == [0]
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.pending_operation_id is None
+    assert result.claim_real_completion is False
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert game.pending_attempt is None and game.dispatched == []
+    assert game.attempt_serial == 0 and game.seen_attempts == set()
+    assert not loop.completed and host.pending is None and host.events == []
 
-    game.observe = raw_observe
+    game.observe = raw
     game.revision = 9
     world.crop = replace(world.crop, revision=9)
     later_interest = Interest("WATER")
@@ -1806,9 +1787,6 @@ def test_outer_mixed_observation_returns_actual_nested_pending_id(
     ).step()
     assert later.status == "BLOCKED_UNRESOLVED"
     assert later_interest.calls == 0
-    assert game.pending_attempt == outer_result.operation_id
-    assert len(game.dispatched) == 1
-
 
 @pytest.mark.parametrize("chooser_exit", ["valid", "invalid", "raise"])
 def test_nested_chair_chooser_reports_actual_pending_for_every_exit(chooser_exit):
@@ -1859,63 +1837,62 @@ def test_nested_chair_chooser_reports_actual_pending_for_every_exit(chooser_exit
 @pytest.mark.parametrize("outer_read", [1, 2])
 @pytest.mark.parametrize("read_exit", ["malformed", "exception", "valid"])
 def test_nested_water_on_outer_reads_reports_real_host_pending_id(
-        outer_read, read_exit):
-    """R10 review: nested WATER stays pending in fake Host, not FakeGame."""
+        outer_read, read_exit, monkeypatch):
+    """R24 blocks nested WATER before its chooser during early observation.
+
+    The old G0 nested WATER pending test allowed effectful reentrancy and
+    inspected the Host receipt after the effect. The shared pre-callback
+    gate now prevents entry entirely; dual pending IDs are independently
+    exercised in R22's Host WATER + chair fault tests.
+    """
     game, host, world, _, loop = setup(choices=("STAY",))
-    original_observe = game.observe
-    host.confirm_fake_observation = lambda _operation: "UNKNOWN_PENDING"
-    reads = 0
-    nested_results = []
+    raw = game.observe
+    reads = outer_read - 1
+    nested = []
     nested_interest = Interest("WATER")
 
-    def water_during_outer_read():
+    def nested_water_observer():
         nonlocal reads
         reads += 1
-        if reads == outer_read:
-            game.revision = 2
-            world.crop = replace(world.crop, revision=2)
-            game.observe = original_observe
-            nested_result = FakeMixedDaytimeLoop(
-                game, host, world, nested_interest, weather="sunny"
-            ).step()
-            nested_results.append(nested_result)
-            if read_exit == "exception":
-                raise RuntimeError("synthetic outer observation failure")
-            snapshot = original_observe()
-            if read_exit == "malformed":
-                return replace(snapshot, revision="invalid_outer_revision")
-            return snapshot
-        return original_observe()
+        assert reads == outer_read
+        game.revision = 2
+        world.crop = replace(world.crop, revision=2)
+        game.observe = raw
+        nested.append(FakeMixedDaytimeLoop(
+            game, host, world, nested_interest, weather="sunny"
+        ).step())
+        if read_exit == "exception":
+            raise RuntimeError("nested WATER cannot enter during read")
+        scene = raw()
+        if read_exit == "malformed":
+            return replace(scene, revision="invalid_outer_revision")
+        return scene
 
-    game.observe = water_during_outer_read
-    outer_result = loop.step()
-    assert reads == outer_read
-    assert len(nested_results) == 1
-    assert nested_results[0].status == "UNKNOWN_PENDING"
-    assert nested_results[0].choice == "WATER"
-    assert nested_results[0].operation_id is not None
-    assert nested_interest.calls == 1
-    assert host.pending is not None
-    assert outer_result.status == "BLOCKED_UNRESOLVED"
-    assert outer_result.operation_id == nested_results[0].operation_id
-    assert outer_result.operation_id == host.pending.operation_id
+    inject_observer_at_phase(
+        game, loop, nested_water_observer, outer_read, monkeypatch
+    )
+    result = loop.step()
+    assert reads == outer_read and len(nested) == 1
+    assert nested[0].status == "BLOCKED_UNRESOLVED"
+    assert nested_interest.calls == 0
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.pending_operation_id is None
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert host.pending is None and host.events == []
     assert game.pending_attempt is None and game.dispatched == []
-    assert host.events.count("FAKE_EFFECT") == 1
-    assert world.ledger.attempted_starts == 1
+    assert world.ledger.attempted_starts == 0
+    assert result.claim_real_completion is False
 
-    game.observe = original_observe
+    game.observe = raw
     game.revision = 9
     world.crop = replace(world.crop, revision=9)
     later_interest = Interest("MOVE_TO_CHAIR")
     fresh = FakeMixedDaytimeLoop(
         game, host, world, later_interest, weather="sunny"
-    )
-    fresh_result = fresh.step()
-    assert fresh_result.status == "BLOCKED_UNRESOLVED"
-    assert fresh_result.operation_id == host.pending.operation_id
+    ).step()
+    assert fresh.status == "BLOCKED_UNRESOLVED"
     assert later_interest.calls == 0
-    assert len(game.dispatched) == 0
-
 
 @pytest.mark.parametrize("pending_action", ["chair", "water"])
 def test_entry_gate_reports_pending_id_from_both_fake_ledgers(pending_action):
