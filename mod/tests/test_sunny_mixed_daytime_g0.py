@@ -910,8 +910,9 @@ def test_chair_reads_latch_p1_revocation_even_if_inner_game_read_raises(
         assert getattr(game, "_fake_mixed_quarantined", False) is False
     else:
         assert result.operation_id == "offline-attempt-1"
-        assert game.pending_attempt is (
-            None if raises and chair_read == 4 else game.pending_attempt
+        assert game.pending_attempt == (
+            None if raises and chair_read == 4
+            else "offline-attempt-1"
         )
         assert game.dispatched == []
         assert getattr(game, "_fake_mixed_quarantined", False) is True
@@ -1324,8 +1325,8 @@ def test_authoritative_numeric_revision_must_be_strict_before_chair_action(
         raw_read, authoritative_revision):
     """R7 review: a *valid returned* revision must not mask bad raw Game data.
 
-    Dataclass comparison treats True/1.0 as equal to integer 1. The earlier
-    R6 tests only corrupted the supplied snapshot, not underlying FakeGame.
+    Dataclass comparison treats True/1.0 as equal to integer 1. The raw
+    Game must not trust a mutated read or proceed to a second inner read.
     """
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original_observe = game.observe
@@ -1347,26 +1348,27 @@ def test_authoritative_numeric_revision_must_be_strict_before_chair_action(
 
     game.observe = return_clean_snapshot_from_malformed_fake_game
     result = loop.step()
-    assert reads == raw_read
-    assert result.status == (
-        "BLOCKED_STALE_OR_DENIED" if raw_read == 4 else "UNKNOWN"
-    )
+    assert reads == 4  # later observer reads no longer occur
+    assert result.status == "UNKNOWN"
     assert result.claim_real_completion is False
-    assert game.revision is authoritative_revision or (
-        type(authoritative_revision) is float
-        and type(game.revision) is float
-        and game.revision == authoritative_revision
-    )
+    if raw_read == 4:
+        assert game.revision is authoritative_revision or (
+            type(authoritative_revision) is float
+            and type(game.revision) is float
+            and game.revision == authoritative_revision
+        )
+    else:
+        assert game.revision == 1 and type(game.revision) is int
     assert game.observe is return_clean_snapshot_from_malformed_fake_game
     assert game.dispatched == []
     assert game.sunny_tile == (4, 4)
     assert not loop.completed and host.events == []
     if raw_read == 4:
         assert game.pending_attempt is None
-        assert result.operation_id == "offline-attempt-1"
     else:
-        assert result.operation_id == "offline-attempt-1"
-        assert game.pending_attempt == result.operation_id
+        assert game.pending_attempt == "offline-attempt-1"
+    assert result.operation_id == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
 
     # A newer snapshot cannot overwrite the UNKNOWN pending for dispatch,
     # but is fine after definite pre-effect preparation denial.
@@ -1378,24 +1380,16 @@ def test_authoritative_numeric_revision_must_be_strict_before_chair_action(
         game, host, world, new_interest, weather="sunny"
     )
     followup = fresh.step()
-    if raw_read == 4:
-        assert followup.status == "VERIFIED_FAKE"
-        assert len(game.dispatched) == 1
-        assert followup.operation_id == "offline-attempt-2"
-        assert followup.operation_id == game.dispatched[0][0]
-    else:
-        assert followup.status == "BLOCKED_UNRESOLVED"
-        assert new_interest.calls == 0
-        assert game.dispatched == []
-        assert game.pending_attempt == result.operation_id
+    assert followup.status == "BLOCKED_UNRESOLVED"
+    assert new_interest.calls == 0
+    assert game.dispatched == []
 
-
-def test_reentrant_prepare_foreign_pending_does_not_report_outer_unknown():
+def test_reentrant_prepare_observer_retains_outer_and_nested_attempt_ids():
     """R7 review: nested attempt-2 pending is NOT outer attempt-1.
 
-    A synthetic callback can reenter using the same FakeGame/Host after the
-    outer raw prepare observer was temporarily installed. This is an inert
-    deterministic fixture, not a claim of safe actual game concurrency.
+    R23 treats the outer observer as untrusted, so it preserves the original
+    chair attempt ID as UNKNOWN and records the distinct nested pending ID
+    separately. This is deterministic G0, not actual game concurrency.
     """
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original_observe = game.observe
@@ -1422,8 +1416,9 @@ def test_reentrant_prepare_foreign_pending_does_not_report_outer_unknown():
             # coordinator and silently downgraded; verify outside step().
             nested.append(inner)
 
-            # Make the OUTER raw prepare read malformed, as in the reviewed
-            # replay. Its new attempt-1 must be denied, not UNKNOWN.
+            # Make the OUTER raw prepare read malformed. Even without a
+            # successful outer reservation, its effect-capable observer
+            # cannot certify a known clean pre-effect denial.
             return replace(original_observe(), revision="bad_outer_revision")
         return original_observe()
 
@@ -1432,8 +1427,10 @@ def test_reentrant_prepare_foreign_pending_does_not_report_outer_unknown():
     assert raw_calls == 4
     assert len(nested) == 1 and nested[0].status == "UNKNOWN"
     assert nested[0].operation_id == "offline-attempt-2"
-    assert outer.status == "BLOCKED_UNRESOLVED"
-    assert outer.operation_id == nested[0].operation_id == "offline-attempt-2"
+    assert outer.status == "UNKNOWN"
+    assert outer.operation_id == "offline-attempt-1"
+    assert outer.pending_operation_id == nested[0].operation_id
+    assert getattr(game, "_fake_mixed_quarantined", False) is True == "offline-attempt-2"
     assert game.pending_attempt == "offline-attempt-2"
     assert game.dispatched == [(
         "offline-attempt-2", "MOVE_TO_CHAIR", "p2"
