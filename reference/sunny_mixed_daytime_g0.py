@@ -7,6 +7,7 @@ All observation and chooser inputs here are synthetic fixtures; no I/O or AI.
 """
 from dataclasses import dataclass
 from types import MethodType
+from weakref import WeakKeyDictionary
 
 from reference.sunny_daytime_intents import Activity, FakeDaytimePlanner, FakeScene
 from reference.sunny_gameplay_slice import FakeGame, OfflineController, Observation
@@ -17,6 +18,26 @@ from reference.sunny_gameplay_slice import FakeGame, OfflineController, Observat
 _ORIGINAL_FAKE_REJECT = FakeGame.finish_rejected
 _ORIGINAL_FAKE_DISPATCH = FakeGame.dispatch
 _ORIGINAL_FAKE_OBSERVE = FakeGame.observe
+
+# G0-only callback entry tokens live OUTSIDE the callback-writable FakeGame.
+# Production authorization requires a separate Host-owned trusted journal.
+_FAKE_CALLBACK_DEPTH = WeakKeyDictionary()
+
+
+def _callback_active(game):
+    return _FAKE_CALLBACK_DEPTH.get(game, 0) > 0
+
+
+def _enter_callback(game):
+    _FAKE_CALLBACK_DEPTH[game] = _FAKE_CALLBACK_DEPTH.get(game, 0) + 1
+
+
+def _leave_callback(game):
+    count = _FAKE_CALLBACK_DEPTH.get(game, 0)
+    if count <= 1:
+        _FAKE_CALLBACK_DEPTH.pop(game, None)
+    else:
+        _FAKE_CALLBACK_DEPTH[game] = count - 1
 
 
 def _original_observer(game, observer):
@@ -107,12 +128,11 @@ class _HostGatedChairWorld:
 
     def observe(self):
         untrusted = not self._trusted_raw_observer()
-        old_active = getattr(self._game, "_fake_mixed_callback_active", False)
         if untrusted:
             # The reentrancy gate must be active BEFORE a callback can launch
             # a fresh coordinator and publish an effect on the same Game.
             self._untrusted_observer_in_operation = True
-            self._game._fake_mixed_callback_active = True
+            _enter_callback(self._game)
         try:
             snapshot = self._raw_observe()
             # Strict shape AND the fake Game's own option-set contract. A
@@ -135,7 +155,7 @@ class _HostGatedChairWorld:
         finally:
             if untrusted:
                 self._game._fake_mixed_quarantined = True
-                self._game._fake_mixed_callback_active = old_active
+                _leave_callback(self._game)
             # A read may install an inactive P1 grant and then fail; retain
             # that shared-Host tombstone at EVERY underlying read exit.
             self._ingest_revocation()
@@ -188,15 +208,14 @@ class _HostGatedChairWorld:
             # Shared reentrancy guard BEFORE invoking the untrusted callback;
             # quarantine persists AFTER exit. Do not give nested callers a
             # publication window while prepare still owns the attempt.
-            old_active = getattr(self._game, "_fake_mixed_callback_active", False)
-            self._game._fake_mixed_callback_active = True
+            _enter_callback(self._game)
             try:
                 self._run_with_checked_reads(
                     self._game.prepare, action, expected, attempt
                 )
             finally:
                 self._game._fake_mixed_quarantined = True
-                self._game._fake_mixed_callback_active = old_active
+                _leave_callback(self._game)
             raise RuntimeError("untrusted_fake_chair_prepare")
         # The original FakeGame.prepare calls game.observe. If that observer
         # was replaced, it can reserve and dispatch through saved originals,
@@ -268,9 +287,8 @@ class _HostGatedChairWorld:
                      else lambda a, e, i: _ORIGINAL_FAKE_DISPATCH(
                          self._game, a, e, i
                      ))
-        old_active = getattr(self._game, "_fake_mixed_callback_active", False)
         if injected or observer_untrusted:
-            self._game._fake_mixed_callback_active = True
+            _enter_callback(self._game)
         try:
             result = self._run_with_checked_reads(
                 operation, action, expected, attempt
@@ -280,7 +298,7 @@ class _HostGatedChairWorld:
                 # The shared fence exists during the callback, not only after
                 # it returns: nested coordinator publish must fail closed.
                 self._game._fake_mixed_quarantined = True
-                self._game._fake_mixed_callback_active = old_active
+                _leave_callback(self._game)
         if observer_untrusted:
             # A saved original dispatcher may have been invoked INSIDE the
             # observer and then erased. Do not accept the outer dispatch ACK
@@ -528,7 +546,7 @@ class FakeMixedDaytimeLoop:
         return None
 
     def _gate(self):
-        if getattr(self.game, "_fake_mixed_callback_active", False) is not False:
+        if _callback_active(self.game):
             return "BLOCKED_UNRESOLVED"
         if getattr(self.game, "_fake_mixed_quarantined", False) is not False:
             return "BLOCKED_UNRESOLVED"
@@ -680,15 +698,14 @@ class FakeMixedDaytimeLoop:
         """
         observer = self.game.observe
         untrusted = not _original_observer(self.game, observer)
-        old_active = getattr(self.game, "_fake_mixed_callback_active", False)
         if untrusted:
-            self.game._fake_mixed_callback_active = True
+            _enter_callback(self.game)
         try:
             return observer()
         finally:
             if untrusted:
                 self.game._fake_mixed_quarantined = True
-                self.game._fake_mixed_callback_active = old_active
+                _leave_callback(self.game)
             self.watering._ingest_fixture_revocation(self.water_world)
 
     def _pending_aware_result(self, status, choice=None, offered=()):
