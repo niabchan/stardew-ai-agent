@@ -936,9 +936,9 @@ def test_chair_reads_latch_p1_revocation_even_if_inner_game_read_raises(
     assert host.events == [] and host.pending is None
 
 @pytest.mark.parametrize("corruption", ["string_revision", "unhashable_options"])
-def test_malformed_chair_verification_returns_unknown_not_python_exception(
+def test_malformed_injected_prepare_observer_returns_unknown_not_python_exception(
         corruption):
-    """Malformed *post-move* snapshot must preserve L2 pending quarantine."""
+    """A malformed injected inner prepare read must fail closed before dispatch."""
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original_observe = game.observe
     calls = 0
@@ -947,7 +947,7 @@ def test_malformed_chair_verification_returns_unknown_not_python_exception(
         nonlocal calls
         calls += 1
         snapshot = original_observe()
-        if calls == 6:
+        if calls == 4:
             if corruption == "string_revision":
                 return replace(snapshot, revision="unexpected-string")
             return replace(snapshot, options=("STAY", []))
@@ -958,11 +958,12 @@ def test_malformed_chair_verification_returns_unknown_not_python_exception(
     assert result.status == "UNKNOWN"
     assert result.choice == "MOVE_TO_CHAIR"
     assert result.claim_real_completion is False
-    assert calls == 6
-    assert len(game.dispatched) == 1
-    assert game.sunny_tile == game.chair_tile
-    assert game.pending_attempt is not None
-    assert result.operation_id == game.pending_attempt == game.dispatched[0][0]
+    assert calls == 4
+    assert game.dispatched == []
+    assert game.sunny_tile == (4, 4)
+    assert game.pending_attempt is None
+    assert result.operation_id == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert "MOVE_TO_CHAIR" not in loop.completed
     fresh_interest = Interest("WATER")
     fresh = FakeMixedDaytimeLoop(
@@ -972,7 +973,7 @@ def test_malformed_chair_verification_returns_unknown_not_python_exception(
     assert fresh_interest.calls == 0 and host.events == []
 
 
-def test_chair_verification_error_after_p1_revocation_keeps_both_guards():
+def test_injected_prepare_observation_error_after_p1_revocation_keeps_guards():
     """One failing L2 read can also convey valid permission revocation."""
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     old = world.ledger.grant
@@ -983,15 +984,18 @@ def test_chair_verification_error_after_p1_revocation_keeps_both_guards():
         nonlocal calls
         calls += 1
         snapshot = original_observe()
-        if calls == 6:
+        if calls == 4:
             world.ledger.grant = replace(old, grant_revision=2, active=False)
             return replace(snapshot, revision="bad_revision")
         return snapshot
 
     game.observe = malformed_and_revoke
     result = loop.step()
+    assert calls == 4
     assert result.status == "UNKNOWN"
-    assert game.pending_attempt is not None and len(game.dispatched) == 1
+    assert result.operation_id == "offline-attempt-1"
+    assert game.pending_attempt is None and game.dispatched == []
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     account = host._fake_water_permission_store.accounts[old.grant_id]
     assert account.revoked and account.grant.grant_revision == 2
     assert FakePermissionedWaterBridge(host).provision_standing_grant(
@@ -1071,7 +1075,7 @@ def test_verified_chair_publisher_always_ingests_valid_p1_revocation(
 ])
 def test_raw_chair_prepare_dispatch_reject_numeric_lookalikes(
         raw_read, bad_revision):
-    """Dataclass True == 1 and 1.0 == 1 must not authorize a fake move."""
+    """Dataclass True == 1 and 1.0 == 1 cannot certify a fake move. R23 prevents injected observer read #5."""
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original = game.observe
     reads = 0
@@ -1088,11 +1092,8 @@ def test_raw_chair_prepare_dispatch_reject_numeric_lookalikes(
 
     game.observe = read_with_numeric_lookalike
     result = loop.step()
-    assert reads == raw_read
-    assert result.status != "VERIFIED_FAKE"
-    assert result.status == (
-        "BLOCKED_STALE_OR_DENIED" if raw_read == 4 else "UNKNOWN"
-    )
+    assert reads == 4  # R23 quarantines before injected read #5
+    assert result.status == "UNKNOWN"
     assert result.claim_real_completion is False
     assert game.observe is read_with_numeric_lookalike
     assert game.dispatched == []
@@ -1104,6 +1105,7 @@ def test_raw_chair_prepare_dispatch_reject_numeric_lookalikes(
         assert game.pending_attempt is None
     else:
         assert result.operation_id == game.pending_attempt
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
 
     later_interest = Interest("MOVE_TO_CHAIR")
     later = FakeMixedDaytimeLoop(
@@ -1115,39 +1117,25 @@ def test_raw_chair_prepare_dispatch_reject_numeric_lookalikes(
         assert later.status == "WAIT_NEW_OBSERVATION"
     assert later_interest.calls == 0
 
-    if raw_read == 4:
-        # Recreating a coordinator after a newer revision is legal ONLY
-        # because this attempt was definitively rejected pre-effect. It
-        # must never have been reported as an untracked UNKNOWN.
-        game.revision += 1
-        world.crop = replace(world.crop, revision=game.revision)
-        game.observe = original
-        fresh = FakeMixedDaytimeLoop(
-            game, host, world, Interest("MOVE_TO_CHAIR"), weather="sunny"
-        )
-        recovered = fresh.step()
-        assert recovered.status == "VERIFIED_FAKE"
-        assert len(game.dispatched) == 1
-        assert recovered.operation_id == game.dispatched[0][0]
-        assert recovered.operation_id != result.operation_id
-    else:
-        game.revision += 1
-        world.crop = replace(world.crop, revision=game.revision)
-        blocked_interest = Interest("MOVE_TO_CHAIR")
-        blocked = FakeMixedDaytimeLoop(
-            game, host, world, blocked_interest, weather="sunny"
-        ).step()
-        assert blocked.status == "BLOCKED_UNRESOLVED"
-        assert blocked_interest.calls == 0
-
+    # A newer revision cannot release this uncertain attempted operation,
+    # even when the rejected read left no pending Game reservation.
+    game.revision += 1
+    world.crop = replace(world.crop, revision=game.revision)
+    game.observe = original
+    blocked_interest = Interest("MOVE_TO_CHAIR")
+    blocked = FakeMixedDaytimeLoop(
+        game, host, world, blocked_interest, weather="sunny"
+    ).step()
+    assert blocked.status == "BLOCKED_UNRESOLVED"
+    assert blocked_interest.calls == 0
 
 @pytest.mark.parametrize("invalid_options", [
     (),
     ("STAY", "MOVE_TO_CHAIR"),
     ("MOVE_TO_CHAIR", "STAY"),
 ])
-def test_chair_post_move_options_must_match_fake_game_contract(invalid_options):
-    """Even well-typed options can be invalid once P2 reached the chair."""
+def test_malformed_options_from_untrusted_prepare_observer_fail_closed(invalid_options):
+    """Injected observer options cannot authorize the chair prepare boundary."""
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original = game.observe
     reads = 0
@@ -1156,22 +1144,24 @@ def test_chair_post_move_options_must_match_fake_game_contract(invalid_options):
         nonlocal reads
         reads += 1
         snapshot = original()
-        if reads == 6:
-            assert snapshot.sunny_tile == game.chair_tile
-            assert snapshot.options == ("STAY",)
+        if reads == 4:
+            assert snapshot.sunny_tile == (4, 4)
+            assert snapshot.options == ("STAY", "MOVE_TO_CHAIR")
             return replace(snapshot, options=invalid_options)
         return snapshot
 
     game.observe = bad_verified_options
     result = loop.step()
-    assert reads == 6
+    assert reads == 4
     assert result.status == "UNKNOWN"
     assert result.claim_real_completion is False
     assert result.choice == "MOVE_TO_CHAIR"
     assert game.observe is bad_verified_options
-    assert len(game.dispatched) == 1
-    assert game.sunny_tile == game.chair_tile
-    assert result.operation_id == game.dispatched[0][0] == game.pending_attempt
+    assert game.dispatched == []
+    assert game.sunny_tile == (4, 4)
+    assert game.pending_attempt is None
+    assert result.operation_id == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert "MOVE_TO_CHAIR" not in loop.completed
     assert host.events == []
 
@@ -1182,7 +1172,7 @@ def test_chair_post_move_options_must_match_fake_game_contract(invalid_options):
     assert fresh_interest.calls == 0
 
 
-def test_successful_chair_dispatch_restores_original_observer():
+def test_benign_injected_observer_is_restored_but_cannot_certify_chair():
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original = game.observe
     reads = 0
@@ -1194,11 +1184,14 @@ def test_successful_chair_dispatch_restores_original_observer():
 
     game.observe = observe
     result = loop.step()
-    assert result.status == "VERIFIED_FAKE"
-    assert reads == 6
+    assert result.status == "UNKNOWN"
+    assert reads == 4
     assert game.observe is observe
-    assert game.pending_attempt is None and len(game.dispatched) == 1
-    assert result.operation_id == game.dispatched[0][0]
+    assert game.pending_attempt == "offline-attempt-1"
+    assert game.dispatched == []
+    assert result.operation_id == game.pending_attempt
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert "MOVE_TO_CHAIR" not in loop.completed
 
 
 def test_retarget_after_actual_fake_chair_effect_is_unknown_and_quarantined():
@@ -1257,13 +1250,13 @@ def test_stop_after_actual_fake_dispatch_effect_is_unknown_with_pending():
 
 
 @pytest.mark.parametrize("reported_revision", [2, 3])
-def test_post_dispatch_fabricated_chair_arrival_cannot_clear_pending(
+def test_injected_prepare_observer_fabricated_chair_arrival_fails_closed(
         reported_revision):
-    """R6 review: a well-shaped lie must not complete an ack_no_effect move.
+    """A fabricated arrival from a mutable observer must block before send.
 
-    L2 used to trust a fabricated newer snapshot from game.observe, called
-    finish_observed_action, and cleared the only pending record. The mixed
-    loop noticed the actual position mismatch only *after* that finalization.
+    R23 no longer lets an injected observer reach the old post-move read #6.
+    A fake arrival injected during prepare read #4 still cannot certify
+    completed movement or free the attempted operation for retry.
     """
     game, host, world, interest, loop = setup(
         choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
@@ -1275,10 +1268,10 @@ def test_post_dispatch_fabricated_chair_arrival_cannot_clear_pending(
         nonlocal reads
         reads += 1
         snapshot = original_observe()
-        if reads == 6:
+        if reads == 4:
             assert game.sunny_tile == (4, 4)
             assert game.revision == 1
-            assert len(game.dispatched) == 1
+            assert game.dispatched == []
             # All supplied fields look valid for successful arrival, but
             # the underlying FakeGame never moved or revised its state.
             return replace(
@@ -1291,14 +1284,16 @@ def test_post_dispatch_fabricated_chair_arrival_cannot_clear_pending(
 
     game.observe = spoof_arrival_after_no_effect
     result = loop.step()
-    assert reads == 6
+    assert reads == 4
     assert result.status == "UNKNOWN"
     assert result.choice == "MOVE_TO_CHAIR"
     assert not result.claim_real_completion
     assert game.sunny_tile == (4, 4)
     assert game.revision == 1
-    assert len(game.dispatched) == 1
-    assert result.operation_id == game.dispatched[0][0] == game.pending_attempt
+    assert game.dispatched == []
+    assert game.pending_attempt is None
+    assert result.operation_id == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert "MOVE_TO_CHAIR" not in loop.completed
     assert game.observe is spoof_arrival_after_no_effect
     assert host.pending is None and host.events == []
@@ -1314,8 +1309,8 @@ def test_post_dispatch_fabricated_chair_arrival_cannot_clear_pending(
     )
     assert fresh.step().status == "BLOCKED_UNRESOLVED"
     assert interest2.calls == 0
-    assert len(game.dispatched) == 1
-    assert game.pending_attempt == result.operation_id
+    assert game.dispatched == []
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
 
 
 
