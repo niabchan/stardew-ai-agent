@@ -537,7 +537,7 @@ def test_second_observation_can_change_host_gate_without_chair_dispatch(on_secon
     assert "FAKE_EFFECT" not in host.events
     if on_second_read == "water_pending":
         assert host.pending is not None
-        assert first.operation_id == host.pending.operation_id
+        assert first.pending_operation_id == host.pending.operation_id
     elif on_second_read == "stop":
         assert host.stopped is True
     else:
@@ -3151,7 +3151,11 @@ def test_chair_dispatch_str_subclass_is_not_a_trusted_literal(
 @pytest.mark.parametrize("bounded", [False, True])
 def test_dispatch_exception_with_nested_water_preserves_both_operation_ids(
         bounded, monkeypatch):
-    """R16 review: UNKNOWN chair and pending WATER are separate evidence."""
+    """R24: nested WATER is blocked before chooser within dispatch callback.
+
+    Separate R22 tests still exercise both *actual* pending ledgers; this
+    checks the stronger pre-callback reentrancy fence, not a WATER receipt.
+    """
     grant = replace(FakeStandingWaterGrant(), tiles=((7, 5),))
     game, host, world, interest, loop = setup(
         grant=grant, choices=("MOVE_TO_CHAIR",)
@@ -3203,11 +3207,8 @@ def test_dispatch_exception_with_nested_water_preserves_both_operation_ids(
             publisher_calls.append(True)
 
         trace = loop.run_bounded(1, after_verified=publisher)
-        assert [r.status for r in trace] == [
-            "UNKNOWN", "BLOCKED_UNRESOLVED"
-        ]
+        assert [r.status for r in trace] == ["UNKNOWN"]
         outcome = trace[0]
-        assert trace[1].operation_id == outcome.pending_operation_id
         assert publisher_calls == []
     else:
         outcome = loop.step()
@@ -3217,14 +3218,13 @@ def test_dispatch_exception_with_nested_water_preserves_both_operation_ids(
     ]
     assert l2_verdicts == ["UNKNOWN"]
     assert len(nested_results) == 1
-    assert nested_results[0].status == "UNKNOWN_PENDING"
-    assert nested_results[0].operation_id is not None
+    assert nested_results[0].status == "BLOCKED_UNRESOLVED"
+    assert nested_results[0].operation_id is None
     assert outcome.status == "UNKNOWN"
     assert outcome.choice == "MOVE_TO_CHAIR"
     assert outcome.operation_id == "offline-attempt-1"
-    assert outcome.pending_operation_id == nested_results[0].operation_id
-    assert outcome.pending_operation_id == host.pending.operation_id
-    assert outcome.pending_operation_id != outcome.operation_id
+    assert outcome.pending_operation_id is None
+    assert host.pending is None
     assert outcome.claim_real_completion is False
     assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert game.pending_attempt is None
@@ -3233,10 +3233,10 @@ def test_dispatch_exception_with_nested_water_preserves_both_operation_ids(
     ]
     assert game.sunny_tile == game.chair_tile
     assert not loop.completed
-    assert host.events.count("FAKE_EFFECT") == 1
+    assert host.events.count("FAKE_EFFECT") == 0
     assert host.events.count("FAKE_OBSERVED_AND_RESOLVED") == 0
-    assert world.ledger.attempted_starts == 1
-    assert interest.calls == 1 and nested_interest.calls == 1
+    assert world.ledger.attempted_starts == 0
+    assert interest.calls == 1 and nested_interest.calls == 0
 
     game.revision = 9
     world.crop = replace(world.crop, revision=9)
@@ -3245,7 +3245,7 @@ def test_dispatch_exception_with_nested_water_preserves_both_operation_ids(
         game, host, world, future_interest, weather="sunny"
     ).step()
     assert later.status == "BLOCKED_UNRESOLVED"
-    assert later.operation_id == outcome.pending_operation_id
+    assert later.operation_id is None
     assert future_interest.calls == 0
 
 
@@ -4154,11 +4154,12 @@ def test_r23_dispatch_observer_duplicate_raw_sends_never_verify_or_publish(
     assert result.pending_operation_id is None
     assert result.claim_real_completion is False
     assert game.pending_attempt == "offline-attempt-1"
-    assert game.dispatched == [
-        ("offline-attempt-1", "MOVE_TO_CHAIR", "p2")
-    ]
-    assert game.sunny_tile == game.chair_tile
-    assert game.revision == 2
+    # After the hidden first send is erased, the outer original dispatcher
+    # cannot send a second time because the injected observer quarantined
+    # the shared Game before the outer ACK path is accepted.
+    assert game.dispatched == []
+    assert game.sunny_tile == (4, 4)
+    assert game.revision == 1
     assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert "MOVE_TO_CHAIR" not in loop.completed
     assert host.events.count("FAKE_EFFECT") == 0
