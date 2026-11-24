@@ -2625,11 +2625,11 @@ def test_chair_rejection_cleanup_latches_p1_revocation(untrusted_exit):
     game.finish_rejected = untrusted_reject
     result = loop.step()
     assert intercepted == []  # adapter invokes pinned baseline ONLY
-    assert result.status == "BLOCKED_STALE_OR_DENIED"
+    assert result.status == "UNKNOWN"
     assert result.operation_id == "offline-attempt-1"
     assert result.claim_real_completion is False
-    assert getattr(game, "_fake_mixed_quarantined", False) is False
-    assert game.pending_attempt is None
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert game.pending_attempt == "offline-attempt-1"
     assert game.dispatched == []
     assert "MOVE_TO_CHAIR" not in loop.completed
     assert host.events == [] and host.pending is None
@@ -2995,7 +2995,7 @@ def test_chair_dispatch_denial_after_real_move_is_unknown_not_pre_effect(
     assert game.pending_attempt == (
         None if clear_attempt else "offline-attempt-1"
     )
-    assert getattr(game, "_fake_mixed_quarantined", False) is clear_attempt
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert host.pending is None and host.events == []
     assert interest.calls == 1
 
@@ -3275,23 +3275,23 @@ def test_chair_rejection_cleanup_saved_dispatch_callback_never_runs(
             1, after_verified=lambda *_args: published.append(True)
         )
         assert [result.status for result in trace] == [
-            "BLOCKED_STALE_OR_DENIED"
+            "UNKNOWN"
         ]
         outcome = trace[0]
     else:
         outcome = loop.step()
-    assert l2_verdicts == ["BLOCKED_STALE_OR_DENIED"]
+    assert l2_verdicts == ["UNKNOWN"]
     assert malicious_calls == []
     assert published == []
-    assert outcome.status == "BLOCKED_STALE_OR_DENIED"
+    assert outcome.status == "UNKNOWN"
     assert outcome.operation_id == "offline-attempt-1"
     assert outcome.claim_real_completion is False
     assert not loop.completed
     assert game.dispatched == []
     assert game.sunny_tile == (4, 4)
     assert game.revision == 1
-    assert game.pending_attempt is None
-    assert getattr(game, "_fake_mixed_quarantined", False) is False
+    assert game.pending_attempt == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert host.events == [] and host.pending is None
     assert interest.calls == 1
 
@@ -3301,8 +3301,8 @@ def test_chair_rejection_cleanup_saved_dispatch_callback_never_runs(
     subsequent = FakeMixedDaytimeLoop(
         game, host, world, fresh_interest, weather="sunny"
     ).step()
-    assert subsequent.status == "STAY"
-    assert fresh_interest.calls == 1
+    assert subsequent.status == "BLOCKED_UNRESOLVED"
+    assert fresh_interest.calls == 0
 
 
 @pytest.mark.parametrize("bounded", [False, True])
@@ -3347,21 +3347,21 @@ def test_chair_cleanup_saved_dispatch_cannot_mutate_log_or_hide_revocation(
             1, after_verified=lambda *_args: published.append(True)
         )
         assert [x.status for x in trace] == [
-            "BLOCKED_STALE_OR_DENIED"
+            "UNKNOWN"
         ]
         result = trace[0]
     else:
         result = loop.step()
 
-    assert l2_verdicts == ["BLOCKED_STALE_OR_DENIED"]
+    assert l2_verdicts == ["UNKNOWN"]
     assert unsafe_called == [] and published == []
-    assert result.status == "BLOCKED_STALE_OR_DENIED"
+    assert result.status == "UNKNOWN"
     assert result.operation_id == "offline-attempt-1"
     assert result.claim_real_completion is False
     assert game.dispatched == []
-    assert game.pending_attempt is None
+    assert game.pending_attempt == "offline-attempt-1"
     assert game.sunny_tile == (4, 4)
-    assert getattr(game, "_fake_mixed_quarantined", False) is False
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     account = host._fake_water_permission_store.accounts[original.grant_id]
     assert account.revoked is True
     assert account.grant.grant_revision == 2
@@ -3399,14 +3399,14 @@ def test_untrusted_cleanup_receipt_cannot_override_adapter_owned_release(
     else:
         result = loop.step()
     assert calls == []
-    assert verdicts == ["BLOCKED_STALE_OR_DENIED"]
-    assert result.status == "BLOCKED_STALE_OR_DENIED"
+    assert verdicts == ["UNKNOWN"]
+    assert result.status == "UNKNOWN"
     assert result.operation_id == "offline-attempt-1"
     assert result.claim_real_completion is False
-    assert game.pending_attempt is None
+    assert game.pending_attempt == "offline-attempt-1"
     assert game.dispatched == []
     assert not loop.completed
-    assert getattr(game, "_fake_mixed_quarantined", False) is False
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
 
 
 def test_clean_rejection_without_injected_cleanup_is_replay_safe():
@@ -3417,16 +3417,16 @@ def test_clean_rejection_without_injected_cleanup_is_replay_safe():
         AssertionError("must never execute untrusted cleanup")
     )
     outcome = loop.step()
-    assert outcome.status == "BLOCKED_STALE_OR_DENIED"
+    assert outcome.status == "UNKNOWN"
     assert outcome.operation_id == "offline-attempt-1"
-    assert game.pending_attempt is None
+    assert game.pending_attempt == "offline-attempt-1"
     assert game.dispatched == []
-    assert getattr(game, "_fake_mixed_quarantined", False) is False
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     game.revision = 9
     world.crop = replace(world.crop, revision=9)
     new_interest = Interest("STAY")
     again = FakeMixedDaytimeLoop(
         game, host, world, new_interest, weather="sunny"
     ).step()
-    assert again.status == "STAY"
-    assert new_interest.calls == 1
+    assert again.status == "BLOCKED_UNRESOLVED"
+    assert new_interest.calls == 0
