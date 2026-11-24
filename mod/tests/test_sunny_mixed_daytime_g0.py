@@ -4213,3 +4213,258 @@ def test_r23_spoofed_original_observer_attributes_do_not_prove_purity(
     ).step()
     assert blocked.status == "BLOCKED_UNRESOLVED"
     assert next_interest.calls == 0
+
+
+
+@pytest.mark.parametrize("read_number", [1, 2])
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("nested_water", [False, True])
+def test_r24_early_observer_hidden_dispatch_fails_closed(
+        read_number, bounded, nested_water):
+    """R23 independent finding 1: an early read can hide a real toy send.
+
+    Original FakeGame.prepare/dispatch/reject are captured before the read.
+    The observer hides the emitted ack_no_effect row, releases the attempt,
+    and returns the same original scene after switching delivery to ack.
+    The outer coordinator must never publish a second chair attempt.
+    """
+    from reference.sunny_host_stop_fake import FakeWaterOperation
+
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
+    )
+    raw = game.observe
+    saved_prep = FakeGame.prepare
+    saved_send = FakeGame.dispatch
+    saved_release = FakeGame.finish_rejected
+    calls = [0]
+    evidence = []
+    publisher = []
+    water_id = "r24-water-from-early-observer"
+
+    def injected_early_observer():
+        calls[0] += 1
+        if calls[0] == read_number:
+            game.observe = raw
+            snapshot = raw()
+            attempt = game.new_attempt()
+            assert attempt == "offline-attempt-1"
+            assert saved_prep(game, "MOVE_TO_CHAIR", snapshot, attempt) is True
+            ack = saved_send(game, "MOVE_TO_CHAIR", snapshot, attempt)
+            assert ack == "ack"
+            row = game.dispatched.pop()
+            assert row == (attempt, "MOVE_TO_CHAIR", "p2")
+            assert saved_release(game, attempt) is True
+            if nested_water:
+                op = FakeWaterOperation(
+                    water_id, host.epoch, host.owner, "P2", "WATER", (4, 5)
+                )
+                assert host.reserve(op) == "B_LINEAGE_RESERVED"
+            game.delivery = "ack"
+            evidence.append((attempt, ack, row))
+            return snapshot
+        return raw()
+
+    game.observe = injected_early_observer
+    if bounded:
+        trace = loop.run_bounded(
+            2, after_verified=lambda *_args: publisher.append(True)
+        )
+        assert [t.status for t in trace] == (
+            ["UNKNOWN", "BLOCKED_UNRESOLVED"]
+            if nested_water else ["UNKNOWN"]
+        )
+        result = trace[0]
+        assert publisher == []
+    else:
+        result = loop.step()
+    assert calls == [read_number]
+    assert evidence == [
+        ("offline-attempt-1", "ack",
+         ("offline-attempt-1", "MOVE_TO_CHAIR", "p2"))
+    ]
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.pending_operation_id == (
+        water_id if nested_water else None
+    )
+    assert game.pending_attempt is None
+    assert game.dispatched == []
+    assert game.revision == 1 and game.sunny_tile == (4, 4)
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert not loop.completed and result.claim_real_completion is False
+    assert interest.calls == (0 if read_number == 1 else 1)
+    assert host.events.count("FAKE_EFFECT") == 0
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    later_interest = Interest("STAY")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, later_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert later_interest.calls == 0
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("nested_water", [False, True])
+def test_r24_l2_first_observer_hidden_send_then_raise_keeps_chair_id(
+        bounded, nested_water, monkeypatch):
+    """Injected L2 read #3 can erase a dispatched/released ID then raise."""
+    from reference.sunny_host_stop_fake import FakeWaterOperation
+
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
+    )
+    raw = game.observe
+    saved_ctor = mixed_module._HostGatedChairWorld.__init__
+    saved_l2 = OfflineController.step
+    outcomes = []
+    events = []
+    publisher = []
+    water_id = "r24-water-from-first-l2-read"
+
+    def injected_l2_observer():
+        game.observe = raw
+        observed = raw()
+        attempt = game.new_attempt()
+        assert attempt == "offline-attempt-1"
+        assert FakeGame.prepare(
+            game, "MOVE_TO_CHAIR", observed, attempt
+        ) is True
+        assert FakeGame.dispatch(
+            game, "MOVE_TO_CHAIR", observed, attempt
+        ) == "ack"
+        row = game.dispatched.pop()
+        assert row == (attempt, "MOVE_TO_CHAIR", "p2")
+        assert FakeGame.finish_rejected(game, attempt) is True
+        if nested_water:
+            op = FakeWaterOperation(
+                water_id, host.epoch, host.owner, "P2", "WATER", (4, 5)
+            )
+            assert host.reserve(op) == "B_LINEAGE_RESERVED"
+        events.append((attempt, row))
+        raise RuntimeError("observer erased committed fake dispatch")
+
+    def ctor_with_injected_l2_read(adapter, *args, **kwargs):
+        game.observe = injected_l2_observer
+        saved_ctor(adapter, *args, **kwargs)
+
+    def capture_l2(controller):
+        result = saved_l2(controller)
+        outcomes.append(result.verdict)
+        return result
+
+    monkeypatch.setattr(
+        mixed_module._HostGatedChairWorld, "__init__",
+        ctor_with_injected_l2_read
+    )
+    monkeypatch.setattr(OfflineController, "step", capture_l2)
+    if bounded:
+        trace = loop.run_bounded(
+            2, after_verified=lambda *_args: publisher.append(True)
+        )
+        assert [t.status for t in trace] == (
+            ["UNKNOWN", "BLOCKED_UNRESOLVED"]
+            if nested_water else ["UNKNOWN"]
+        )
+        result = trace[0]
+        assert publisher == []
+    else:
+        result = loop.step()
+    assert outcomes == ["BLOCKED_OBSERVATION_UNAVAILABLE"]
+    assert events == [
+        ("offline-attempt-1",
+         ("offline-attempt-1", "MOVE_TO_CHAIR", "p2"))
+    ]
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.pending_operation_id == (
+        water_id if nested_water else None
+    )
+    assert game.pending_attempt is None and game.dispatched == []
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert result.claim_real_completion is False and not loop.completed
+    future = Interest("STAY")
+    assert FakeMixedDaytimeLoop(
+        game, host, world, future, weather="sunny"
+    ).step().status == "BLOCKED_UNRESOLVED"
+    assert future.calls == 0
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_r24_reentrant_read_four_cannot_publish_before_outer_quarantine(
+        bounded, monkeypatch):
+    """R23 independent finding 2: nested ACK must be blocked at callback ENTRY.
+
+    Start with trusted initial reads and L2 read #3, then inject only the
+    inner FakeGame.prepare observation (#4). A nested bounded coordinator
+    attempts to ACK and publish while the outer callback is still running.
+    """
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",)
+    )
+    raw = game.observe
+    raw_adapter_prepare = mixed_module._HostGatedChairWorld.prepare
+    saved_l2 = OfflineController.step
+    nested = []
+    l2_outcomes = []
+    nested_publications = []
+    outer_publications = []
+
+    def nested_during_prepare_observation():
+        game.observe = raw
+        game.revision = 2
+        world.crop = replace(world.crop, revision=2)
+        game.delivery = "ack"
+        chooser = Interest("MOVE_TO_CHAIR")
+        fresh = FakeMixedDaytimeLoop(
+            game, host, world, chooser, weather="sunny"
+        )
+        trace = fresh.run_bounded(
+            1,
+            after_verified=lambda *_args: nested_publications.append(True),
+        )
+        nested.append((trace, chooser.calls))
+        return raw()
+
+    def install_in_prepare(adapter, action, expected, attempt):
+        adapter._raw_observe = nested_during_prepare_observation
+        return raw_adapter_prepare(adapter, action, expected, attempt)
+
+    def capture_l2(controller):
+        result = saved_l2(controller)
+        l2_outcomes.append(result.verdict)
+        return result
+
+    monkeypatch.setattr(
+        mixed_module._HostGatedChairWorld, "prepare", install_in_prepare
+    )
+    monkeypatch.setattr(OfflineController, "step", capture_l2)
+    if bounded:
+        result_trace = loop.run_bounded(
+            2, after_verified=lambda *_args: outer_publications.append(True)
+        )
+        assert [r.status for r in result_trace] == ["UNKNOWN"]
+        outer = result_trace[0]
+    else:
+        outer = loop.step()
+
+    assert len(nested) == 1
+    nested_trace, nested_calls = nested[0]
+    assert nested_trace[0].status == "BLOCKED_UNRESOLVED"
+    assert nested_calls == 0
+    assert nested_publications == []
+    assert l2_outcomes == ["UNKNOWN"]
+    assert outer.status == "UNKNOWN"
+    assert outer.operation_id == "offline-attempt-1"
+    assert outer.claim_real_completion is False
+    assert outer_publications == []
+    assert not loop.completed
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert game.dispatched == []
+    follow_interest = Interest("STAY")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, follow_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert follow_interest.calls == 0
