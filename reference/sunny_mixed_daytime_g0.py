@@ -547,9 +547,11 @@ class FakeMixedDaytimeLoop:
         """L2 adapter entry guard; this permits only its OWN fake pending ID."""
         if self._chair_target() != pinned_target:
             return False
-        if (getattr(self.game, "_fake_mixed_quarantined", False) is not False
-                or getattr(self.game, "_fake_mixed_callback_active", False)
-                    is not False):
+        # The *current* adapter may continue its adversarial operation while
+        # its own untrusted callback is active, solely to capture fault
+        # evidence. Reentrant mixed coordinators are fenced by _gate(), not
+        # by this owner-operation admission function.
+        if getattr(self.game, "_fake_mixed_quarantined", False) is not False:
             return False
         if (self.host.pending is not None or self.host.stopped
                 or self.host.epoch != self.expected_epoch
