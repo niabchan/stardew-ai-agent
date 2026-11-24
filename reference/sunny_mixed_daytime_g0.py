@@ -15,6 +15,7 @@ from reference.sunny_gameplay_slice import FakeGame, OfflineController, Observat
 # cannot dispatch a chair effect. This is INERT G0, not a production Host API.
 _ORIGINAL_FAKE_REJECT = FakeGame.finish_rejected
 _ORIGINAL_FAKE_DISPATCH = FakeGame.dispatch
+_ORIGINAL_FAKE_OBSERVE = FakeGame.observe
 from reference.sunny_host_stop_fake import FakeEffectEvidence, FakeHostWaterFence
 from reference.sunny_water_permission_g0 import (
     FakePermissionWorld, FakePermissionedWaterBridge, FakeWaterPermissionLedger,
@@ -67,6 +68,10 @@ class _HostGatedChairWorld:
         # then lie that it rejected before effect. Neither its ACK nor its
         # pre-effect denial can authorize operation resolution.
         self._untrusted_dispatch_invoked = False
+        # A read callback has the same mutable Game access as an injected
+        # prepare/dispatch. If it runs inside either operation, it can use a
+        # saved dispatcher, erase rows, then return a canonical observation.
+        self._untrusted_observer_in_operation = False
         # L2 still calls finish_rejected, but the adapter owns that release.
         # Per-instance injectable Game cleanup is not a trusted boundary
         # and is NEVER invoked; this also rules out saved-callable dispatch
@@ -107,6 +112,19 @@ class _HostGatedChairWorld:
             raise RuntimeError("fake_chair_snapshot_changed_before_start")
         return snapshot
 
+    def _trusted_raw_observer(self):
+        """Accept only the original bound FakeGame observer, not lookalikes.
+
+        _run_with_checked_reads restores the former observer as an instance
+        attribute, even for an otherwise ordinary FakeGame. Therefore an
+        instance attribute alone is NOT evidence of an injected observer.
+        """
+        observer = self._raw_observe
+        return (type(self._game) is FakeGame
+                and getattr(observer, "__self__", None) is self._game
+                and getattr(observer, "__func__", None)
+                    is _ORIGINAL_FAKE_OBSERVE)
+
     def _run_with_checked_reads(self, operation, *args):
         """Temporarily route raw FakeGame's own reads through validation.
 
@@ -145,13 +163,27 @@ class _HostGatedChairWorld:
             finally:
                 self._game._fake_mixed_quarantined = True
             raise RuntimeError("untrusted_fake_chair_prepare")
+        # The original FakeGame.prepare calls game.observe. If that observer
+        # was replaced, it can reserve and dispatch through saved originals,
+        # erase all rows, release the attempt and raise. Never interpret the
+        # erased log/pending as proof of pre-effect denial. This decision is
+        # made BEFORE any observer callback executes.
+        observer_untrusted = not self._trusted_raw_observer()
+        if observer_untrusted:
+            self._untrusted_observer_in_operation = True
         # FakeGame.prepare performs its OWN read. Strictly validate that
         # read before its dataclass equality check can reserve an attempt.
         try:
-            admitted = self._run_with_checked_reads(
-                self._game.prepare, action, expected, attempt
-            )
+            try:
+                admitted = self._run_with_checked_reads(
+                    self._game.prepare, action, expected, attempt
+                )
+            finally:
+                if observer_untrusted:
+                    self._game._fake_mixed_quarantined = True
         except Exception:
+            if observer_untrusted:
+                raise
             # Strict input validation and Host STOP can raise INSIDE the
             # raw FakeGame.prepare read. The toy game's prepare cannot apply
             # movement: when it has NOT reserved this attempt, that failure
@@ -167,6 +199,10 @@ class _HostGatedChairWorld:
                 # preserve the foreign pending in the shared FakeGame.
                 return False
             raise
+        if observer_untrusted:
+            # Even an exact boolean return is untrusted once an observer has
+            # held the reservation and may have concealed a dispatch.
+            raise RuntimeError("untrusted_fake_chair_prepare_observer")
         if not admitted:
             return False
         self._admitted_attempt = attempt
@@ -190,6 +226,9 @@ class _HostGatedChairWorld:
         injected = (type(self._game) is not FakeGame
                     or "dispatch" in vars(self._game))
         self._untrusted_dispatch_invoked = injected
+        observer_untrusted = not self._trusted_raw_observer()
+        if observer_untrusted:
+            self._untrusted_observer_in_operation = True
         operation = (self._game.dispatch if injected
                      else lambda a, e, i: _ORIGINAL_FAKE_DISPATCH(
                          self._game, a, e, i
@@ -199,8 +238,16 @@ class _HostGatedChairWorld:
                 operation, action, expected, attempt
             )
         finally:
-            if injected:
+            if injected or observer_untrusted:
+                # Even if the callback cleared the chair reservation and
+                # deleted a genuine dispatch row, retain this Game-wide
+                # quarantine, independent of callback exit or response.
                 self._game._fake_mixed_quarantined = True
+        if observer_untrusted:
+            # A saved original dispatcher may have been invoked INSIDE the
+            # observer and then erased. Do not accept the outer dispatch ACK
+            # even if it leaves exactly one row and canonical movement.
+            return "unknown_untrusted_fake_observer_in_dispatch"
         if injected:
             # Reject *all* untrusted callback receipts. In particular L2
             # MUST NOT run finish_rejected on a forged pre-effect string.
@@ -908,14 +955,16 @@ class FakeMixedDaytimeLoop:
                         attempt
                     )
                 )
-            if guarded_game._untrusted_prepare_invoked:
+            if (guarded_game._untrusted_prepare_invoked
+                    or guarded_game._untrusted_observer_in_operation):
                 attempt = guarded_game._prepare_attempt
-                return FakeMixedDayResult(
-                    "UNKNOWN", selected, choices, attempt,
-                    pending_operation_id=self._other_pending_operation_id(
-                        attempt
+                if attempt is not None:
+                    return FakeMixedDayResult(
+                        "UNKNOWN", selected, choices, attempt,
+                        pending_operation_id=self._other_pending_operation_id(
+                            attempt
+                        )
                     )
-                )
             if pending is not None:
                 return FakeMixedDayResult(
                     "BLOCKED_UNRESOLVED", selected, choices, pending
@@ -941,6 +990,18 @@ class FakeMixedDaytimeLoop:
                 "UNKNOWN", selected, choices, attempt,
                 pending_operation_id=self._other_pending_operation_id(
                     attempt
+                )
+            )
+        if (guarded_game._untrusted_observer_in_operation
+                and result.attempt is not None):
+            # In particular, L2 may have returned BLOCKED_STALE_OR_DENIED
+            # after a throwing injected prepare observer erased all evidence.
+            # Never replace its attempted chair ID with a foreign WATER ID.
+            self.game._fake_mixed_quarantined = True
+            return FakeMixedDayResult(
+                "UNKNOWN", selected, choices, result.attempt,
+                pending_operation_id=self._other_pending_operation_id(
+                    result.attempt
                 )
             )
         if guarded_game._finalization_callback_failed:
