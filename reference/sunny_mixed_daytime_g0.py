@@ -59,6 +59,8 @@ class _HostGatedChairWorld:
         self._pinned_target = pinned_target
         self._started = False
         self._admitted_attempt = None
+        self._prepare_attempt = None
+        self._untrusted_prepare_invoked = False
         self._finalization_callback_failed = False
         # Any injected dispatch has write access to the toy Game and can
         # invoke a saved original bound/unbound dispatcher, erase its row,
@@ -125,6 +127,24 @@ class _HostGatedChairWorld:
     def prepare(self, action, expected, attempt):
         if not self._allowed(None):
             return False
+        self._prepare_attempt = attempt
+        # An instance-injected prepare callback is as capable of dispatching
+        # a saved original FakeGame method and deleting its row as a dispatch
+        # callback. It MUST NOT attest to a clean prepare/no effect, even if
+        # it later returns True/False or appears to leave no evidence. This is
+        # an offline adversarial callback only: always preserve UNKNOWN and
+        # quarantine rather than allowing the L2 clean-rejection branch.
+        injected = (type(self._game) is not FakeGame
+                    or "prepare" in vars(self._game))
+        self._untrusted_prepare_invoked = injected
+        if injected:
+            try:
+                self._run_with_checked_reads(
+                    self._game.prepare, action, expected, attempt
+                )
+            finally:
+                self._game._fake_mixed_quarantined = True
+            raise RuntimeError("untrusted_fake_chair_prepare")
         # FakeGame.prepare performs its OWN read. Strictly validate that
         # read before its dataclass equality check can reserve an attempt.
         try:
@@ -391,6 +411,22 @@ class FakeMixedDaytimeLoop:
         if (type(tile) is tuple and len(tile) == 2
                 and all(type(n) is int and 0 <= n < 200 for n in tile)):
             return tile
+        return None
+
+    def _other_pending_operation_id(self, original_attempt):
+        """Report foreign pending work even while the original chair remains.
+
+        The one-ID entry gate prefers the Game ledger. Operation-bound chair
+        results must independently expose a *different* pending Host WATER ID,
+        rather than using that accessor and dropping a same-chair result.
+        """
+        water_id = (getattr(self.host.pending, "operation_id", None)
+                    if self.host.pending is not None else None)
+        if water_id is not None and water_id != original_attempt:
+            return water_id
+        chair_id = self.game.pending_attempt
+        if chair_id is not None and chair_id != original_attempt:
+            return chair_id
         return None
 
     def _pending_operation_id(self):
@@ -868,8 +904,16 @@ class FakeMixedDaytimeLoop:
                 attempt = guarded_game._rejection_cleanup_attempt
                 return FakeMixedDayResult(
                     "UNKNOWN", selected, choices, attempt,
-                    pending_operation_id=(
-                        pending if pending != attempt else None
+                    pending_operation_id=self._other_pending_operation_id(
+                        attempt
+                    )
+                )
+            if guarded_game._untrusted_prepare_invoked:
+                attempt = guarded_game._prepare_attempt
+                return FakeMixedDayResult(
+                    "UNKNOWN", selected, choices, attempt,
+                    pending_operation_id=self._other_pending_operation_id(
+                        attempt
                     )
                 )
             if pending is not None:
@@ -893,11 +937,10 @@ class FakeMixedDaytimeLoop:
             # as UNKNOWN and quarantine before another coordinator starts.
             self.game._fake_mixed_quarantined = True
             attempt = result.attempt or guarded_game._rejection_cleanup_attempt
-            pending = self._pending_operation_id()
             return FakeMixedDayResult(
                 "UNKNOWN", selected, choices, attempt,
-                pending_operation_id=(
-                    pending if pending != attempt else None
+                pending_operation_id=self._other_pending_operation_id(
+                    attempt
                 )
             )
         if guarded_game._finalization_callback_failed:
@@ -906,43 +949,66 @@ class FakeMixedDaytimeLoop:
             # attempted ID and report a DIFFERENT nested pending WATER/chair
             # identity in its own field, so run_bounded can show both.
             self.game._fake_mixed_quarantined = True
-            pending = self._pending_operation_id()
             return FakeMixedDayResult(
                 "UNKNOWN_UNVERIFIED_CHAIR_FINALIZATION",
                 selected, choices, result.attempt,
-                pending_operation_id=(
-                    pending if pending != result.attempt else None
+                pending_operation_id=self._other_pending_operation_id(
+                    result.attempt
                 )
             )
         if result.verdict == "VERIFIED_FAKE":
-            canonical = FakeGame.observe(self.game)
-            if (self._chair_target() != chair_target
-                    or self.game.sunny_tile != chair_target
-                    or self.game.pending_attempt is not None
-                    or canonical.epoch != observed.epoch
-                    or canonical.owner != observed.owner
-                    or canonical.p1_is_human is not True
-                    or canonical.p2_is_ai is not True
-                    or canonical.ready is not True
-                    or canonical.revision <= observed.revision
-                    or self.game.dispatched.count((
+            # L2 accepted an exact True finalizer receipt, but the callback
+            # may have overwritten revision with None, replaced dispatched
+            # with a forged .count() object or erased all rows AFTER clearing
+            # its reservation. Validate types and shapes before ANY revision
+            # comparison or count; failed inspection is unresolved, not an
+            # exception or a forged VERIFIED_FAKE.
+            try:
+                canonical = FakeGame.observe(self.game)
+                rows = self.game.dispatched
+                valid_rows = (
+                    type(rows) is list
+                    and all(
+                        type(row) is tuple and len(row) == 3
+                        and all(type(v) is str for v in row)
+                        for row in rows
+                    )
+                )
+                valid = (
+                    self._chair_target() == chair_target
+                    and self._valid_chair_observation(observed, chair_target)
+                    and self._valid_chair_observation(canonical, chair_target)
+                    and valid_rows
+                    and self.game.pending_attempt is None
+                    and self.game.sunny_tile == chair_target
+                    and canonical.epoch == observed.epoch
+                    and canonical.owner == observed.owner
+                    and canonical.p1_is_human is True
+                    and canonical.p2_is_ai is True
+                    and canonical.ready is True
+                    and canonical.revision > observed.revision
+                    and rows.count((
                         result.attempt, "MOVE_TO_CHAIR", "p2"
-                    )) != 1
-                    or result.attempt not in self.game.seen_attempts
-                    or not self._valid_chair_observation(
-                        canonical, chair_target
-                    )):
+                    )) == 1
+                    and type(self.game.seen_attempts) is set
+                    and result.attempt in self.game.seen_attempts
+                )
+            except Exception:
+                valid = False
+            if not valid:
                 self.game._fake_mixed_quarantined = True
                 return FakeMixedDayResult(
                     "UNKNOWN_UNVERIFIED_CHAIR_TARGET",
-                    selected, choices, result.attempt
+                    selected, choices, result.attempt,
+                    pending_operation_id=self._other_pending_operation_id(
+                        result.attempt
+                    )
                 )
             self.completed.add("MOVE_TO_CHAIR")
-            pending = self._pending_operation_id()
             return FakeMixedDayResult(
                 "VERIFIED_FAKE", selected, choices, result.attempt,
-                pending_operation_id=(
-                    pending if pending != result.attempt else None
+                pending_operation_id=self._other_pending_operation_id(
+                    result.attempt
                 ),
             )
         # UNKNOWN after a dispatch attempt must preserve the original
@@ -950,7 +1016,7 @@ class FakeMixedDaytimeLoop:
         # entries, or was erased by an injected callback. Never iterate
         # arbitrary Game evidence outside this guarded read. In particular,
         # an erased reservation is unresolved regardless of the row count.
-        pending = self._pending_operation_id()
+        pending = self._other_pending_operation_id(result.attempt)
         if result.verdict == "UNKNOWN" and result.attempt is not None:
             try:
                 rows = self.game.dispatched
@@ -972,9 +1038,7 @@ class FakeMixedDaytimeLoop:
                 return FakeMixedDayResult(
                     "UNKNOWN_UNVERIFIED_CHAIR_TARGET",
                     selected, choices, result.attempt,
-                    pending_operation_id=(
-                        pending if pending != result.attempt else None
-                    )
+                    pending_operation_id=pending
                 )
             if pending is not None and pending != result.attempt:
                 return FakeMixedDayResult(
