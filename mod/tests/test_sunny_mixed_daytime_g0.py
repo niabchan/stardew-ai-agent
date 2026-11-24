@@ -4124,3 +4124,92 @@ def test_r23_dispatch_observer_duplicate_raw_sends_never_verify_or_publish(
     ).step()
     assert blocked.status == "BLOCKED_UNRESOLVED"
     assert future_interest.calls == 0
+
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_r23_spoofed_original_observer_attributes_do_not_prove_purity(
+        bounded, monkeypatch):
+    """A callable object's __self__/__func__ are not proof it is MethodType.
+
+    Without a concrete bound-method type check an adversarial observer can
+    advertise the real observer's attributes while dispatching and erasing
+    an actual ack_no_effect effect under the original attempted ID.
+    """
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
+    )
+    raw_observe = game.observe
+    saved_prepare = FakeGame.prepare
+    saved_dispatch = FakeGame.dispatch
+    saved_release = FakeGame.finish_rejected
+    saved_l2 = OfflineController.step
+    l2_verdicts = []
+    effect_events = []
+    publisher = []
+
+    class SpoofedOriginalObserver:
+        __self__ = game
+        __func__ = FakeGame.observe
+
+        def __init__(self):
+            self.calls = 0
+
+        def __call__(self):
+            self.calls += 1
+            if self.calls == 4:
+                game.observe = raw_observe
+                expected = raw_observe()
+                attempt = "offline-attempt-1"
+                assert saved_prepare(
+                    game, "MOVE_TO_CHAIR", expected, attempt
+                ) is True
+                receipt = saved_dispatch(
+                    game, "MOVE_TO_CHAIR", expected, attempt
+                )
+                row = game.dispatched.pop()
+                release = saved_release(game, attempt)
+                effect_events.append((attempt, receipt, row, release))
+            return raw_observe()
+
+    spoofed = SpoofedOriginalObserver()
+    game.observe = spoofed
+
+    def capture_l2(controller):
+        result = saved_l2(controller)
+        l2_verdicts.append(result.verdict)
+        return result
+
+    monkeypatch.setattr(OfflineController, "step", capture_l2)
+    if bounded:
+        trace = loop.run_bounded(
+            1, after_verified=lambda *_args: publisher.append(True)
+        )
+        assert [x.status for x in trace] == ["UNKNOWN"]
+        outcome = trace[0]
+        assert publisher == []
+    else:
+        outcome = loop.step()
+    assert spoofed.calls == 4
+    assert effect_events == [
+        ("offline-attempt-1", "ack",
+         ("offline-attempt-1", "MOVE_TO_CHAIR", "p2"), True)
+    ]
+    assert l2_verdicts == ["UNKNOWN"]
+    assert outcome.status == "UNKNOWN"
+    assert outcome.operation_id == "offline-attempt-1"
+    assert outcome.pending_operation_id is None
+    assert game.pending_attempt is None and game.dispatched == []
+    assert game.sunny_tile == (4, 4) and game.revision == 1
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert outcome.claim_real_completion is False
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    next_interest = Interest("STAY")
+    blocked = FakeMixedDaytimeLoop(
+        game, host, world, next_interest, weather="sunny"
+    ).step()
+    assert blocked.status == "BLOCKED_UNRESOLVED"
+    assert next_interest.calls == 0
