@@ -1327,7 +1327,7 @@ def test_stop_after_actual_fake_dispatch_effect_is_unknown_with_pending():
 
 @pytest.mark.parametrize("reported_revision", [2, 3])
 def test_injected_prepare_observer_fabricated_chair_arrival_fails_closed(
-        reported_revision):
+        reported_revision, monkeypatch):
     """A fabricated arrival from a mutable observer must block before send.
 
     R23 no longer lets an injected observer reach the old post-move read #6.
@@ -1338,7 +1338,7 @@ def test_injected_prepare_observer_fabricated_chair_arrival_fails_closed(
         choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
     )
     original_observe = game.observe
-    reads = 0
+    reads = 3
 
     def spoof_arrival_after_no_effect():
         nonlocal reads
@@ -1358,7 +1358,7 @@ def test_injected_prepare_observer_fabricated_chair_arrival_fails_closed(
             )
         return snapshot
 
-    game.observe = spoof_arrival_after_no_effect
+    inject_observer_at_phase(game, loop, spoof_arrival_after_no_effect, 4, monkeypatch)
     result = loop.step()
     assert reads == 4
     assert result.status == "UNKNOWN"
@@ -1397,7 +1397,7 @@ def test_injected_prepare_observer_fabricated_chair_arrival_fails_closed(
     (5, 1.0),
 ])
 def test_authoritative_numeric_revision_must_be_strict_before_chair_action(
-        raw_read, authoritative_revision):
+        raw_read, authoritative_revision, monkeypatch):
     """R7 review: a *valid returned* revision must not mask bad raw Game data.
 
     Dataclass comparison treats True/1.0 as equal to integer 1. The raw
@@ -1405,7 +1405,7 @@ def test_authoritative_numeric_revision_must_be_strict_before_chair_action(
     """
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original_observe = game.observe
-    reads = 0
+    reads = raw_read - 1
 
     def return_clean_snapshot_from_malformed_fake_game():
         nonlocal reads
@@ -1421,9 +1421,9 @@ def test_authoritative_numeric_revision_must_be_strict_before_chair_action(
             return injected
         return original_observe()
 
-    game.observe = return_clean_snapshot_from_malformed_fake_game
+    inject_observer_at_phase(game, loop, return_clean_snapshot_from_malformed_fake_game, raw_read, monkeypatch)
     result = loop.step()
-    assert reads == 4  # later observer reads no longer occur
+    assert reads == raw_read  # precise later-stage fault injection
     assert result.status == "UNKNOWN"
     assert result.claim_real_completion is False
     if raw_read == 4:
@@ -1459,7 +1459,7 @@ def test_authoritative_numeric_revision_must_be_strict_before_chair_action(
     assert new_interest.calls == 0
     assert game.dispatched == []
 
-def test_reentrant_prepare_observer_retains_outer_and_nested_attempt_ids():
+def test_reentrant_prepare_observer_retains_outer_and_nested_attempt_ids(monkeypatch):
     """R7 review: nested attempt-2 pending is NOT outer attempt-1.
 
     R23 treats the outer observer as untrusted, so it preserves the original
@@ -1468,7 +1468,7 @@ def test_reentrant_prepare_observer_retains_outer_and_nested_attempt_ids():
     """
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original_observe = game.observe
-    raw_calls = 0
+    raw_calls = 3
     nested = []
 
     def reenter_during_outer_prepare():
@@ -1497,21 +1497,22 @@ def test_reentrant_prepare_observer_retains_outer_and_nested_attempt_ids():
             return replace(original_observe(), revision="bad_outer_revision")
         return original_observe()
 
-    game.observe = reenter_during_outer_prepare
+    inject_observer_at_phase(game, loop, reenter_during_outer_prepare, 4, monkeypatch)
     outer = loop.step()
     assert raw_calls == 4
-    assert len(nested) == 1 and nested[0].status == "UNKNOWN"
-    assert nested[0].operation_id == "offline-attempt-2"
+    assert len(nested) == 1 and nested[0].status == "BLOCKED_UNRESOLVED"
+    # Shared reentrancy guard fences the nested caller BEFORE its chooser,
+    # unlike the old pending-only regression. The outer attempt is still
+    # unresolved and quarantined even if the observer mutates revision.
+    assert nested[0].operation_id is None
     assert outer.status == "UNKNOWN"
     assert outer.operation_id == "offline-attempt-1"
-    assert outer.pending_operation_id == nested[0].operation_id
+    assert outer.pending_operation_id is None
     assert getattr(game, "_fake_mixed_quarantined", False) is True
-    assert game.pending_attempt == "offline-attempt-2"
-    assert game.dispatched == [(
-        "offline-attempt-2", "MOVE_TO_CHAIR", "p2"
-    )]
-    assert game.seen_attempts == {"offline-attempt-2"}
-    assert game.attempt_serial == 2
+    assert game.pending_attempt is None
+    assert game.dispatched == []
+    assert game.seen_attempts == set()
+    assert game.attempt_serial == 1
     assert "MOVE_TO_CHAIR" not in loop.completed
     assert host.events == [] and host.pending is None
     assert game.observe is reenter_during_outer_prepare
@@ -1527,8 +1528,8 @@ def test_reentrant_prepare_observer_retains_outer_and_nested_attempt_ids():
     )
     assert fresh.step().status == "BLOCKED_UNRESOLVED"
     assert fresh_interest.calls == 0
-    assert len(game.dispatched) == 1
-    assert game.pending_attempt == nested[0].operation_id
+    assert game.dispatched == []
+    assert game.pending_attempt is None
 
 
 @pytest.mark.parametrize("authoritative_field,bad_value", [
@@ -4028,7 +4029,7 @@ def test_r23_prepare_observer_can_hide_dispatched_attempt_and_release_then_raise
     saved_release = FakeGame.finish_rejected
     original_l2 = OfflineController.step
     l2_verdicts, evidence, publisher = [], [], []
-    read_count = [0]
+    read_count = [3]  # first 3 reads are trusted; injection at prepare read 4
     water_id = "water-from-malicious-prepare-observer"
 
     def capture_l2(controller):
@@ -4062,7 +4063,7 @@ def test_r23_prepare_observer_can_hide_dispatched_attempt_and_release_then_raise
             raise RuntimeError("fake observer hidden dispatch and erased row")
         return raw_observe()
 
-    game.observe = observer_with_hidden_dispatch
+    inject_observer_at_phase(game, loop, observer_with_hidden_dispatch, 4, monkeypatch)
     if bounded:
         trace = loop.run_bounded(
             1, after_verified=lambda *_args: publisher.append(True)
@@ -4224,7 +4225,7 @@ def test_r23_spoofed_original_observer_attributes_do_not_prove_purity(
         __func__ = FakeGame.observe
 
         def __init__(self):
-            self.calls = 0
+            self.calls = 3
 
         def __call__(self):
             self.calls += 1
@@ -4244,7 +4245,7 @@ def test_r23_spoofed_original_observer_attributes_do_not_prove_purity(
             return raw_observe()
 
     spoofed = SpoofedOriginalObserver()
-    game.observe = spoofed
+    inject_observer_at_phase(game, loop, spoofed, 4, monkeypatch)
 
     def capture_l2(controller):
         result = saved_l2(controller)
