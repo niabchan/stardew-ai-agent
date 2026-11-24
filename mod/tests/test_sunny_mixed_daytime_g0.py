@@ -399,12 +399,12 @@ def test_chooser_revocation_is_latched_on_every_exit(failure):
     assert host.events.count("FAKE_EFFECT") == 0
 
 
-def test_failed_second_observation_after_choice_does_not_dispatch():
+def test_failed_second_observation_after_choice_does_not_dispatch(monkeypatch):
     game, host, world, interest, loop = setup(
         choices=("MOVE_TO_CHAIR",)
     )
     original_observe = game.observe
-    reads = 0
+    reads = 1  # first snapshot uses the original bound observer
 
     def observe_then_fail():
         nonlocal reads
@@ -413,9 +413,11 @@ def test_failed_second_observation_after_choice_does_not_dispatch():
             raise RuntimeError("fake observation source unavailable")
         return original_observe()
 
-    game.observe = observe_then_fail
+    inject_observer_at_phase(game, loop, observe_then_fail, 2, monkeypatch)
     result = loop.step()
-    assert result.status == "BLOCKED_OBSERVATION_UNAVAILABLE"
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert result.claim_real_completion is False
     assert reads == 2 and interest.calls == 1
     assert game.dispatched == [] and host.events == []
@@ -464,7 +466,10 @@ def test_malformed_observation_revision_and_options_fail_without_exception():
         return replace(original_observe(), options=("STAY", []))
 
     game.observe = unhashable_options
-    assert loop.step().status == "BLOCKED_MALFORMED_OBSERVATION"
+    outcome = loop.step()
+    assert outcome.status == "UNKNOWN"
+    assert outcome.operation_id == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert interest.calls == 0 and host.events == []
 
 
@@ -492,13 +497,13 @@ def test_observation_publisher_partial_mutation_and_failure_quarantines():
 
 
 @pytest.mark.parametrize("on_second_read", ["stop", "water_pending", "epoch_rotation"])
-def test_second_observation_can_change_host_gate_without_chair_dispatch(on_second_read):
+def test_second_observation_can_change_host_gate_without_chair_dispatch(on_second_read, monkeypatch):
     """Issue #96 R1 STOP bypass: last gate used to precede this callback."""
     from reference.sunny_host_stop_fake import FakeWaterOperation
 
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original = game.observe
-    reads = 0
+    reads = 1
 
     def observe_with_host_event():
         nonlocal reads
@@ -516,16 +521,15 @@ def test_second_observation_can_change_host_gate_without_chair_dispatch(on_secon
                 assert host.reserve(op) == "B_LINEAGE_RESERVED"
         return original()
 
-    game.observe = observe_with_host_event
+    inject_observer_at_phase(game, loop, observe_with_host_event, 2, monkeypatch)
     first = loop.step()
     assert reads == 2
-    assert first.status == (
-        "BLOCKED_UNRESOLVED" if on_second_read == "water_pending"
-        else "BLOCKED_CHANGED_BEFORE_DISPATCH"
-    )
-    assert first.operation_id == (
+    assert first.status == "UNKNOWN"
+    assert first.operation_id == "offline-attempt-1"
+    assert first.pending_operation_id == (
         "host-new-pending-1" if on_second_read == "water_pending" else None
     )
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert first.claim_real_completion is False
     assert interest.calls == 1
     assert not game.dispatched and game.pending_attempt is None
@@ -534,17 +538,17 @@ def test_second_observation_can_change_host_gate_without_chair_dispatch(on_secon
     if on_second_read == "water_pending":
         assert host.pending is not None
         assert first.operation_id == host.pending.operation_id
-    else:
+    elif on_second_read == "stop":
         assert host.stopped is True
+    else:
+        assert host.epoch != loop.expected_epoch
 
     fresh_interest = Interest("MOVE_TO_CHAIR")
     fresh = FakeMixedDaytimeLoop(
         game, host, world, fresh_interest, weather="sunny"
     )
     fresh_result = fresh.step()
-    assert fresh_result.status in {
-        "BLOCKED_STOP", "BLOCKED_UNRESOLVED", "BLOCKED_OWNER_OR_EPOCH"
-    }
+    assert fresh_result.status == "BLOCKED_UNRESOLVED"
     if on_second_read == "water_pending":
         assert fresh_result.status == "BLOCKED_UNRESOLVED"
         assert fresh_result.operation_id == host.pending.operation_id
@@ -667,7 +671,7 @@ def test_host_pending_during_l2_prepare_is_not_ignored():
 
 @pytest.mark.parametrize("replacement", ["granted_far_crop", "granted_adjacent_crop",
                                          "same_crop_new_object"])
-def test_second_observation_crop_swap_never_bypasses_p2_adjacency(replacement):
+def test_second_observation_crop_swap_never_bypasses_p2_adjacency(replacement, monkeypatch):
     """Issue #96 R2: two granted tiles alone do not imply P2 can reach both."""
     grant = replace(
         FakeStandingWaterGrant(),
@@ -678,7 +682,7 @@ def test_second_observation_crop_swap_never_bypasses_p2_adjacency(replacement):
         grant=grant, choices=("WATER",)
     )
     original = game.observe
-    reads = 0
+    reads = 1
 
     def switch_crop_on_reread():
         nonlocal reads
@@ -705,10 +709,12 @@ def test_second_observation_crop_swap_never_bypasses_p2_adjacency(replacement):
                 world.crop = replace(world.crop)
         return original()
 
-    game.observe = switch_crop_on_reread
+    inject_observer_at_phase(game, loop, switch_crop_on_reread, 2, monkeypatch)
     result = loop.step()
     assert reads == 2
-    assert result.status == "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert result.choice == "WATER"
     assert result.claim_real_completion is False
     assert interest.offers[0] == ("STAY", "MOVE_TO_CHAIR", "WATER")
@@ -758,11 +764,11 @@ def test_water_rechecks_independent_p2_adjacency_before_fake_b(stage, expected):
         assert followup.calls == 0
 
 
-def test_revocation_delivered_during_second_read_is_latched_before_water_denial():
+def test_revocation_delivered_during_second_read_is_latched_before_water_denial(monkeypatch):
     game, host, world, interest, loop = setup(choices=("WATER",))
     original_grant = world.ledger.grant
     original_observe = game.observe
-    calls = 0
+    calls = 1
 
     def revoke_during_read():
         nonlocal calls
@@ -773,9 +779,11 @@ def test_revocation_delivered_during_second_read_is_latched_before_water_denial(
             )
         return original_observe()
 
-    game.observe = revoke_during_read
+    inject_observer_at_phase(game, loop, revoke_during_read, 2, monkeypatch)
     result = loop.step()
-    assert result.status == "BLOCKED_CHANGED_BEFORE_DISPATCH"
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert calls == 2 and result.choice == "WATER"
     assert host.events == [] and host.pending is None
     assert FakePermissionedWaterBridge(host).provision_standing_grant(
@@ -787,11 +795,11 @@ def test_revocation_delivered_during_second_read_is_latched_before_water_denial(
     assert world.ledger.attempted_starts == 0
 
 
-def test_second_read_exception_after_revocation_keeps_tombstone_no_water():
+def test_second_read_exception_after_revocation_keeps_tombstone_no_water(monkeypatch):
     game, host, world, interest, loop = setup(choices=("WATER",))
     old = world.ledger.grant
     original_observe = game.observe
-    calls = 0
+    calls = 1
 
     def fail_with_revocation():
         nonlocal calls
@@ -801,9 +809,11 @@ def test_second_read_exception_after_revocation_keeps_tombstone_no_water():
             raise RuntimeError("synthetic crop-read error after revoke")
         return original_observe()
 
-    game.observe = fail_with_revocation
+    inject_observer_at_phase(game, loop, fail_with_revocation, 2, monkeypatch)
     result = loop.step()
-    assert result.status == "BLOCKED_OBSERVATION_UNAVAILABLE"
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert host.events == [] and host.pending is None
     assert FakePermissionedWaterBridge(host).provision_standing_grant(
         old
@@ -840,11 +850,9 @@ def test_first_observation_revocation_survives_every_exit_and_stale_grant_restor
     game.observe = notify_revocation_on_first_read
     first = loop.step()
     assert reads == 1
-    assert first.status == (
-        "BLOCKED_OBSERVATION_UNAVAILABLE" if first_read == "raise"
-        else "BLOCKED_MALFORMED_OBSERVATION" if first_read == "malformed"
-        else "DENIED_NOT_GROUNDED"
-    )
+    assert first.status == "UNKNOWN"
+    assert first.operation_id == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     account = host._fake_water_permission_store.accounts[old.grant_id]
     assert account.revoked is True and account.grant.grant_revision == 2
     assert FakePermissionedWaterBridge(host).provision_standing_grant(
@@ -866,8 +874,10 @@ def test_first_observation_revocation_survives_every_exit_and_stale_grant_restor
         game, host, world, later_interest, weather="sunny"
     )
     later = fresh.step()
-    assert later.status == "DENIED_NOT_GROUNDED"
-    assert "WATER" not in later.offered
+    # A new revision never clears an unresolved effect-capable first read,
+    # even when P1 revocation is independently latched correctly.
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert later_interest.calls == 0
     assert "RESERVE_B_LINEAGE" not in host.events
     assert "FAKE_EFFECT" not in host.events
     assert host.pending is None and host.used_ids == set()
@@ -902,20 +912,19 @@ def test_first_observation_host_event_rechecks_gate_before_choice(first_read):
     game.observe = add_host_event
     result = loop.step()
     assert reads == 1
-    assert result.status == (
-        "BLOCKED_UNRESOLVED" if first_read == "host_pending"
-        else "BLOCKED_CHANGED_BEFORE_DISPATCH"
-    )
-    assert result.operation_id == (
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.pending_operation_id == (
         "first-read-pending" if first_read == "host_pending" else None
     )
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert interest.calls == 0 and game.dispatched == []
     assert game.pending_attempt is None
     if first_read == "stop":
         assert host.stopped
     else:
         assert host.pending is not None
-        assert result.operation_id == host.pending.operation_id
+        assert result.pending_operation_id == host.pending.operation_id
 
 
 @pytest.mark.parametrize("chair_read,raises,expected", [
