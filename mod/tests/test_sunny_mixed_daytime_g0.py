@@ -47,6 +47,75 @@ def setup(*, choices=("WATER", "MOVE_TO_CHAIR", "STAY"), weather="sunny",
     return game, host, world, interest, loop
 
 
+
+def inject_observer_at_phase(game, loop, callback, phase, monkeypatch):
+    """R24 negative-test staging; earlier synthetic reads stay ORIGINAL.
+
+    Read 1: initial mixed snapshot.
+    Read 2: mixed recheck after chooser.
+    Read 3: first L2 adapter read.
+    Read 4: inner FakeGame.prepare read.
+    Read 5: inner FakeGame.dispatch read.
+    Read 6: L2 post-dispatch verification read.
+
+    Inject precisely at the desired read, not the first mixed read. This
+    preserves negative tests of later STOP, P1 revocation and malformed
+    verification under the stricter fail-closed observation contract.
+    """
+    if phase == 1:
+        game.observe = callback
+        return
+    if phase == 2:
+        raw_interest = loop.interest
+
+        def arm_after_choice(activities):
+            game.observe = callback
+            return raw_interest(activities)
+
+        loop.interest = arm_after_choice
+        return
+
+    adapter_class = mixed_module._HostGatedChairWorld
+    if phase == 3:
+        raw_ctor = adapter_class.__init__
+
+        def arm_before_l2_read(self, *args, **kwargs):
+            game.observe = callback
+            return raw_ctor(self, *args, **kwargs)
+
+        monkeypatch.setattr(adapter_class, "__init__", arm_before_l2_read)
+    elif phase == 4:
+        raw_prepare = adapter_class.prepare
+
+        def arm_before_prepare(self, *args, **kwargs):
+            game.observe = callback
+            self._raw_observe = callback
+            return raw_prepare(self, *args, **kwargs)
+
+        monkeypatch.setattr(adapter_class, "prepare", arm_before_prepare)
+    elif phase == 5:
+        raw_dispatch = adapter_class.dispatch
+
+        def arm_before_dispatch(self, *args, **kwargs):
+            game.observe = callback
+            self._raw_observe = callback
+            return raw_dispatch(self, *args, **kwargs)
+
+        monkeypatch.setattr(adapter_class, "dispatch", arm_before_dispatch)
+    elif phase == 6:
+        raw_dispatch = adapter_class.dispatch
+
+        def arm_after_dispatch(self, *args, **kwargs):
+            result = raw_dispatch(self, *args, **kwargs)
+            game.observe = callback
+            self._raw_observe = callback
+            return result
+
+        monkeypatch.setattr(adapter_class, "dispatch", arm_after_dispatch)
+    else:
+        raise AssertionError("invalid synthetic observer read phase")
+
+
 def test_water_then_chair_then_voluntary_stay_after_fake_reobservation():
     game, host, world, interest, loop = setup()
     game.private_p1_diary = "SECRET_P1_DIARY_NEVER_PASS_TO_CHOOSER"
