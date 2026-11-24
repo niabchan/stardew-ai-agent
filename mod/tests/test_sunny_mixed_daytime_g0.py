@@ -3914,3 +3914,196 @@ def test_r22_failed_owned_release_retains_chair_and_foreign_water_ids(
     assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert outcome.claim_real_completion is False
     assert "MOVE_TO_CHAIR" not in loop.completed
+
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("nested_water", [False, True])
+def test_r23_prepare_observer_can_hide_dispatched_attempt_and_release_then_raise(
+        bounded, nested_water, monkeypatch):
+    """R22 independent finding 1: a read is an effect-capable callback.
+
+    FakeGame.prepare itself is original and unmodified. Its injected
+    observation #4 calls previously saved original FakeGame methods to
+    reserve and dispatch the OUTER chair operation, erases the ack_no_effect
+    row, releases the reservation, creates optional independent Host WATER
+    and raises. A missing row/pending MUST NOT become known pre-effect denial.
+    """
+    from reference.sunny_host_stop_fake import FakeWaterOperation
+
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
+    )
+    raw_observe = game.observe
+    saved_prepare = FakeGame.prepare
+    saved_dispatch = FakeGame.dispatch
+    saved_release = FakeGame.finish_rejected
+    original_l2 = OfflineController.step
+    l2_verdicts, evidence, publisher = [], [], []
+    read_count = [0]
+    water_id = "water-from-malicious-prepare-observer"
+
+    def capture_l2(controller):
+        result = original_l2(controller)
+        l2_verdicts.append(result.verdict)
+        return result
+
+    monkeypatch.setattr(OfflineController, "step", capture_l2)
+
+    def observer_with_hidden_dispatch():
+        read_count[0] += 1
+        if read_count[0] == 4:
+            game.observe = raw_observe  # bypass the scoped adapter observer
+            snapshot = raw_observe()
+            attempt = "offline-attempt-1"
+            assert saved_prepare(game, "MOVE_TO_CHAIR", snapshot, attempt) is True
+            receipt = saved_dispatch(
+                game, "MOVE_TO_CHAIR", snapshot, attempt
+            )
+            assert receipt == "ack"
+            row = game.dispatched.pop()
+            assert row == (attempt, "MOVE_TO_CHAIR", "p2")
+            released = saved_release(game, attempt)
+            assert released is True
+            if nested_water:
+                op = FakeWaterOperation(
+                    water_id, host.epoch, host.owner, "P2", "WATER", (4, 5)
+                )
+                assert host.reserve(op) == "B_LINEAGE_RESERVED"
+            evidence.append((attempt, receipt, row, released))
+            raise RuntimeError("fake observer hidden dispatch and erased row")
+        return raw_observe()
+
+    game.observe = observer_with_hidden_dispatch
+    if bounded:
+        trace = loop.run_bounded(
+            1, after_verified=lambda *_args: publisher.append(True)
+        )
+        statuses = (
+            ["UNKNOWN", "BLOCKED_UNRESOLVED"]
+            if nested_water else ["UNKNOWN"]
+        )
+        assert [r.status for r in trace] == statuses
+        result = trace[0]
+        if nested_water:
+            assert trace[1].operation_id == water_id
+        assert publisher == []
+    else:
+        result = loop.step()
+    assert read_count == [4]
+    assert evidence == [
+        ("offline-attempt-1", "ack",
+         ("offline-attempt-1", "MOVE_TO_CHAIR", "p2"), True)
+    ]
+    assert l2_verdicts == ["UNKNOWN"]
+    assert result.status == "UNKNOWN"
+    assert result.choice == "MOVE_TO_CHAIR"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.pending_operation_id == (
+        water_id if nested_water else None
+    )
+    assert game.pending_attempt is None and game.dispatched == []
+    assert game.sunny_tile == (4, 4) and game.revision == 1
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert result.claim_real_completion is False
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert host.events.count("FAKE_EFFECT") == 0
+    assert interest.calls == 1
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    later_interest = Interest("STAY")
+    blocked = FakeMixedDaytimeLoop(
+        game, host, world, later_interest, weather="sunny"
+    ).step()
+    assert blocked.status == "BLOCKED_UNRESOLVED"
+    assert later_interest.calls == 0
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_r23_dispatch_observer_duplicate_raw_sends_never_verify_or_publish(
+        bounded, monkeypatch):
+    """R22 independent finding 2: two sends can leave one genuine-looking row.
+
+    Test-local injection *between* accepted original prepare and dispatch
+    exercises the dispatch boundary independently of the earlier prepare
+    observer guard. The injected observer invokes a saved original dispatcher
+    (ack_no_effect), deletes its row, switches to ack and supplies a canonical
+    snapshot so the outer original dispatcher sends again for the same ID.
+    Neither final row count nor literal ACK proves one-and-only-one send.
+    """
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
+    )
+    real_adapter_dispatch = mixed_module._HostGatedChairWorld.dispatch
+    saved_game_observe = game.observe
+    original_dispatch = FakeGame.dispatch
+    original_l2 = OfflineController.step
+    nested_receipts, l2_verdicts, publisher = [], [], []
+
+    def witness_l2(controller):
+        result = original_l2(controller)
+        l2_verdicts.append(result.verdict)
+        return result
+
+    monkeypatch.setattr(OfflineController, "step", witness_l2)
+
+    def injection_before_dispatch(adapter, action, expected, attempt):
+        assert game.pending_attempt == attempt
+        assert game.dispatched == []
+        def observer_reentrant_dispatch():
+            # Temporarily restore saved original observer to make the nested
+            # raw FakeGame.dispatch distinct from the adapter's raw read.
+            game.observe = saved_game_observe
+            game.delivery = "ack_no_effect"
+            receipt = original_dispatch(game, action, expected, attempt)
+            assert receipt == "ack"
+            row = game.dispatched.pop()
+            assert row == (attempt, "MOVE_TO_CHAIR", "p2")
+            nested_receipts.append((attempt, receipt, row))
+            game.delivery = "ack"
+            return saved_game_observe()
+
+        adapter._raw_observe = observer_reentrant_dispatch
+        return real_adapter_dispatch(adapter, action, expected, attempt)
+
+    monkeypatch.setattr(
+        mixed_module._HostGatedChairWorld,
+        "dispatch", injection_before_dispatch
+    )
+    if bounded:
+        trace = loop.run_bounded(
+            1, after_verified=lambda *_args: publisher.append(True)
+        )
+        assert [r.status for r in trace] == ["UNKNOWN"]
+        result = trace[0]
+        assert publisher == []
+    else:
+        result = loop.step()
+    assert nested_receipts == [
+        ("offline-attempt-1", "ack",
+         ("offline-attempt-1", "MOVE_TO_CHAIR", "p2"))
+    ]
+    assert l2_verdicts == ["UNKNOWN"]
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.pending_operation_id is None
+    assert result.claim_real_completion is False
+    assert game.pending_attempt == "offline-attempt-1"
+    assert game.dispatched == [
+        ("offline-attempt-1", "MOVE_TO_CHAIR", "p2")
+    ]
+    assert game.sunny_tile == game.chair_tile
+    assert game.revision == 2
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert host.events.count("FAKE_EFFECT") == 0
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    future_interest = Interest("STAY")
+    blocked = FakeMixedDaytimeLoop(
+        game, host, world, future_interest, weather="sunny"
+    ).step()
+    assert blocked.status == "BLOCKED_UNRESOLVED"
+    assert future_interest.calls == 0
