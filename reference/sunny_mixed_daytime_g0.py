@@ -6,6 +6,7 @@ dispatchers have no shared production atomic Host entry or real game authority.
 All observation and chooser inputs here are synthetic fixtures; no I/O or AI.
 """
 from dataclasses import dataclass
+from types import MethodType
 
 from reference.sunny_daytime_intents import Activity, FakeDaytimePlanner, FakeScene
 from reference.sunny_gameplay_slice import FakeGame, OfflineController, Observation
@@ -121,9 +122,9 @@ class _HostGatedChairWorld:
         """
         observer = self._raw_observe
         return (type(self._game) is FakeGame
-                and getattr(observer, "__self__", None) is self._game
-                and getattr(observer, "__func__", None)
-                    is _ORIGINAL_FAKE_OBSERVE)
+                and type(observer) is MethodType
+                and observer.__self__ is self._game
+                and observer.__func__ is _ORIGINAL_FAKE_OBSERVE)
 
     def _run_with_checked_reads(self, operation, *args):
         """Temporarily route raw FakeGame's own reads through validation.
