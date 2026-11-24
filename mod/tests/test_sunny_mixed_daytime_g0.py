@@ -1112,10 +1112,8 @@ def test_raw_chair_prepare_dispatch_reject_numeric_lookalikes(
     later = FakeMixedDaytimeLoop(
         game, host, world, later_interest, weather="sunny"
     ).step()
-    if game.pending_attempt is not None:
-        assert later.status == "BLOCKED_UNRESOLVED"
-    else:
-        assert later.status == "WAIT_NEW_OBSERVATION"
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert later_interest.calls == 0
 
     # A newer revision cannot release this uncertain attempted operation,
@@ -1160,7 +1158,13 @@ def test_malformed_options_from_untrusted_prepare_observer_fail_closed(invalid_o
     assert game.observe is bad_verified_options
     assert game.dispatched == []
     assert game.sunny_tile == (4, 4)
-    assert game.pending_attempt is None
+    # One case has valid-looking original options and the toy prepare
+    # reserves before the boundary rejects this injected observer. The
+    # malformed alternatives raise before reservation. Both are UNKNOWN.
+    assert game.pending_attempt == (
+        "offline-attempt-1"
+        if invalid_options == ("STAY", "MOVE_TO_CHAIR") else None
+    )
     assert result.operation_id == "offline-attempt-1"
     assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert "MOVE_TO_CHAIR" not in loop.completed
@@ -1430,7 +1434,7 @@ def test_reentrant_prepare_observer_retains_outer_and_nested_attempt_ids():
     assert outer.status == "UNKNOWN"
     assert outer.operation_id == "offline-attempt-1"
     assert outer.pending_operation_id == nested[0].operation_id
-    assert getattr(game, "_fake_mixed_quarantined", False) is True == "offline-attempt-2"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert game.pending_attempt == "offline-attempt-2"
     assert game.dispatched == [(
         "offline-attempt-2", "MOVE_TO_CHAIR", "p2"
