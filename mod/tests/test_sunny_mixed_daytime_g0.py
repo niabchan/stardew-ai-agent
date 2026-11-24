@@ -552,10 +552,10 @@ def test_second_observation_can_change_host_gate_without_chair_dispatch(on_secon
     assert not game.dispatched
 
 
-def test_stop_during_l2_first_observation_denies_before_fake_chair_reservation():
+def test_stop_during_l2_first_observation_denies_before_fake_chair_reservation(monkeypatch):
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original = game.observe
-    reads = 0
+    reads = 2  # two preceding trusted mixed reads
 
     def observe():
         nonlocal reads
@@ -564,20 +564,22 @@ def test_stop_during_l2_first_observation_denies_before_fake_chair_reservation()
             host.latch_stop()
         return original()
 
-    game.observe = observe
+    inject_observer_at_phase(game, loop, observe, 3, monkeypatch)
     result = loop.step()
     assert reads == 3
-    assert result.status == "BLOCKED_OBSERVATION_UNAVAILABLE"
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert host.stopped and game.pending_attempt is None
     assert game.dispatched == [] and host.events.count("FAKE_EFFECT") == 0
     assert interest.calls == 1
     assert "MOVE_TO_CHAIR" not in loop.completed
 
 
-def test_stop_during_injected_prepare_observer_is_unknown_without_dispatch():
+def test_stop_during_injected_prepare_observer_is_unknown_without_dispatch(monkeypatch):
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original = game.observe
-    reads = 0
+    reads = 3  # original mixed/L2 reads 1–3 are trusted
 
     def observe():
         nonlocal reads
@@ -586,7 +588,7 @@ def test_stop_during_injected_prepare_observer_is_unknown_without_dispatch():
             host.latch_stop()
         return original()
 
-    game.observe = observe
+    inject_observer_at_phase(game, loop, observe, 4, monkeypatch)
     result = loop.step()
     assert reads == 4
     # A callback during an original prepare read can perform hidden effects.
@@ -600,7 +602,7 @@ def test_stop_during_injected_prepare_observer_is_unknown_without_dispatch():
     assert "MOVE_TO_CHAIR" not in loop.completed
 
 
-def test_untrusted_observer_blocks_before_dispatch_read_and_keeps_pending():
+def test_untrusted_observer_blocks_before_dispatch_read_and_keeps_pending(monkeypatch):
     """A callback scheduled for dispatch read #5 is stopped at prepare #4.
 
     An injectable observer cannot establish prepare authorization. This
@@ -609,7 +611,7 @@ def test_untrusted_observer_blocks_before_dispatch_read_and_keeps_pending():
     """
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original = game.observe
-    reads = 0
+    reads = 4  # trusted read prefix 1–4; inject only at dispatch read 5
 
     def observe():
         nonlocal reads
@@ -618,11 +620,11 @@ def test_untrusted_observer_blocks_before_dispatch_read_and_keeps_pending():
             host.latch_stop()
         return original()
 
-    game.observe = observe
+    inject_observer_at_phase(game, loop, observe, 5, monkeypatch)
     result = loop.step()
-    assert reads == 4
+    assert reads == 5
     assert result.status == "UNKNOWN"
-    assert host.stopped is False  # read #5 cannot execute
+    assert host.stopped is True  # STOP delivered by injected dispatch read
     assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert game.pending_attempt is not None
     assert game.dispatched == []  # strict checked read now prevents effect
@@ -1007,11 +1009,11 @@ def test_chair_reads_latch_p1_revocation_even_if_inner_game_read_raises(
 
 @pytest.mark.parametrize("corruption", ["string_revision", "unhashable_options"])
 def test_malformed_injected_prepare_observer_returns_unknown_not_python_exception(
-        corruption):
+        corruption, monkeypatch):
     """A malformed injected inner prepare read must fail closed before dispatch."""
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original_observe = game.observe
-    calls = 0
+    calls = 3  # inject at actual inner prepare read 4
 
     def malformed_after_fake_move():
         nonlocal calls
@@ -1023,7 +1025,7 @@ def test_malformed_injected_prepare_observer_returns_unknown_not_python_exceptio
             return replace(snapshot, options=("STAY", []))
         return snapshot
 
-    game.observe = malformed_after_fake_move
+    inject_observer_at_phase(game, loop, malformed_after_fake_move, 4, monkeypatch)
     result = loop.step()
     assert result.status == "UNKNOWN"
     assert result.choice == "MOVE_TO_CHAIR"
@@ -1043,12 +1045,12 @@ def test_malformed_injected_prepare_observer_returns_unknown_not_python_exceptio
     assert fresh_interest.calls == 0 and host.events == []
 
 
-def test_injected_prepare_observation_error_after_p1_revocation_keeps_guards():
+def test_injected_prepare_observation_error_after_p1_revocation_keeps_guards(monkeypatch):
     """One failing L2 read can also convey valid permission revocation."""
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     old = world.ledger.grant
     original_observe = game.observe
-    calls = 0
+    calls = 3  # trusted read prefix, injection starts at read 4
 
     def malformed_and_revoke():
         nonlocal calls
@@ -1059,7 +1061,7 @@ def test_injected_prepare_observation_error_after_p1_revocation_keeps_guards():
             return replace(snapshot, revision="bad_revision")
         return snapshot
 
-    game.observe = malformed_and_revoke
+    inject_observer_at_phase(game, loop, malformed_and_revoke, 4, monkeypatch)
     result = loop.step()
     assert calls == 4
     assert result.status == "UNKNOWN"
@@ -1144,11 +1146,11 @@ def test_verified_chair_publisher_always_ingests_valid_p1_revocation(
     (5, 1.0),
 ])
 def test_raw_chair_prepare_dispatch_reject_numeric_lookalikes(
-        raw_read, bad_revision):
+        raw_read, bad_revision, monkeypatch):
     """Dataclass True == 1 and 1.0 == 1 cannot certify a fake move. R23 prevents injected observer read #5."""
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original = game.observe
-    reads = 0
+    reads = raw_read - 1  # earlier legitimate reads are original
 
     def read_with_numeric_lookalike():
         nonlocal reads
@@ -1160,9 +1162,9 @@ def test_raw_chair_prepare_dispatch_reject_numeric_lookalikes(
             return corrupt
         return snapshot
 
-    game.observe = read_with_numeric_lookalike
+    inject_observer_at_phase(game, loop, read_with_numeric_lookalike, raw_read, monkeypatch)
     result = loop.step()
-    assert reads == 4  # R23 quarantines before injected read #5
+    assert reads == raw_read  # staged fault reaches its specific boundary
     assert result.status == "UNKNOWN"
     assert result.claim_real_completion is False
     assert game.observe is read_with_numeric_lookalike
@@ -1202,11 +1204,11 @@ def test_raw_chair_prepare_dispatch_reject_numeric_lookalikes(
     ("STAY", "MOVE_TO_CHAIR"),
     ("MOVE_TO_CHAIR", "STAY"),
 ])
-def test_malformed_options_from_untrusted_prepare_observer_fail_closed(invalid_options):
+def test_malformed_options_from_untrusted_prepare_observer_fail_closed(invalid_options, monkeypatch):
     """Injected observer options cannot authorize the chair prepare boundary."""
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original = game.observe
-    reads = 0
+    reads = 3  # stage fault at trusted-prefix read #4
 
     def bad_verified_options():
         nonlocal reads
@@ -1218,7 +1220,7 @@ def test_malformed_options_from_untrusted_prepare_observer_fail_closed(invalid_o
             return replace(snapshot, options=invalid_options)
         return snapshot
 
-    game.observe = bad_verified_options
+    inject_observer_at_phase(game, loop, bad_verified_options, 4, monkeypatch)
     result = loop.step()
     assert reads == 4
     assert result.status == "UNKNOWN"
@@ -1246,24 +1248,24 @@ def test_malformed_options_from_untrusted_prepare_observer_fail_closed(invalid_o
     assert fresh_interest.calls == 0
 
 
-def test_benign_injected_observer_is_restored_but_cannot_certify_chair():
+def test_benign_injected_observer_is_restored_but_cannot_certify_chair(monkeypatch):
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original = game.observe
-    reads = 0
+    reads = 3
 
     def observe():
         nonlocal reads
         reads += 1
         return original()
 
-    game.observe = observe
+    inject_observer_at_phase(game, loop, observe, 4, monkeypatch)
     result = loop.step()
     assert result.status == "UNKNOWN"
     assert reads == 4
     assert game.observe is observe
-    assert game.pending_attempt == "offline-attempt-1"
+    assert game.pending_attempt is None
     assert game.dispatched == []
-    assert result.operation_id == game.pending_attempt
+    assert result.operation_id == "offline-attempt-1"
     assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert "MOVE_TO_CHAIR" not in loop.completed
 
