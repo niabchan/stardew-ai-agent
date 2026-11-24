@@ -505,7 +505,7 @@ def test_stop_during_l2_first_observation_denies_before_fake_chair_reservation()
     assert "MOVE_TO_CHAIR" not in loop.completed
 
 
-def test_stop_during_l2_prepare_observation_retires_reservation_without_dispatch():
+def test_stop_during_injected_prepare_observer_is_unknown_without_dispatch():
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original = game.observe
     reads = 0
@@ -520,15 +520,24 @@ def test_stop_during_l2_prepare_observation_retires_reservation_without_dispatch
     game.observe = observe
     result = loop.step()
     assert reads == 4
-    assert result.status == "BLOCKED_STALE_OR_DENIED"
+    # A callback during an original prepare read can perform hidden effects.
+    # Even STOP before the physical toy send cannot prove the attempt clean.
+    assert result.status == "UNKNOWN"
+    assert result.operation_id == "offline-attempt-1"
     assert host.stopped
     assert game.pending_attempt is None
     assert game.dispatched == []
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert "MOVE_TO_CHAIR" not in loop.completed
 
 
-def test_stop_during_raw_dispatch_observation_blocks_effect_and_keeps_pending():
-    """STOP during the raw read now blocks before effect, still unresolved."""
+def test_untrusted_observer_blocks_before_dispatch_read_and_keeps_pending():
+    """A callback scheduled for dispatch read #5 is stopped at prepare #4.
+
+    An injectable observer cannot establish prepare authorization. This
+    deliberately changes the old read-count contract; separate STOP tests
+    exercise actual Host latching and post-finalizer STOP.
+    """
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     original = game.observe
     reads = 0
@@ -542,9 +551,10 @@ def test_stop_during_raw_dispatch_observation_blocks_effect_and_keeps_pending():
 
     game.observe = observe
     result = loop.step()
-    assert reads == 5
+    assert reads == 4
     assert result.status == "UNKNOWN"
-    assert host.stopped
+    assert host.stopped is False  # read #5 cannot execute
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
     assert game.pending_attempt is not None
     assert game.dispatched == []  # strict checked read now prevents effect
     assert result.operation_id == game.pending_attempt
@@ -849,10 +859,14 @@ def test_first_observation_host_event_rechecks_gate_before_choice(first_read):
 ])
 def test_chair_reads_latch_p1_revocation_even_if_inner_game_read_raises(
         chair_read, raises, expected):
-    """R4 review: chair adapter and raw prepare/dispatch bypassed ingestion.
+    """R23 observer boundary: only reads #1–4 can execute, not #5–6.
 
-    Read 3 is adapter.observe, 4 is FakeGame.prepare's own observe,
-    5 is FakeGame.dispatch's own observe, and 6 is adapter verification.
+    The old test trusted read-only callbacks to support toy positive chair
+    verification. R23 deliberately treats injected callbacks in the
+    operation boundary as potentially effectful; after read #4 the attempted
+    chair remains UNKNOWN even if the observer merely returns canonical
+    data. A revocation already delivered at #3/#4 MUST still be ingested,
+    while a future #5/#6 notification cannot be fabricated.
     """
     game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
     old = world.ledger.grant
@@ -870,40 +884,48 @@ def test_chair_reads_latch_p1_revocation_even_if_inner_game_read_raises(
 
     game.observe = revoke_during_chair_read
     result = loop.step()
-    assert calls == (chair_read if raises else 6)
-    assert result.status == expected
+    assert calls == (3 if raises and chair_read == 3 else 4)
+    assert result.status == (
+        "BLOCKED_OBSERVATION_UNAVAILABLE"
+        if raises and chair_read == 3 else "UNKNOWN"
+    )
     assert result.claim_real_completion is False
     assert interest.calls == 1 and host.events == []
     account = host._fake_water_permission_store.accounts[old.grant_id]
-    assert account.revoked is True
-    assert account.grant.grant_revision == 2
-    assert FakePermissionedWaterBridge(host).provision_standing_grant(
-        old
-    ) == "DENIED_STALE_GRANT_REVISION"
+    revocation_delivered = chair_read <= calls
+    if revocation_delivered:
+        assert account.revoked is True
+        assert account.grant.grant_revision == 2
+        assert FakePermissionedWaterBridge(host).provision_standing_grant(
+            old
+        ) == "DENIED_STALE_GRANT_REVISION"
+    else:
+        assert account.revoked is False
+        assert account.grant.grant_revision == old.grant_revision
     assert account.attempted_starts == 0 and account.started_tiles == set()
     assert host.pending is None and host.used_ids == set()
 
-    if raises and chair_read in (3, 4):
+    if raises and chair_read == 3:
         assert game.pending_attempt is None and game.dispatched == []
-    elif raises:
-        assert game.pending_attempt is not None
-        assert len(game.dispatched) == (1 if chair_read == 6 else 0)
+        assert getattr(game, "_fake_mixed_quarantined", False) is False
     else:
-        assert game.pending_attempt is None and len(game.dispatched) == 1
+        assert result.operation_id == "offline-attempt-1"
+        assert game.pending_attempt is (
+            None if raises and chair_read == 4 else game.pending_attempt
+        )
+        assert game.dispatched == []
+        assert getattr(game, "_fake_mixed_quarantined", False) is True
 
-    # On known pre-effect failure or verified chair completion, a new fake
-    # observation and ledger must NEVER revive the old grant for WATER.
     game.observe = original_observe
     game.revision = 9
     world.crop = replace(world.crop, revision=9)
     world.ledger = FakeWaterPermissionLedger(old)
     game.sunny_tile = (4, 4)
     later_interest = Interest("WATER")
-    fresh = FakeMixedDaytimeLoop(
+    subsequent = FakeMixedDaytimeLoop(
         game, host, world, later_interest, weather="sunny"
-    )
-    subsequent = fresh.step()
-    if game.pending_attempt is None:
+    ).step()
+    if raises and chair_read == 3:
         assert subsequent.status == "DENIED_NOT_GROUNDED"
         assert "WATER" not in subsequent.offered
         assert later_interest.calls == 1
@@ -912,7 +934,6 @@ def test_chair_reads_latch_p1_revocation_even_if_inner_game_read_raises(
         assert later_interest.calls == 0
     assert account.attempted_starts == 0 and account.started_tiles == set()
     assert host.events == [] and host.pending is None
-
 
 @pytest.mark.parametrize("corruption", ["string_revision", "unhashable_options"])
 def test_malformed_chair_verification_returns_unknown_not_python_exception(
