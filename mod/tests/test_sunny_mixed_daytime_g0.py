@@ -3,6 +3,8 @@ from dataclasses import replace
 
 import pytest
 
+import reference.sunny_mixed_daytime_g0 as mixed_module
+
 from reference.sunny_gameplay_slice import FakeGame, OfflineController
 from reference.sunny_host_stop_fake import FakeHostWaterFence
 from reference.sunny_mixed_daytime_g0 import FakeMixedDaytimeLoop
@@ -3430,3 +3432,239 @@ def test_clean_rejection_without_injected_cleanup_is_replay_safe():
     ).step()
     assert again.status == "BLOCKED_UNRESOLVED"
     assert new_interest.calls == 0
+
+
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("saved_kind", ["bound", "unbound"])
+def test_injected_chair_dispatch_saved_callable_erases_ack_no_effect_row(
+        bounded, saved_kind, monkeypatch):
+    """R20 review finding 1: dispatch callback may erase its own real row.
+
+    A saved bound/unbound original FakeGame.dispatch is invoked under the
+    original reservation, in ack_no_effect mode. The callback deletes its
+    row and lies about a pre-effect denial. This CANNOT prove a clean
+    rejection; L2 must see UNKNOWN and adapter must not release the ID.
+    """
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
+    )
+    saved = game.dispatch if saved_kind == "bound" else FakeGame.dispatch
+    dispatch_calls = []
+    l2_verdicts = []
+    publisher_calls = []
+    raw_l2 = OfflineController.step
+
+    def capture_l2(controller):
+        result = raw_l2(controller)
+        l2_verdicts.append(result.verdict)
+        return result
+
+    monkeypatch.setattr(OfflineController, "step", capture_l2)
+
+    def dispatch_conceal_effect(action, expected, attempt):
+        assert game.pending_attempt == attempt
+        if saved_kind == "bound":
+            receipt = saved(action, expected, attempt)
+        else:
+            receipt = saved(game, action, expected, attempt)
+        assert receipt == "ack"
+        removed = game.dispatched.pop()
+        assert removed == (attempt, "MOVE_TO_CHAIR", "p2")
+        dispatch_calls.append((attempt, receipt, removed))
+        return "rejected_before_effect"
+
+    game.dispatch = dispatch_conceal_effect
+    if bounded:
+        trace = loop.run_bounded(
+            max_decisions=2,
+            after_verified=lambda *_args: publisher_calls.append(True)
+        )
+        assert [r.status for r in trace] == ["UNKNOWN"]
+        result = trace[0]
+        assert publisher_calls == []
+    else:
+        result = loop.step()
+
+    assert dispatch_calls == [
+        ("offline-attempt-1", "ack",
+         ("offline-attempt-1", "MOVE_TO_CHAIR", "p2"))
+    ]
+    assert l2_verdicts == ["UNKNOWN"]
+    assert result.status == "UNKNOWN"
+    assert result.choice == "MOVE_TO_CHAIR"
+    assert result.operation_id == "offline-attempt-1"
+    assert result.pending_operation_id is None
+    assert result.claim_real_completion is False
+    assert game.pending_attempt == "offline-attempt-1"
+    assert game.dispatched == []
+    assert game.sunny_tile == (4, 4)
+    assert game.revision == 1
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert host.pending is None and host.events == []
+    assert interest.calls == 1
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    later_interest = Interest("STAY")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, later_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert later.operation_id == "offline-attempt-1"
+    assert later_interest.calls == 0
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("saved_kind", ["bound", "unbound"])
+def test_injected_chair_dispatch_malformed_log_and_cleared_attempt_keeps_id(
+        bounded, saved_kind, monkeypatch):
+    """R20 review finding 2: malformed Game rows cannot escape L2 UNKNOWN."""
+    game, host, world, interest, loop = setup(
+        choices=("MOVE_TO_CHAIR",), delivery="ack_no_effect"
+    )
+    saved = game.dispatch if saved_kind == "bound" else FakeGame.dispatch
+    old_grant = world.ledger.grant
+    raw_l2 = OfflineController.step
+    l2_verdicts = []
+    callback_events = []
+    publisher_calls = []
+
+    def capture_l2(controller):
+        outcome = raw_l2(controller)
+        l2_verdicts.append(outcome.verdict)
+        return outcome
+
+    monkeypatch.setattr(OfflineController, "step", capture_l2)
+
+    def malicious_dispatch(action, expected, attempt):
+        if saved_kind == "bound":
+            receipt = saved(action, expected, attempt)
+        else:
+            receipt = saved(game, action, expected, attempt)
+        assert receipt == "ack"
+        removed = game.dispatched.pop()
+        assert removed == (attempt, "MOVE_TO_CHAIR", "p2")
+        game.pending_attempt = None
+        world.ledger.grant = replace(
+            old_grant, grant_revision=2, active=False
+        )
+        game.dispatched = None
+        callback_events.append((attempt, receipt))
+        return "rejected_before_effect"
+
+    game.dispatch = malicious_dispatch
+    if bounded:
+        trace = loop.run_bounded(
+            1, after_verified=lambda *_args: publisher_calls.append(True)
+        )
+        assert [r.status for r in trace] == ["UNKNOWN"]
+        outcome = trace[0]
+        assert publisher_calls == []
+    else:
+        outcome = loop.step()
+    assert callback_events == [("offline-attempt-1", "ack")]
+    assert l2_verdicts == ["UNKNOWN"]
+    assert outcome.status == "UNKNOWN"
+    assert outcome.choice == "MOVE_TO_CHAIR"
+    assert outcome.operation_id == "offline-attempt-1"
+    assert outcome.pending_operation_id is None
+    assert outcome.claim_real_completion is False
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert game.pending_attempt is None
+    assert game.dispatched is None
+    assert game.sunny_tile == (4, 4) and game.revision == 1
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    account = host._fake_water_permission_store.accounts[old_grant.grant_id]
+    assert account.revoked is True
+    assert account.grant.grant_revision == 2
+    world.ledger.grant = old_grant
+    assert FakePermissionedWaterBridge(host).provision_standing_grant(
+        old_grant
+    ) == "DENIED_STALE_GRANT_REVISION"
+
+    game.revision = 9
+    world.crop = replace(world.crop, revision=9)
+    subsequent_interest = Interest("STAY")
+    later = FakeMixedDaytimeLoop(
+        game, host, world, subsequent_interest, weather="sunny"
+    ).step()
+    assert later.status == "BLOCKED_UNRESOLVED"
+    assert subsequent_interest.calls == 0
+
+
+@pytest.mark.parametrize("release_case", [
+    "no_receipt", "retained_pending", "changed_target",
+    "float_revision", "malformed_rows", "throws"
+])
+def test_adapter_owned_rejection_release_failure_is_quarantined_and_ingests_p1(
+        release_case, monkeypatch):
+    """R20 review gap: exercise the *actual* guarded release failure branch.
+
+    These test-local mutations target the pinned adapter-owned release and
+    inspect its postconditions; they do not grant an untrusted Game callback
+    authority during an ordinary mixed-loop step.
+    """
+    game, host, world, interest, loop = setup(choices=("MOVE_TO_CHAIR",))
+    original_grant = world.ledger.grant
+    original_finish = mixed_module._ORIGINAL_FAKE_REJECT
+    expected = FakeGame.observe(game)
+    attempt = "offline-attempt-1"
+    assert game.prepare("MOVE_TO_CHAIR", expected, attempt) is True
+    target = game.chair_tile
+    adapter = mixed_module._HostGatedChairWorld(
+        game,
+        lambda _attempt: True,
+        expected,
+        lambda observed: loop._valid_chair_observation(observed, target),
+        lambda: loop.watering._ingest_fixture_revocation(world),
+        target,
+    )
+
+    def fake_pinned_release(game_obj, operation):
+        assert game_obj is game
+        assert operation == attempt
+        # Deliver a valid P1 revocation DURING release, not before step.
+        world.ledger.grant = replace(
+            original_grant, grant_revision=2, active=False
+        )
+        if release_case == "retained_pending":
+            return True
+        released = original_finish(game_obj, operation)
+        assert released is True
+        if release_case == "no_receipt":
+            return None
+        if release_case == "changed_target":
+            game_obj.chair_tile = (8, 4)
+        elif release_case == "float_revision":
+            game_obj.revision = 1.0
+        elif release_case == "malformed_rows":
+            game_obj.dispatched = None
+        elif release_case == "throws":
+            raise RuntimeError("bad pinned fake release")
+        return released
+
+    monkeypatch.setattr(mixed_module, "_ORIGINAL_FAKE_REJECT",
+                        fake_pinned_release)
+    if release_case in ("throws", "malformed_rows"):
+        with pytest.raises((RuntimeError, TypeError)):
+            adapter.finish_rejected(attempt)
+    else:
+        assert adapter.finish_rejected(attempt) is False
+
+    assert adapter._rejection_cleanup_attempt == attempt
+    assert adapter._rejection_cleanup_contradicted is True
+    assert getattr(game, "_fake_mixed_quarantined", False) is True
+    assert game.pending_attempt == (
+        attempt if release_case == "retained_pending" else None
+    )
+    assert "MOVE_TO_CHAIR" not in loop.completed
+    account = host._fake_water_permission_store.accounts[original_grant.grant_id]
+    assert account.revoked is True
+    assert account.grant.grant_revision == 2
+    world.ledger.grant = original_grant
+    assert FakePermissionedWaterBridge(host).provision_standing_grant(
+        original_grant
+    ) == "DENIED_STALE_GRANT_REVISION"
