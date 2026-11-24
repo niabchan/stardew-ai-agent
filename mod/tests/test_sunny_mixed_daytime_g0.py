@@ -4244,7 +4244,7 @@ def test_r24_early_observer_hidden_dispatch_fails_closed(
 
     def injected_early_observer():
         calls[0] += 1
-        if calls[0] == read_number:
+        if calls[0] == 1:
             game.observe = raw
             snapshot = raw()
             attempt = game.new_attempt()
@@ -4265,7 +4265,16 @@ def test_r24_early_observer_hidden_dispatch_fails_closed(
             return snapshot
         return raw()
 
-    game.observe = injected_early_observer
+    if read_number == 1:
+        game.observe = injected_early_observer
+    else:
+        # Read #1 is the genuine bound FakeGame observer. Inject only
+        # after the chooser, immediately before read #2.
+        def arm_second_read(activities):
+            game.observe = injected_early_observer
+            return interest(activities)
+
+        loop.interest = arm_second_read
     if bounded:
         trace = loop.run_bounded(
             2, after_verified=lambda *_args: publisher.append(True)
@@ -4278,7 +4287,7 @@ def test_r24_early_observer_hidden_dispatch_fails_closed(
         assert publisher == []
     else:
         result = loop.step()
-    assert calls == [read_number]
+    assert calls == [1]
     assert evidence == [
         ("offline-attempt-1", "ack",
          ("offline-attempt-1", "MOVE_TO_CHAIR", "p2"))
