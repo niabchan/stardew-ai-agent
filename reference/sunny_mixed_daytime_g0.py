@@ -17,6 +17,27 @@ from reference.sunny_gameplay_slice import FakeGame, OfflineController, Observat
 _ORIGINAL_FAKE_REJECT = FakeGame.finish_rejected
 _ORIGINAL_FAKE_DISPATCH = FakeGame.dispatch
 _ORIGINAL_FAKE_OBSERVE = FakeGame.observe
+
+
+def _original_observer(game, observer):
+    """G0-only: no injected Python code runs inside this bound read."""
+    return (type(game) is FakeGame and type(observer) is MethodType
+            and observer.__self__ is game
+            and observer.__func__ is _ORIGINAL_FAKE_OBSERVE)
+
+
+def _observation_candidate_id(game):
+    """Before an injected read, pin the NEXT toy chair ID conservatively.
+
+    This is an unresolved *scope*, not a fabricated successful reservation.
+    It remains auditable if the callback mints that exact fake attempt,
+    dispatches it, deletes the row and retires it before returning.
+    """
+    serial = game.attempt_serial
+    return (f"offline-attempt-{serial + 1}"
+            if type(serial) is int and serial >= 0 else None)
+
+
 from reference.sunny_host_stop_fake import FakeEffectEvidence, FakeHostWaterFence
 from reference.sunny_water_permission_g0 import (
     FakePermissionWorld, FakePermissionedWaterBridge, FakeWaterPermissionLedger,
@@ -73,6 +94,7 @@ class _HostGatedChairWorld:
         # prepare/dispatch. If it runs inside either operation, it can use a
         # saved dispatcher, erase rows, then return a canonical observation.
         self._untrusted_observer_in_operation = False
+        self._observation_scope_attempt = _observation_candidate_id(game)
         # L2 still calls finish_rejected, but the adapter owns that release.
         # Per-instance injectable Game cleanup is not a trusted boundary
         # and is NEVER invoked; this also rules out saved-callable dispatch
@@ -84,6 +106,13 @@ class _HostGatedChairWorld:
         return getattr(self._game, attr)
 
     def observe(self):
+        untrusted = not self._trusted_raw_observer()
+        old_active = getattr(self._game, "_fake_mixed_callback_active", False)
+        if untrusted:
+            # The reentrancy gate must be active BEFORE a callback can launch
+            # a fresh coordinator and publish an effect on the same Game.
+            self._untrusted_observer_in_operation = True
+            self._game._fake_mixed_callback_active = True
         try:
             snapshot = self._raw_observe()
             # Strict shape AND the fake Game's own option-set contract. A
@@ -104,6 +133,9 @@ class _HostGatedChairWorld:
                     or snapshot != canonical):
                 raise ValueError("inconsistent_fake_chair_observation")
         finally:
+            if untrusted:
+                self._game._fake_mixed_quarantined = True
+                self._game._fake_mixed_callback_active = old_active
             # A read may install an inactive P1 grant and then fail; retain
             # that shared-Host tombstone at EVERY underlying read exit.
             self._ingest_revocation()
@@ -120,11 +152,7 @@ class _HostGatedChairWorld:
         attribute, even for an otherwise ordinary FakeGame. Therefore an
         instance attribute alone is NOT evidence of an injected observer.
         """
-        observer = self._raw_observe
-        return (type(self._game) is FakeGame
-                and type(observer) is MethodType
-                and observer.__self__ is self._game
-                and observer.__func__ is _ORIGINAL_FAKE_OBSERVE)
+        return _original_observer(self._game, self._raw_observe)
 
     def _run_with_checked_reads(self, operation, *args):
         """Temporarily route raw FakeGame's own reads through validation.
@@ -157,12 +185,18 @@ class _HostGatedChairWorld:
                     or "prepare" in vars(self._game))
         self._untrusted_prepare_invoked = injected
         if injected:
+            # Shared reentrancy guard BEFORE invoking the untrusted callback;
+            # quarantine persists AFTER exit. Do not give nested callers a
+            # publication window while prepare still owns the attempt.
+            old_active = getattr(self._game, "_fake_mixed_callback_active", False)
+            self._game._fake_mixed_callback_active = True
             try:
                 self._run_with_checked_reads(
                     self._game.prepare, action, expected, attempt
                 )
             finally:
                 self._game._fake_mixed_quarantined = True
+                self._game._fake_mixed_callback_active = old_active
             raise RuntimeError("untrusted_fake_chair_prepare")
         # The original FakeGame.prepare calls game.observe. If that observer
         # was replaced, it can reserve and dispatch through saved originals,
@@ -234,16 +268,19 @@ class _HostGatedChairWorld:
                      else lambda a, e, i: _ORIGINAL_FAKE_DISPATCH(
                          self._game, a, e, i
                      ))
+        old_active = getattr(self._game, "_fake_mixed_callback_active", False)
+        if injected or observer_untrusted:
+            self._game._fake_mixed_callback_active = True
         try:
             result = self._run_with_checked_reads(
                 operation, action, expected, attempt
             )
         finally:
             if injected or observer_untrusted:
-                # Even if the callback cleared the chair reservation and
-                # deleted a genuine dispatch row, retain this Game-wide
-                # quarantine, independent of callback exit or response.
+                # The shared fence exists during the callback, not only after
+                # it returns: nested coordinator publish must fail closed.
                 self._game._fake_mixed_quarantined = True
+                self._game._fake_mixed_callback_active = old_active
         if observer_untrusted:
             # A saved original dispatcher may have been invoked INSIDE the
             # observer and then erased. Do not accept the outer dispatch ACK
@@ -491,6 +528,8 @@ class FakeMixedDaytimeLoop:
         return None
 
     def _gate(self):
+        if getattr(self.game, "_fake_mixed_callback_active", False) is not False:
+            return "BLOCKED_UNRESOLVED"
         if getattr(self.game, "_fake_mixed_quarantined", False) is not False:
             return "BLOCKED_UNRESOLVED"
         if self.game.pending_attempt is not None or self.host.pending is not None:
@@ -508,7 +547,9 @@ class FakeMixedDaytimeLoop:
         """L2 adapter entry guard; this permits only its OWN fake pending ID."""
         if self._chair_target() != pinned_target:
             return False
-        if getattr(self.game, "_fake_mixed_quarantined", False) is not False:
+        if (getattr(self.game, "_fake_mixed_quarantined", False) is not False
+                or getattr(self.game, "_fake_mixed_callback_active", False)
+                    is not False):
             return False
         if (self.host.pending is not None or self.host.stopped
                 or self.host.epoch != self.expected_epoch
@@ -621,6 +662,33 @@ class FakeMixedDaytimeLoop:
             steward, ledger, grant
         ) == "ALLOW_FAKE")
 
+    def _untrusted_observation_result(self, attempt, choice=None, offered=()):
+        """An effect-capable read cannot certify no chair send, even if empty."""
+        return FakeMixedDayResult(
+            "UNKNOWN", choice, offered, attempt,
+            pending_operation_id=self._other_pending_operation_id(attempt)
+        )
+
+    def _read_external_observation(self):
+        """Perform one synthetic observation; fence all nested coordinators.
+
+        Inert G0 only: arbitrary Python callback code may still mutate Game
+        internals, so EVERY injected observation is unresolved and latches
+        shared quarantine, regardless of its final snapshot/side-effect log.
+        """
+        observer = self.game.observe
+        untrusted = not _original_observer(self.game, observer)
+        old_active = getattr(self.game, "_fake_mixed_callback_active", False)
+        if untrusted:
+            self.game._fake_mixed_callback_active = True
+        try:
+            return observer()
+        finally:
+            if untrusted:
+                self.game._fake_mixed_quarantined = True
+                self.game._fake_mixed_callback_active = old_active
+            self.watering._ingest_fixture_revocation(self.water_world)
+
     def _pending_aware_result(self, status, choice=None, offered=()):
         """Report actual pending identity on all pre-effect callback exits.
 
@@ -642,17 +710,21 @@ class FakeMixedDaytimeLoop:
         gate = self._gate()
         if gate is not None:
             return self._pending_aware_result(gate)
+        # Pin the potential chair ID BEFORE any injected read can secretly
+        # mint, dispatch, erase evidence and retire its own reservation.
+        # This is only a conservative G0 observation scope; no effect claim.
+        initial_attempt = _observation_candidate_id(self.game)
+        first_untrusted = not _original_observer(
+            self.game, self.game.observe
+        )
         try:
-            try:
-                observed = self.game.observe()
-            finally:
-                # The very first fake observation may deliver a valid inactive
-                # P1 grant notice *then throw* or return a malformed scene.
-                # Its Host tombstone must survive EVERY observation exit,
-                # just as it does for the chooser and second observation.
-                self.watering._ingest_fixture_revocation(self.water_world)
+            observed = self._read_external_observation()
         except Exception:
+            if first_untrusted:
+                return self._untrusted_observation_result(initial_attempt)
             return self._pending_aware_result("BLOCKED_OBSERVATION_UNAVAILABLE")
+        if first_untrusted:
+            return self._untrusted_observation_result(initial_attempt)
         # Re-evaluate STOP/pending/identity changed by the read itself,
         # even if the returned fake game snapshot looks otherwise valid.
         if self._gate() is not None:
@@ -724,16 +796,23 @@ class FakeMixedDaytimeLoop:
             return self._pending_aware_result(
                 "BLOCKED_CHANGED_BEFORE_DISPATCH", selected, choices
             )
+        second_attempt = _observation_candidate_id(self.game)
+        second_untrusted = not _original_observer(
+            self.game, self.game.observe
+        )
         try:
-            try:
-                after_choice = self.game.observe()
-            finally:
-                # Observation callbacks may also deliver a P1 revocation;
-                # no exception or stale reading may mask that Host tombstone.
-                self.watering._ingest_fixture_revocation(self.water_world)
+            after_choice = self._read_external_observation()
         except Exception:
+            if second_untrusted:
+                return self._untrusted_observation_result(
+                    second_attempt, selected, choices
+                )
             return self._pending_aware_result(
                 "BLOCKED_OBSERVATION_UNAVAILABLE", selected, choices
+            )
+        if second_untrusted:
+            return self._untrusted_observation_result(
+                second_attempt, selected, choices
             )
         if (not self._water_game_matches(after_choice)
                 or after_choice != observed):
@@ -958,7 +1037,8 @@ class FakeMixedDaytimeLoop:
                 )
             if (guarded_game._untrusted_prepare_invoked
                     or guarded_game._untrusted_observer_in_operation):
-                attempt = guarded_game._prepare_attempt
+                attempt = (guarded_game._prepare_attempt
+                           or guarded_game._observation_scope_attempt)
                 if attempt is not None:
                     return FakeMixedDayResult(
                         "UNKNOWN", selected, choices, attempt,
@@ -972,6 +1052,18 @@ class FakeMixedDaytimeLoop:
                 )
             return FakeMixedDayResult(
                 "UNKNOWN_CHAIR_CALLBACK_EXCEPTION", selected, choices
+            )
+        # The L2 controller may swallow an exception from the first adapter
+        # observer (#3) and return BLOCKED_OBSERVATION_UNAVAILABLE without
+        # ever minting an attempt. The callback could have minted and then
+        # erased the candidate ID; preserve that pinned scope as UNKNOWN.
+        if (guarded_game._untrusted_observer_in_operation
+                and result.attempt is None):
+            attempt = (guarded_game._prepare_attempt
+                       or guarded_game._observation_scope_attempt)
+            self.game._fake_mixed_quarantined = True
+            return self._untrusted_observation_result(
+                attempt, selected, choices
             )
         # A post-dispatch callback may have a verified chair action AND a
         # foreign WATER Host pending. Verify the pinned chair independently
