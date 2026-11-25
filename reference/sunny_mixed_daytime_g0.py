@@ -5,9 +5,9 @@ independently G0-reviewed, fake Host-bound WATER permission path. The two fake
 dispatchers have no shared production atomic Host entry or real game authority.
 All observation and chooser inputs here are synthetic fixtures; no I/O or AI.
 """
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
 from types import MethodType
-from weakref import WeakKeyDictionary
 
 from reference.sunny_daytime_intents import Activity, FakeDaytimePlanner, FakeScene
 from reference.sunny_gameplay_slice import FakeGame, OfflineController, Observation
@@ -18,33 +18,63 @@ from reference.sunny_gameplay_slice import FakeGame, OfflineController, Observat
 _ORIGINAL_FAKE_REJECT = FakeGame.finish_rejected
 _ORIGINAL_FAKE_DISPATCH = FakeGame.dispatch
 _ORIGINAL_FAKE_OBSERVE = FakeGame.observe
+_ORIGINAL_FAKE_FINALIZE = FakeGame.finish_observed_action
 
-# G0-only callback entry tokens live OUTSIDE the callback-writable FakeGame.
-# Production authorization requires a separate Host-owned trusted journal.
-_FAKE_CALLBACK_DEPTH = WeakKeyDictionary()
-
-
-def _callback_active(game):
-    return _FAKE_CALLBACK_DEPTH.get(game, 0) > 0
+# Synchronous G0 admission fence, shared by all mixed coordinators. A callback
+# cannot bypass it by constructing a second Game on the same fake Host.
+_FAKE_CALLBACK_DEPTH = 0
 
 
-def _enter_callback(game):
-    _FAKE_CALLBACK_DEPTH[game] = _FAKE_CALLBACK_DEPTH.get(game, 0) + 1
+def _enter_callback():
+    global _FAKE_CALLBACK_DEPTH
+    _FAKE_CALLBACK_DEPTH += 1
 
 
-def _leave_callback(game):
-    count = _FAKE_CALLBACK_DEPTH.get(game, 0)
-    if count <= 1:
-        _FAKE_CALLBACK_DEPTH.pop(game, None)
-    else:
-        _FAKE_CALLBACK_DEPTH[game] = count - 1
+def _leave_callback():
+    global _FAKE_CALLBACK_DEPTH
+    _FAKE_CALLBACK_DEPTH -= 1
+
+
+@contextmanager
+def _untrusted_callback(game, ingest_revocation):
+    _enter_callback()
+    try:
+        yield
+    finally:
+        try:
+            ingest_revocation()
+        finally:
+            game._fake_mixed_quarantined = True
+            _leave_callback()
+
+
+def _bound_original(game, method, original):
+    return (type(game) is FakeGame and type(method) is MethodType
+            and method.__self__ is game and method.__func__ is original)
 
 
 def _original_observer(game, observer):
-    """G0-only: no injected Python code runs inside this bound read."""
-    return (type(game) is FakeGame and type(observer) is MethodType
-            and observer.__self__ is game
-            and observer.__func__ is _ORIGINAL_FAKE_OBSERVE)
+    return _bound_original(game, observer, _ORIGINAL_FAKE_OBSERVE)
+
+
+class FakeInterestScript:
+    """Test-owned choices and a transcript of the public options offered."""
+
+    def __init__(self, *choices):
+        if any(type(choice) is not str for choice in choices):
+            raise ValueError("invalid_fake_interest_script")
+        self.choices = choices
+        self.calls = 0
+        self.offers = []
+
+
+@dataclass(frozen=True)
+class FakeWaterObservation:
+    """Synthetic crop data to publish after one verified WATER operation."""
+
+    tile: tuple[int, int]
+    crop_id: str
+    soil_dry: bool
 
 
 def _observation_candidate_id(game):
@@ -79,6 +109,9 @@ class FakeMixedDayResult:
     # Distinguish verified toy completion from an exceptional post-commit
     # callback that must quarantine later decisions.
     post_verification_block_status: str | None = None
+    # A pre-entry scope for a possible callback send, independent of evidence
+    # that an operation ID was actually reserved or dispatched.
+    potential_operation_id: str | None = None
 
 
 
@@ -106,6 +139,7 @@ class _HostGatedChairWorld:
         self._prepare_attempt = None
         self._untrusted_prepare_invoked = False
         self._finalization_callback_failed = False
+        self._finalization_callback_scope = None
         # Any injected dispatch has write access to the toy Game and can
         # invoke a saved original bound/unbound dispatcher, erase its row,
         # then lie that it rejected before effect. Neither its ACK nor its
@@ -132,7 +166,7 @@ class _HostGatedChairWorld:
             # The reentrancy gate must be active BEFORE a callback can launch
             # a fresh coordinator and publish an effect on the same Game.
             self._untrusted_observer_in_operation = True
-            _enter_callback(self._game)
+            _enter_callback()
         try:
             snapshot = self._raw_observe()
             # Strict shape AND the fake Game's own option-set contract. A
@@ -153,12 +187,12 @@ class _HostGatedChairWorld:
                     or snapshot != canonical):
                 raise ValueError("inconsistent_fake_chair_observation")
         finally:
-            if untrusted:
-                self._game._fake_mixed_quarantined = True
-                _leave_callback(self._game)
-            # A read may install an inactive P1 grant and then fail; retain
-            # that shared-Host tombstone at EVERY underlying read exit.
-            self._ingest_revocation()
+            try:
+                self._ingest_revocation()
+            finally:
+                if untrusted:
+                    self._game._fake_mixed_quarantined = True
+                    _leave_callback()
         if not self._allowed(self._admitted_attempt):
             raise RuntimeError("fake_host_not_ready_during_chair_observation")
         if not self._started and snapshot != self._before:
@@ -208,14 +242,14 @@ class _HostGatedChairWorld:
             # Shared reentrancy guard BEFORE invoking the untrusted callback;
             # quarantine persists AFTER exit. Do not give nested callers a
             # publication window while prepare still owns the attempt.
-            _enter_callback(self._game)
+            _enter_callback()
             try:
                 self._run_with_checked_reads(
                     self._game.prepare, action, expected, attempt
                 )
             finally:
                 self._game._fake_mixed_quarantined = True
-                _leave_callback(self._game)
+                _leave_callback()
             raise RuntimeError("untrusted_fake_chair_prepare")
         # The original FakeGame.prepare calls game.observe. If that observer
         # was replaced, it can reserve and dispatch through saved originals,
@@ -288,7 +322,7 @@ class _HostGatedChairWorld:
                          self._game, a, e, i
                      ))
         if injected or observer_untrusted:
-            _enter_callback(self._game)
+            _enter_callback()
         try:
             result = self._run_with_checked_reads(
                 operation, action, expected, attempt
@@ -298,7 +332,7 @@ class _HostGatedChairWorld:
                 # The shared fence exists during the callback, not only after
                 # it returns: nested coordinator publish must fail closed.
                 self._game._fake_mixed_quarantined = True
-                _leave_callback(self._game)
+                _leave_callback()
         if observer_untrusted:
             # A saved original dispatcher may have been invoked INSIDE the
             # observer and then erased. Do not accept the outer dispatch ACK
@@ -349,34 +383,22 @@ class _HostGatedChairWorld:
                 or type(self._game.revision) is not int
                 or self._game.revision <= self._before.revision):
             return False
-        try:
+        finalizer = self._game.finish_observed_action
+        if _bound_original(self._game, finalizer, _ORIGINAL_FAKE_FINALIZE):
+            # Local toy implementation evidence only. There is no Host receipt.
             try:
-                completed = self._game.finish_observed_action(attempt)
-            except Exception:
-                # A callback can clear pending without ever calling the
-                # authoritative fake finalizer. Dispatch/tile/revision show
-                # movement, NOT operation-matched finalization. The accepted
-                # FakeGame has no durable completion record. Therefore NEVER
-                # convert any exceptional finalizer to VERIFIED_FAKE.
-                self._finalization_callback_failed = True
-                self._game._fake_mixed_quarantined = True
-                return False
-            # The parent L2 uses Python truthiness, not `is True`. Never
-            # forward a string/int/object standing in for the exact boolean
-            # finalization receipt. A false or malformed result after the
-            # attempted reservation VANISHED is also unknown, not a clean
-            # rejection: quarantine the shared Game before anyone can retry.
-            if completed is not True:
-                if (completed is not False
-                        or self._game.pending_attempt is None):
-                    self._finalization_callback_failed = True
-                    self._game._fake_mixed_quarantined = True
-                return False
-            return True
-        finally:
-            # A finalizer may publish an inactive P1 grant and then return or
-            # throw. Ingest BEFORE a test later restores the old active grant.
-            self._ingest_revocation()
+                return _ORIGINAL_FAKE_FINALIZE(self._game, attempt) is True
+            finally:
+                self._ingest_revocation()
+
+        self._finalization_callback_failed = True
+        self._finalization_callback_scope = _observation_candidate_id(self._game)
+        try:
+            with _untrusted_callback(self._game, self._ingest_revocation):
+                finalizer(attempt)
+        except Exception:
+            pass
+        return False
 
     def finish_rejected(self, attempt):
         """G0-only adapter-owned release; never run injectable cleanup.
@@ -546,7 +568,7 @@ class FakeMixedDaytimeLoop:
         return None
 
     def _gate(self):
-        if _callback_active(self.game):
+        if _FAKE_CALLBACK_DEPTH:
             return "BLOCKED_UNRESOLVED"
         if getattr(self.game, "_fake_mixed_quarantined", False) is not False:
             return "BLOCKED_UNRESOLVED"
@@ -697,16 +719,23 @@ class FakeMixedDaytimeLoop:
         shared quarantine, regardless of its final snapshot/side-effect log.
         """
         observer = self.game.observe
-        untrusted = not _original_observer(self.game, observer)
-        if untrusted:
-            _enter_callback(self.game)
-        try:
+        if _original_observer(self.game, observer):
+            try:
+                return observer()
+            finally:
+                self.watering._ingest_fixture_revocation(self.water_world)
+        with _untrusted_callback(self.game, self._ingest_revocation):
             return observer()
-        finally:
-            if untrusted:
-                self.game._fake_mixed_quarantined = True
-                _leave_callback(self.game)
-            self.watering._ingest_fixture_revocation(self.water_world)
+
+    def _ingest_revocation(self):
+        self.watering._ingest_fixture_revocation(self.water_world)
+
+    def _choose_scripted(self, choices):
+        script = self.interest
+        script.offers.append(choices)
+        index = script.calls
+        script.calls += 1
+        return script.choices[index] if index < len(script.choices) else None
 
     def _pending_aware_result(self, status, choice=None, offered=()):
         """Report actual pending identity on all pre-effect callback exits.
@@ -723,6 +752,8 @@ class FakeMixedDaytimeLoop:
         return FakeMixedDayResult(status, choice, offered)
 
     def step(self):
+        if _FAKE_CALLBACK_DEPTH:
+            return self._pending_aware_result("BLOCKED_UNRESOLVED")
         # Revocation is a separate fake Host-side event, even if there is
         # already an unresolved action or another activity is selected.
         self.watering._ingest_fixture_revocation(self.water_world)
@@ -781,31 +812,29 @@ class FakeMixedDaytimeLoop:
         steward = self.water_world.stewardship
         ledger = self.water_world.ledger
         grant = ledger.grant if type(ledger) is FakeWaterPermissionLedger else None
-        try:
+        if type(self.interest) is not FakeInterestScript:
+            attempt = _observation_candidate_id(self.game)
             try:
-                selected = self.interest(tuple(offered))
-            finally:
-                # P1 revocation is a fake Host event, not conditional on the
-                # chooser returning a valid interest or returning at all.
-                self.watering._ingest_fixture_revocation(self.water_world)
-        except Exception:
-            return self._pending_aware_result(
-                "BLOCKED_INTEREST_UNAVAILABLE", offered=choices
+                with _untrusted_callback(self.game, self._ingest_revocation):
+                    self.interest(tuple(offered))
+            except Exception:
+                pass
+            return FakeMixedDayResult(
+                "UNKNOWN", offered=choices,
+                pending_operation_id=self._pending_operation_id(),
+                potential_operation_id=attempt,
             )
-        # An arbitrary chooser is allowed to reenter the *same* synthetic
-        # Game/Host. Before interpreting even an invalid choice, surface any
-        # nested pending WATER or chair ID instead of hiding it as invalid.
-        gate = self._gate()
-        if gate is not None:
-            return self._pending_aware_result(
-                "BLOCKED_CHANGED_BEFORE_DISPATCH",
-                selected if type(selected) is str else None, choices
-            )
+        script = self.interest
+        if (type(script.choices) is not tuple
+                or any(type(choice) is not str for choice in script.choices)
+                or type(script.offers) is not list
+                or type(script.calls) is not int or script.calls < 0):
+            return FakeMixedDayResult("BLOCKED_INTEREST_UNAVAILABLE", offered=choices)
+        selected = self._choose_scripted(choices)
         if type(selected) is not str or selected not in choices:
             return FakeMixedDayResult("DENIED_NOT_GROUNDED", offered=choices)
-        # FakeGame.observe() omits chair_tile: pin that destination separately
-        # so an untrusted chooser cannot move the target but keep the same
-        # apparent scene revision/options and obtain a false VERIFIED_FAKE.
+        # FakeGame.observe() omits chair_tile. Recheck the target and the
+        # separately pinned permission fixture before taking the next read.
         if (self._gate() is not None or self._chair_target() != chair_target
                 or self.water_world.crop is not crop
                 or self.water_world.stewardship is not steward
@@ -1127,15 +1156,12 @@ class FakeMixedDaytimeLoop:
                 selected, choices, result.attempt,
                 pending_operation_id=self._other_pending_operation_id(
                     result.attempt
-                )
+                ),
+                potential_operation_id=guarded_game._finalization_callback_scope,
             )
         if result.verdict == "VERIFIED_FAKE":
-            # L2 accepted an exact True finalizer receipt, but the callback
-            # may have overwritten revision with None, replaced dispatched
-            # with a forged .count() object or erased all rows AFTER clearing
-            # its reservation. Validate types and shapes before ANY revision
-            # comparison or count; failed inspection is unresolved, not an
-            # exception or a forged VERIFIED_FAKE.
+            # The pinned finalizer released the reservation. Independently
+            # verify the target and operation-matched toy dispatch evidence.
             try:
                 canonical = FakeGame.observe(self.game)
                 rows = self.game.dispatched
@@ -1231,15 +1257,23 @@ class FakeMixedDaytimeLoop:
         )
 
     def run_bounded(self, max_decisions=3, after_verified=None):
-        """No clock/background loop. Fake observation hook is test-supplied.
+        """Use data-only WATER updates or run one untrusted publisher probe.
 
-        Without a NEW observation after watering, the next step waits rather
-        than fabricating a changed soil/revision or blindly repeating WATER.
+        Without a new observation after watering, the next step waits.
         """
         if type(max_decisions) is not int or not 1 <= max_decisions <= 4:
             raise ValueError("invalid_fake_decision_bound")
-        if after_verified is not None and not callable(after_verified):
+        if type(after_verified) is tuple:
+            if any(type(update) is not FakeWaterObservation
+                   or type(update.tile) is not tuple or len(update.tile) != 2
+                   or any(type(coord) is not int for coord in update.tile)
+                   or type(update.crop_id) is not str or not update.crop_id
+                   or type(update.soil_dry) is not bool
+                   for update in after_verified):
+                raise ValueError("invalid_fake_water_observation")
+        elif after_verified is not None and not callable(after_verified):
             raise ValueError("invalid_fake_observation_hook")
+        water_updates = 0
         results = []
         for _ in range(max_decisions):
             result = self.step()
@@ -1258,40 +1292,39 @@ class FakeMixedDaytimeLoop:
                 break
             if result.status not in ("FAKE_WATER_VERIFIED", "VERIFIED_FAKE"):
                 break
-            # The fake Host may latch STOP *inside* a finalization callback,
-            # after the chair movement has been genuinely observed. Keep the
-            # verified fake receipt but never publish/choose another activity
-            # after that STOP (including on the last bounded decision).
+            # Recheck shared state before publishing even at the last bound.
+            # Keep the verified result if the fresh gate blocks publication.
             post_step_gate = self._gate()
             if post_step_gate is not None:
                 results.append(self._pending_aware_result(post_step_gate))
                 break
-            if after_verified is not None:
+            if type(after_verified) is tuple:
+                if (result.status == "FAKE_WATER_VERIFIED"
+                        and water_updates < len(after_verified)):
+                    update = after_verified[water_updates]
+                    revision = self.game.revision + 1
+                    self.water_world.crop = replace(
+                        self.water_world.crop, revision=revision,
+                        tile=update.tile, crop_id=update.crop_id,
+                        soil_dry=update.soil_dry,
+                    )
+                    self.water_world.stewardship = replace(
+                        self.water_world.stewardship,
+                        tile=update.tile, crop_id=update.crop_id,
+                    )
+                    self.game.revision = revision
+                    water_updates += 1
+            elif after_verified is not None:
+                attempt = _observation_candidate_id(self.game)
                 try:
-                    after_verified(result, self.game, self.water_world, self.host)
+                    with _untrusted_callback(self.game, self._ingest_revocation):
+                        after_verified(result, self.game, self.water_world, self.host)
                 except Exception:
-                    # A fixture publisher may have partially mutated the fake
-                    # scene before raising. Do not resume it with a fresh
-                    # coordinator until independently reconciled.
-                    self.game._fake_mixed_quarantined = True
-                    results.append(self._pending_aware_result(
-                        "BLOCKED_OBSERVATION_UPDATE"
-                    ))
-                    break
-                finally:
-                    # Even a callback on the LAST bounded decision may
-                    # deliver valid P1 revocation and then return or raise.
-                    # Record its Host tombstone before any exit from this run.
-                    self.watering._ingest_fixture_revocation(self.water_world)
-                # Successful fixture publication is NOT evidence that no
-                # other nested work became pending. Preserve the already
-                # verified effect receipt above, then explicitly report its
-                # shared pending ID before looping or returning (even at the
-                # final max_decisions=1 boundary).
-                pending = self._pending_operation_id()
-                if pending is not None:
-                    results.append(FakeMixedDayResult(
-                        "BLOCKED_UNRESOLVED", operation_id=pending
-                    ))
-                    break
+                    pass
+                results.append(FakeMixedDayResult(
+                    "BLOCKED_OBSERVATION_UPDATE",
+                    pending_operation_id=self._pending_operation_id(),
+                    potential_operation_id=attempt,
+                ))
+                break
         return tuple(results)
