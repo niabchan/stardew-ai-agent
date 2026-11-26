@@ -30,6 +30,7 @@
   <!-- Mod sources without game types -->
   <ItemGroup>
     <Compile Include="..\StardewMCP\Agent\SunnyIndoorObservation.cs" Link="Mod\SunnyIndoorObservation.cs" />
+    <Compile Include="..\StardewMCP\Agent\SunnyIndoorChoices.cs" Link="Mod\SunnyIndoorChoices.cs" />
     <Compile Include="..\StardewMCP\PathSearch.cs" Link="Mod\PathSearch.cs" />
     <Compile Include="..\StardewMCP\Agent\ToolDef.cs" Link="Mod\ToolDef.cs" />
     <Compile Include="..\StardewMCP\Agent\ToolArgs.cs" Link="Mod\ToolArgs.cs" />
