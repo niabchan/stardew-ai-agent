@@ -25,9 +25,13 @@ public class SunnyIndoorObservationTests
         Assert.Equal(1L, observation.Revision);
         Assert.Equal(22, observation.FarmDay);
         Assert.Equal(600, observation.Clock);
-        Assert.Equal(new SunnyIndoorChoiceFacts(true, true, true, SunnyPosture.Seated,
+        Assert.True(observation.MorningCue);
+        Assert.True(observation.WorldReady);
+        Assert.True(observation.InteractionReady);
+        Assert.Equal(new SunnyAffordance(true, true), observation.Tv);
+        Assert.Equal(new SunnyIndoorChoiceFacts(SunnyReadiness.Ready, SunnyPosture.Seated,
             new SunnyChair("A", true), "B", new SunnyAffordance(true, true), SunnyWeather.Rain,
-            new SunnyAffordance(true, true)), observation.ChoiceFacts);
+            SunnyTvAvailability.Available), observation.ChoiceFacts);
         Assert.True(observation.ChoiceFacts.ReadyForInteraction);
     }
 
@@ -78,23 +82,81 @@ public class SunnyIndoorObservationTests
 
         Assert.Null(observation.FarmDay);
         Assert.Null(observation.Clock);
+        Assert.Null(observation.MorningCue);
+        Assert.Null(observation.WorldReady);
+        Assert.Null(observation.InteractionReady);
+        Assert.Equal(default, observation.Tv);
         Assert.False(observation.ChoiceFacts.ReadyForInteraction);
-        Assert.Equal(new SunnyIndoorChoiceFacts(null, null, null, SunnyPosture.Unknown,
+        Assert.Equal(new SunnyIndoorChoiceFacts(SunnyReadiness.Unknown, SunnyPosture.Unknown,
             default, null, default, SunnyWeather.Unknown, default), observation.ChoiceFacts);
     }
 
     [Theory]
-    [InlineData(true, null)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(null, true)]
-    public void Requires_both_readiness_signals(bool? world, bool? interaction)
+    [InlineData(true, true, (int)SunnyReadiness.Ready)]
+    [InlineData(true, false, (int)SunnyReadiness.NotReady)]
+    [InlineData(true, null, (int)SunnyReadiness.Unknown)]
+    [InlineData(false, true, (int)SunnyReadiness.NotReady)]
+    [InlineData(false, false, (int)SunnyReadiness.NotReady)]
+    [InlineData(false, null, (int)SunnyReadiness.NotReady)]
+    [InlineData(null, true, (int)SunnyReadiness.Unknown)]
+    [InlineData(null, false, (int)SunnyReadiness.NotReady)]
+    [InlineData(null, null, (int)SunnyReadiness.Unknown)]
+    public void Projects_readiness_with_false_dominance(bool? world, bool? interaction, int expected)
     {
-        var facts = Project(Ready with { WorldReady = world, InteractionReady = interaction }).ChoiceFacts;
+        var observation = Project(Ready with { WorldReady = world, InteractionReady = interaction });
 
-        Assert.Equal(world, facts.WorldReady);
-        Assert.Equal(interaction, facts.InteractionReady);
-        Assert.False(facts.ReadyForInteraction);
+        Assert.Equal(world, observation.WorldReady);
+        Assert.Equal(interaction, observation.InteractionReady);
+        Assert.Equal((SunnyReadiness)expected, observation.ChoiceFacts.Readiness);
+        Assert.Equal(expected == (int)SunnyReadiness.Ready, observation.ChoiceFacts.ReadyForInteraction);
+    }
+
+    [Theory]
+    [InlineData(true, true, (int)SunnyTvAvailability.Available)]
+    [InlineData(true, false, (int)SunnyTvAvailability.Unavailable)]
+    [InlineData(true, null, (int)SunnyTvAvailability.Unknown)]
+    [InlineData(false, true, (int)SunnyTvAvailability.Unavailable)]
+    [InlineData(false, false, (int)SunnyTvAvailability.Unavailable)]
+    [InlineData(false, null, (int)SunnyTvAvailability.Unavailable)]
+    [InlineData(null, true, (int)SunnyTvAvailability.Unknown)]
+    [InlineData(null, false, (int)SunnyTvAvailability.Unavailable)]
+    [InlineData(null, null, (int)SunnyTvAvailability.Unknown)]
+    public void Projects_tv_availability_with_false_dominance(bool? available, bool? reachable, int expected)
+    {
+        var observation = Project(Ready with { Tv = new(available, reachable) });
+
+        Assert.Equal(new SunnyAffordance(available, reachable), observation.Tv);
+        Assert.Equal((SunnyTvAvailability)expected, observation.ChoiceFacts.TvAvailability);
+    }
+
+    [Fact]
+    public void Readiness_evidence_obeys_normalized_choice_equality()
+    {
+        var blocked = Project(Ready with { WorldReady = false, InteractionReady = null });
+        var stillBlocked = Project(Ready with { WorldReady = false });
+        var unknown = Project(Ready with { WorldReady = null });
+
+        Assert.NotEqual(blocked, stillBlocked);
+        Assert.Equal(blocked.ChoiceFacts, stillBlocked.ChoiceFacts);
+        Assert.NotEqual(blocked.ChoiceFacts, unknown.ChoiceFacts);
+        Assert.NotEqual(unknown.ChoiceFacts, Project(Ready).ChoiceFacts);
+        Assert.NotEqual(blocked.ChoiceFacts, Project(Ready).ChoiceFacts);
+    }
+
+    [Fact]
+    public void Tv_evidence_obeys_normalized_choice_equality()
+    {
+        var unavailable = Project(Ready with { Tv = new(false, true) });
+        var unreachable = Project(Ready with { Tv = new(true, false) });
+        var unknownAvailabilityButUnreachable = Project(Ready with { Tv = new(null, false) });
+        var unknown = Project(Ready with { Tv = new(null, null) });
+
+        Assert.NotEqual(unavailable, unreachable);
+        Assert.Equal(unavailable.ChoiceFacts, unreachable.ChoiceFacts);
+        Assert.Equal(unavailable.ChoiceFacts, unknownAvailabilityButUnreachable.ChoiceFacts);
+        Assert.NotEqual(unknown.ChoiceFacts, unknownAvailabilityButUnreachable.ChoiceFacts);
+        Assert.NotEqual(unknown.ChoiceFacts, Project(Ready).ChoiceFacts);
+        Assert.NotEqual(unavailable.ChoiceFacts, Project(Ready).ChoiceFacts);
     }
 
     [Theory]
@@ -121,37 +183,67 @@ public class SunnyIndoorObservationTests
     }
 
     [Fact]
-    public void Affordance_presence_and_reachability_remain_independent()
+    public void Candidate_chair_retains_existing_affordance_semantics()
     {
-        var unknownReach = Project(Ready with { CandidateChair = new(true, null), Tv = new(true, null) }).ChoiceFacts;
-        var unavailable = Project(Ready with { CandidateChair = new(false, true), Tv = new(false, true) }).ChoiceFacts;
-        var unknown = Project(Ready with { CandidateChair = new(null, true), Tv = new(null, true) }).ChoiceFacts;
-        var unreachable = Project(Ready with { CandidateChair = new(true, false), Tv = new(true, false) }).ChoiceFacts;
+        var unknownReach = Project(Ready with { CandidateChair = new(true, null) }).ChoiceFacts;
+        var unavailable = Project(Ready with { CandidateChair = new(false, true) }).ChoiceFacts;
+        var unknown = Project(Ready with { CandidateChair = new(null, true) }).ChoiceFacts;
+        var unreachable = Project(Ready with { CandidateChair = new(true, false) }).ChoiceFacts;
 
         Assert.Equal("B", unknownReach.CandidateChairId);
         Assert.Equal(new SunnyAffordance(true, null), unknownReach.CandidateChair);
-        Assert.Equal(new SunnyAffordance(true, null), unknownReach.Tv);
         Assert.NotEqual(Project(Ready).ChoiceFacts, unknownReach);
         Assert.Equal(new SunnyAffordance(false, null), unavailable.CandidateChair);
-        Assert.Equal(new SunnyAffordance(false, null), unavailable.Tv);
         Assert.Null(unavailable.CandidateChairId);
         Assert.Equal(default, unknown.CandidateChair);
-        Assert.Equal(default, unknown.Tv);
         Assert.Null(unknown.CandidateChairId);
         Assert.Equal(new SunnyAffordance(true, false), unreachable.CandidateChair);
-        Assert.Equal(new SunnyAffordance(true, false), unreachable.Tv);
     }
 
     [Theory]
     [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void Missing_or_blank_candidate_id_remains_distinct_from_a_usable_target(string? id)
+    {
+        var observation = Project(Ready with { CandidateChairId = id });
+        var usableTarget = Project(Ready).ChoiceFacts;
+
+        Assert.Null(observation.ChoiceFacts.CandidateChairId);
+        Assert.Equal("B", usableTarget.CandidateChairId);
+        Assert.Equal(new SunnyAffordance(true, true), observation.ChoiceFacts.CandidateChair);
+        Assert.NotEqual(usableTarget, observation.ChoiceFacts);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(true, null)]
+    [InlineData(false, true)]
+    [InlineData(false, null)]
+    [InlineData(null, true)]
+    [InlineData(null, false)]
+    public void Morning_cue_changes_observation_without_changing_choices(bool? before, bool? after)
+    {
+        var previous = Project(Ready with { MorningCue = before });
+        var current = Project(Ready with { MorningCue = after });
+
+        Assert.Equal(before, previous.MorningCue);
+        Assert.Equal(after, current.MorningCue);
+        Assert.NotEqual(previous, current);
+        Assert.Equal(previous.ChoiceFacts, current.ChoiceFacts);
+    }
+
+    [Theory]
+    [InlineData(true)]
     [InlineData(false)]
+    [InlineData(null)]
     public void Only_supplied_morning_evidence_projects(bool? cue)
     {
         var facts = Ready with { MorningCue = cue };
-        Assert.Equal(cue, Project(facts).ChoiceFacts.MorningCue);
-        Assert.Equal(cue, Project(facts with { Clock = 610 }).ChoiceFacts.MorningCue);
-        Assert.Equal(cue, Project(facts with { Revision = 2 }).ChoiceFacts.MorningCue);
-        Assert.Equal(cue, Project(facts with { FarmDay = 23 }).ChoiceFacts.MorningCue);
+        Assert.Equal(cue, Project(facts).MorningCue);
+        Assert.Equal(cue, Project(facts with { Clock = 610 }).MorningCue);
+        Assert.Equal(cue, Project(facts with { Revision = 2 }).MorningCue);
+        Assert.Equal(cue, Project(facts with { FarmDay = 23 }).MorningCue);
     }
 
     [Fact]

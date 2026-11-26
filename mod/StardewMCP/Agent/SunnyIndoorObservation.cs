@@ -1,6 +1,8 @@
 namespace StardewMCP.Agent;
 
 internal enum SunnyPosture { Unknown, Standing, Seated }
+internal enum SunnyReadiness { Unknown, NotReady, Ready }
+internal enum SunnyTvAvailability { Unknown, Unavailable, Available }
 internal enum SunnyWeather { Unknown, Sunny, Rain, Storm, Snow, Windy }
 
 internal readonly record struct SunnyIndoorScope(int? Seat, string? PlayerId, string? SceneId, string? LoadId);
@@ -29,21 +31,27 @@ internal sealed record SunnyIndoorFacts(
     SunnyAffordance Tv = default);
 
 internal sealed record SunnyIndoorChoiceFacts(
-    bool? WorldReady,
-    bool? InteractionReady,
-    bool? MorningCue,
+    SunnyReadiness Readiness,
     SunnyPosture Posture,
     SunnyChair CurrentChair,
     string? CandidateChairId,
     SunnyAffordance CandidateChair,
     SunnyWeather Weather,
-    SunnyAffordance Tv)
+    SunnyTvAvailability TvAvailability)
 {
-    public bool ReadyForInteraction => WorldReady == true && InteractionReady == true;
+    public bool ReadyForInteraction => Readiness == SunnyReadiness.Ready;
 }
 
 internal sealed record SunnyIndoorObservation(
-    SunnyIndoorScope Scope, long Revision, int? FarmDay, int? Clock, SunnyIndoorChoiceFacts ChoiceFacts)
+    SunnyIndoorScope Scope,
+    long Revision,
+    int? FarmDay,
+    int? Clock,
+    bool? MorningCue,
+    bool? WorldReady,
+    bool? InteractionReady,
+    SunnyAffordance Tv,
+    SunnyIndoorChoiceFacts ChoiceFacts)
 {
     /// <summary>
     /// Projects a single sample under caller-supplied scope and freshness assumptions.
@@ -67,18 +75,35 @@ internal sealed record SunnyIndoorObservation(
             _ => (SunnyPosture.Unknown, default(SunnyChair))
         };
 
-        var candidate = Normalize(supplied.CandidateChair);
+        var candidate = NormalizeCandidateChair(supplied.CandidateChair);
+        // A future SIT consumer must require a valid target ID, compatible posture,
+        // and confirmed candidate availability and reachability.
         var candidateId = candidate.Available == true && HasId(supplied.CandidateChairId)
             ? supplied.CandidateChairId
             : null;
 
+        var readiness = (supplied.WorldReady, supplied.InteractionReady) switch
+        {
+            (false, _) or (_, false) => SunnyReadiness.NotReady,
+            (true, true) => SunnyReadiness.Ready,
+            _ => SunnyReadiness.Unknown
+        };
+
+        var tvAvailability = (supplied.Tv.Available, supplied.Tv.Reachable) switch
+        {
+            (false, _) or (_, false) => SunnyTvAvailability.Unavailable,
+            (true, true) => SunnyTvAvailability.Available,
+            _ => SunnyTvAvailability.Unknown
+        };
+
         return new SunnyIndoorObservation(expected, revision, supplied.FarmDay, supplied.Clock,
-            new SunnyIndoorChoiceFacts(supplied.WorldReady, supplied.InteractionReady, supplied.MorningCue,
-                posture, currentChair, candidateId, candidate, supplied.Weather, Normalize(supplied.Tv)));
+            supplied.MorningCue, supplied.WorldReady, supplied.InteractionReady, supplied.Tv,
+            new SunnyIndoorChoiceFacts(readiness, posture, currentChair, candidateId, candidate,
+                supplied.Weather, tvAvailability));
     }
 
     private static bool HasId(string? id) => !string.IsNullOrWhiteSpace(id);
 
-    private static SunnyAffordance Normalize(SunnyAffordance fact) =>
+    private static SunnyAffordance NormalizeCandidateChair(SunnyAffordance fact) =>
         new(fact.Available, fact.Available == true ? fact.Reachable : null);
 }
